@@ -1,4 +1,10 @@
+![SturtBar: the light that watches the passage so you don't run aground](docs/assets/social-card.png)
+
 # SturtBar
+
+[![CI](https://github.com/michael-palmes/SturtBar/actions/workflows/ci.yml/badge.svg)](https://github.com/michael-palmes/SturtBar/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/michael-palmes/SturtBar)](https://github.com/michael-palmes/SturtBar/releases/latest)
+[![Licence](https://img.shields.io/github/license/michael-palmes/SturtBar)](LICENSE)
 
 **The light that watches the passage so you don't run aground.**
 
