@@ -3,8 +3,8 @@
 // Ported from legacy CodexBar/MenuCardQuotaWarningMarkers.swift (Phase 4a). Rebuild changes:
 //   - The Codex `CodexConsumerProjection.RateLane` bridge is gone (Claude-only lanes).
 //   - `QuotaWarningWindow` → the rebuild's `QuotaWindow` (QuotaWarnings.swift).
-//   - `showUsed` stays a parameter on the pure helpers (ports the legacy tests verbatim) but the
-//     card always calls with `false` — the rebuild displays remaining-style bars only.
+//   - `showUsed` flips marker positions to the used axis (`100 - threshold`); the card passes the
+//     "Show usage as used" setting through so markers track the bar fill direction.
 //   - Workday markers are kept (math + tests) even though the rebuild has no workdays setting
 //     yet; `Input.workDaysPerWeek` stays nil until a settings phase adds one.
 
@@ -49,7 +49,7 @@ extension UsageMenuCardView.Model {
     static func weeklyMarkerPercents(input: Input, windowMinutes: Int?) -> [Double] {
         UsageMenuCardView.Model.markerPercents(
             thresholds: input.quotaWarningThresholds[.weekly],
-            showUsed: false,
+            showUsed: input.usageBarsShowUsed,
             workDays: input.workDaysPerWeek,
             windowMinutes: windowMinutes,
             includeWorkdayMarkers: true)

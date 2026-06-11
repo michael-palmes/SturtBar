@@ -41,6 +41,19 @@ struct IconStateDerivationTests {
     }
 
     @Test
+    func `usageBarsShowUsed fills the glyph buckets by consumption`() async {
+        let ts = makeTestStore(suiteName: "sturtbar-iconstate-used") { _, _ in
+            makeUsageSnapshot(primaryUsedPercent: 47.6, secondaryUsedPercent: 80)
+        }
+        await ts.store.refresh(trigger: .manual)
+
+        ts.settings.usageBarsShowUsed = true
+        let state = IconState.derive(store: ts.store, settings: ts.settings)
+        #expect(state.primaryBucket == 48) // 47.6% used → 48
+        #expect(state.secondaryBucket == 80)
+    }
+
+    @Test
     func `sub point usage moves derive equal states`() async {
         let script = FetchScript([
             .success(makeUsageSnapshot(primaryUsedPercent: 47.6)),

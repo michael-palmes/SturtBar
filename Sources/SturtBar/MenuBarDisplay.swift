@@ -103,10 +103,11 @@ enum MenuBarMetricWindowResolver {
     }
 
     /// Resolved display text for a snapshot. Pace is computed on the percent window (legacy
-    /// Claude behavior); `showUsed` is hardwired to remaining-style display in the rebuild.
+    /// Claude behavior); `showUsed` flips the percent between consumption and remaining.
     static func displayText(
         mode: MenuBarDisplayMode,
         snapshot: ClaudeUsageSnapshot?,
+        showUsed: Bool = false,
         now: Date = .init()) -> String?
     {
         guard mode != .hidden else { return nil }
@@ -121,6 +122,6 @@ enum MenuBarMetricWindowResolver {
             mode: mode,
             percentWindow: percentWindow,
             pace: pace,
-            showUsed: false)
+            showUsed: showUsed)
     }
 }

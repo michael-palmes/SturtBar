@@ -63,11 +63,55 @@ struct MenuCardModelTests {
         #expect(model.metrics.count == 2)
         #expect(model.metrics.first?.percent == 78)
         #expect(model.metrics.first?.percentLabel == "78% left")
+        #expect(model.metrics.first?.isUsed == false)
         #expect(model.metrics.first?.warningMarkerPercents == [50, 20])
         #expect(model.metrics[1].warningMarkerPercents == [25])
         #expect(model.planText == "Max")
         #expect(model.subtitle.text(now: now).hasPrefix("Updated"))
         #expect(model.metrics[1].resetText(now: now)?.isEmpty == false)
+    }
+
+    @Test
+    func `usageBarsShowUsed flips percent, label, and markers to the used axis`() {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 22, minutes: 300, resetsAt: now.addingTimeInterval(3000)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(3600)))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.session: [50, 20], .weekly: [25, 0]],
+            usageBarsShowUsed: true,
+            now: now))
+
+        #expect(model.metrics.first?.percent == 22)
+        #expect(model.metrics.first?.percentLabel == "22% used")
+        #expect(model.metrics.first?.isUsed == true)
+        // Markers mirror onto the consumption axis: 100 - threshold.
+        #expect(model.metrics.first?.warningMarkerPercents == [50, 80])
+        #expect(model.metrics[1].percent == 40)
+        #expect(model.metrics[1].percentLabel == "40% used")
+        #expect(model.metrics[1].warningMarkerPercents == [75])
+    }
+
+    @Test
+    func `resetTimesShowAbsolute renders the clock form instead of a countdown`() {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 22, minutes: 300, resetsAt: now.addingTimeInterval(3000)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(3600)))
+
+        let countdown = UsageMenuCardView.Model.make(.init(snapshot: snapshot, now: now))
+            .metrics[1].resetText(now: now)
+        let absolute = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot, resetTimesShowAbsolute: true, now: now))
+            .metrics[1].resetText(now: now)
+
+        #expect(countdown?.contains("Resets in") == true)
+        #expect(absolute?.hasPrefix("Resets ") == true)
+        #expect(absolute?.contains(":") == true) // an absolute clock time
+        #expect(absolute?.contains("in ") == false)
+        #expect(absolute != countdown)
     }
 
     @Test

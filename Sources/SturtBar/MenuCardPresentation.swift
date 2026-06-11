@@ -65,6 +65,8 @@ extension UsageMenuCardView.Model {
         input.lastSuccessAt = store.lastSuccessAt
         input.costUsageEnabled = settings.costUsageEnabled
         input.costScanState = store.costScanState
+        input.resetTimesShowAbsolute = settings.resetTimesShowAbsolute
+        input.usageBarsShowUsed = settings.usageBarsShowUsed
         input.quotaWarningThresholds = Self.cardQuotaThresholds(settings: settings)
         // No workdays setting in the rebuild yet; the marker math stays ported + tested.
         input.workDaysPerWeek = nil

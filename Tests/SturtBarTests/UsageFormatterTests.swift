@@ -108,6 +108,18 @@ struct UsageFormatterTests {
     }
 
     @Test
+    func `reset line absolute style renders a clock time, not a countdown`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let reset = now.addingTimeInterval(90 * 60) // same calendar moment + 1.5h
+        let window = RateWindow(usedPercent: 0, windowMinutes: nil, resetsAt: reset, resetDescription: "Resets soon")
+        let absolute = UsageFormatter.resetLine(for: window, style: .absolute, now: now)
+        #expect(absolute?.hasPrefix("Resets ") == true)
+        #expect(absolute?.contains(":") == true) // a clock time
+        #expect(absolute?.contains("in ") == false)
+        #expect(absolute != UsageFormatter.resetLine(for: window, style: .countdown, now: now))
+    }
+
+    @Test
     func `reset line falls back to provided description`() {
         let window = RateWindow(
             usedPercent: 0,

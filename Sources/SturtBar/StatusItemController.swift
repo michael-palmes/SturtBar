@@ -60,17 +60,19 @@ struct IconState: Equatable {
     @MainActor
     static func derive(store: UsageStore, settings: SettingsStore, now: Date = .init()) -> IconState {
         let usage = store.usage
-        let remaining = IconRemainingResolver.resolvedRemaining(snapshot: usage)
+        let showUsed = settings.usageBarsShowUsed
+        let fill = IconRemainingResolver.resolvedRemaining(snapshot: usage, showUsed: showUsed)
         let auth = store.auth
         return IconState(
-            primaryBucket: remaining.primary.map(Self.bucket),
-            secondaryBucket: remaining.secondary.map(Self.bucket),
+            primaryBucket: fill.primary.map(Self.bucket),
+            secondaryBucket: fill.secondary.map(Self.bucket),
             isStale: store.isStale,
             needsAuth: auth.isNeedsReauth,
             credentialsMissing: auth == .credentialsMissing,
             displayText: MenuBarMetricWindowResolver.displayText(
                 mode: settings.menuBarDisplayMode,
                 snapshot: usage,
+                showUsed: showUsed,
                 now: now))
     }
 

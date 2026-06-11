@@ -79,6 +79,8 @@ final class SettingsStore {
         static let costUsageEnabled = "sturtbar.costUsageEnabled"
         static let costUsageHistoryDays = "sturtbar.costUsageHistoryDays"
         static let menuBarDisplayMode = "sturtbar.menuBarDisplayMode"
+        static let resetTimesShowAbsolute = "sturtbar.resetTimesShowAbsolute"
+        static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -205,6 +207,16 @@ final class SettingsStore {
         didSet { self.defaults.set(self.menuBarDisplayMode.rawValue, forKey: Keys.menuBarDisplayMode) }
     }
 
+    /// Reset times as an absolute clock value ("Resets 2:00 PM") instead of a countdown.
+    var resetTimesShowAbsolute: Bool {
+        didSet { self.defaults.set(self.resetTimesShowAbsolute, forKey: Keys.resetTimesShowAbsolute) }
+    }
+
+    /// Meters fill as quota is consumed ("42% used") instead of showing what's left ("58% left").
+    var usageBarsShowUsed: Bool {
+        didSet { self.defaults.set(self.usageBarsShowUsed, forKey: Keys.usageBarsShowUsed) }
+    }
+
     // MARK: Init
 
     init(userDefaults: UserDefaults = .standard) {
@@ -242,6 +254,8 @@ final class SettingsStore {
 
         self.menuBarDisplayMode = userDefaults.string(forKey: Keys.menuBarDisplayMode)
             .flatMap(MenuBarDisplayMode.init(rawValue:)) ?? .default
+        self.resetTimesShowAbsolute = userDefaults.object(forKey: Keys.resetTimesShowAbsolute) as? Bool ?? false
+        self.usageBarsShowUsed = userDefaults.object(forKey: Keys.usageBarsShowUsed) as? Bool ?? false
     }
 
     private static func clampedHistoryDays(_ raw: Int) -> Int {

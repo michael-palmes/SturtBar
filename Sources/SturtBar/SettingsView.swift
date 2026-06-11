@@ -23,6 +23,8 @@ struct SettingsView: View {
             Divider()
             self.menuBarSection
             Divider()
+            self.displaySection
+            Divider()
             self.costSection
             Divider()
             self.notificationsSection
@@ -80,6 +82,22 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Display
+
+    private var displaySection: some View {
+        SettingsSection(title: "Display") {
+            PreferenceToggleRow(
+                title: "Show reset time as clock",
+                subtitle: "Display reset times as absolute clock values instead of countdowns.",
+                isOn: self.$settings.resetTimesShowAbsolute)
+
+            PreferenceToggleRow(
+                title: "Show usage as used",
+                subtitle: "Progress bars fill as you consume quota (instead of showing remaining).",
+                isOn: self.$settings.usageBarsShowUsed)
         }
     }
 

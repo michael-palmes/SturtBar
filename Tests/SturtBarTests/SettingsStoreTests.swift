@@ -50,6 +50,21 @@ struct SettingsStoreTests {
         #expect(settings.costUsageEnabled)
         #expect(settings.costUsageHistoryDays == 30)
         #expect(settings.menuBarDisplayMode == .hidden)
+        #expect(!settings.resetTimesShowAbsolute) // countdown by default
+        #expect(!settings.usageBarsShowUsed) // remaining by default
+    }
+
+    @Test
+    func `display toggles persist and reload`() throws {
+        let suite = "sturtbar-settings-display-toggles"
+        let settings = self.makeSettings(suite)
+        settings.resetTimesShowAbsolute = true
+        settings.usageBarsShowUsed = true
+
+        let reloaded = try SettingsStore(userDefaults: #require(UserDefaults(suiteName: suite)))
+        #expect(reloaded.resetTimesShowAbsolute)
+        #expect(reloaded.usageBarsShowUsed)
+        UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
 
     @Test
@@ -139,6 +154,8 @@ struct SettingsStoreTests {
         let settings = self.makeSettings(suite)
         settings.refreshFrequency = .thirtyMinutes
         settings.menuBarDisplayMode = .both
+        settings.resetTimesShowAbsolute = true
+        settings.usageBarsShowUsed = true
         settings.costUsageEnabled = false
         settings.costUsageHistoryDays = 14
         settings.sessionQuotaNotificationsEnabled = false
@@ -151,6 +168,8 @@ struct SettingsStoreTests {
         let reloaded = try SettingsStore(userDefaults: #require(UserDefaults(suiteName: suite)))
         #expect(reloaded.refreshFrequency == .thirtyMinutes)
         #expect(reloaded.menuBarDisplayMode == .both)
+        #expect(reloaded.resetTimesShowAbsolute)
+        #expect(reloaded.usageBarsShowUsed)
         #expect(!reloaded.costUsageEnabled)
         #expect(reloaded.costUsageHistoryDays == 14)
         #expect(!reloaded.sessionQuotaNotificationsEnabled)

@@ -64,15 +64,18 @@ struct UsageMenuCardView: View {
             case cost
         }
 
-        /// Reset countdown inputs; the string is computed at render time from the timeline date.
+        /// Reset display inputs; the string is computed at render time from the timeline date.
+        /// `style` selects countdown ("Resets in 12m") vs absolute clock ("Resets 2:00 PM").
         struct ResetInfo: Equatable {
             let resetsAt: Date?
             /// Server-provided textual fallback when no concrete date exists.
             let fallbackDescription: String?
+            let style: ResetTimeDisplayStyle
 
-            init(window: RateWindow) {
+            init(window: RateWindow, style: ResetTimeDisplayStyle = .countdown) {
                 self.resetsAt = window.resetsAt
                 self.fallbackDescription = window.resetDescription
+                self.style = style
             }
 
             func text(now: Date) -> String? {
@@ -82,14 +85,15 @@ struct UsageMenuCardView: View {
                     windowMinutes: nil,
                     resetsAt: self.resetsAt,
                     resetDescription: self.fallbackDescription)
-                return UsageFormatter.resetLine(for: shell, style: .countdown, now: now)
+                return UsageFormatter.resetLine(for: shell, style: self.style, now: now)
             }
         }
 
         struct Metric: Identifiable, Equatable {
             let id: String
             let title: String
-            /// Remaining percent, clamped 0...100 (the rebuild always displays remaining-style).
+            /// The displayed percent, clamped 0...100: remaining by default, or used when
+            /// `isUsed` is set. The bar fills to this value, and the label suffix follows it.
             let percent: Double
             let reset: ResetInfo?
             let detailLeftText: String?
@@ -99,6 +103,8 @@ struct UsageMenuCardView: View {
             let warningMarkerPercents: [Double]
             /// True for the reserved no-data rows (empty bar, "—" percent label).
             let isPlaceholder: Bool
+            /// When true, `percent` is consumption ("used") and the label reads "X% used".
+            let isUsed: Bool
 
             init(
                 id: String,
@@ -110,7 +116,8 @@ struct UsageMenuCardView: View {
                 pacePercent: Double? = nil,
                 paceOnTop: Bool = true,
                 warningMarkerPercents: [Double] = [],
-                isPlaceholder: Bool = false)
+                isPlaceholder: Bool = false,
+                isUsed: Bool = false)
             {
                 self.id = id
                 self.title = title
@@ -122,10 +129,11 @@ struct UsageMenuCardView: View {
                 self.paceOnTop = paceOnTop
                 self.warningMarkerPercents = warningMarkerPercents
                 self.isPlaceholder = isPlaceholder
+                self.isUsed = isUsed
             }
 
             var percentLabel: String {
-                self.isPlaceholder ? "—" : String(format: "%.0f%% left", self.percent)
+                self.isPlaceholder ? "—" : String(format: "%.0f%% %@", self.percent, self.isUsed ? "used" : "left")
             }
 
             func resetText(now: Date) -> String? {
@@ -363,7 +371,7 @@ private struct MetricRow: View {
             UsageProgressBar(
                 percent: self.metric.isPlaceholder ? 0 : self.metric.percent,
                 tint: ClaudeBranding.color,
-                accessibilityLabel: "Usage remaining",
+                accessibilityLabel: self.metric.isUsed ? "Usage used" : "Usage remaining",
                 accessibilityValueOverride: self.metric.isPlaceholder ? "no data" : nil,
                 pacePercent: self.metric.pacePercent,
                 paceOnTop: self.metric.paceOnTop,
@@ -461,6 +469,9 @@ extension UsageMenuCardView.Model {
         /// Workday boundary markers on the weekly bar; nil = feature off (no setting yet in the
         /// rebuild — kept so the marker math stays ported and tested).
         var workDaysPerWeek: Int?
+        /// Display settings: reset lines as absolute clock vs countdown; meters fill by used vs left.
+        var resetTimesShowAbsolute = false
+        var usageBarsShowUsed = false
         var now: Date
     }
 
@@ -550,13 +561,14 @@ extension UsageMenuCardView.Model {
             metrics.append(Metric(
                 id: "secondary",
                 title: MetricTitles.weekly,
-                percent: Self.clamped(weekly.remainingPercent),
-                reset: ResetInfo(window: weekly),
+                percent: Self.displayPercent(weekly, input: input),
+                reset: Self.resetInfo(weekly, input: input),
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,
                 pacePercent: paceDetail?.pacePercent,
                 paceOnTop: paceDetail?.paceOnTop ?? true,
-                warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: weekly.windowMinutes)))
+                warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: weekly.windowMinutes),
+                isUsed: input.usageBarsShowUsed))
         }
 
         if let opus = snapshot.opus {
@@ -565,19 +577,21 @@ extension UsageMenuCardView.Model {
             metrics.append(Metric(
                 id: "tertiary",
                 title: MetricTitles.sonnet,
-                percent: Self.clamped(opus.remainingPercent),
-                reset: ResetInfo(window: opus),
+                percent: Self.displayPercent(opus, input: input),
+                reset: Self.resetInfo(opus, input: input),
                 warningMarkerPercents: Self.warningMarkerPercents(
                     thresholds: input.quotaWarningThresholds[.weekly],
-                    showUsed: false)))
+                    showUsed: input.usageBarsShowUsed),
+                isUsed: input.usageBarsShowUsed))
         }
 
         for namedWindow in snapshot.extraRateWindows {
             metrics.append(Metric(
                 id: namedWindow.id,
                 title: namedWindow.title,
-                percent: Self.clamped(namedWindow.window.remainingPercent),
-                reset: ResetInfo(window: namedWindow.window)))
+                percent: Self.displayPercent(namedWindow.window, input: input),
+                reset: Self.resetInfo(namedWindow.window, input: input),
+                isUsed: input.usageBarsShowUsed))
         }
 
         return metrics
@@ -591,15 +605,16 @@ extension UsageMenuCardView.Model {
             return Metric(
                 id: "primary",
                 title: MetricTitles.session,
-                percent: Self.clamped(primary.remainingPercent),
-                reset: ResetInfo(window: primary),
+                percent: Self.displayPercent(primary, input: input),
+                reset: Self.resetInfo(primary, input: input),
                 detailLeftText: paceDetail?.leftLabel,
                 detailRightText: paceDetail?.rightLabel,
                 pacePercent: paceDetail?.pacePercent,
                 paceOnTop: paceDetail?.paceOnTop ?? true,
                 warningMarkerPercents: Self.warningMarkerPercents(
                     thresholds: input.quotaWarningThresholds[.session],
-                    showUsed: false))
+                    showUsed: input.usageBarsShowUsed),
+                isUsed: input.usageBarsShowUsed)
         case .spendLimit:
             // Spend-limit pseudo-window: the bar shows cap utilization; the spend line
             // ("Spend limit: $X / $Y" from the service) goes on the reserved detail line —
@@ -608,8 +623,9 @@ extension UsageMenuCardView.Model {
             return Metric(
                 id: "primary",
                 title: "Spend limit",
-                percent: Self.clamped(primary.remainingPercent),
-                detailLeftText: primary.resetDescription)
+                percent: Self.displayPercent(primary, input: input),
+                detailLeftText: primary.resetDescription,
+                isUsed: input.usageBarsShowUsed)
         }
     }
 
@@ -674,6 +690,16 @@ extension UsageMenuCardView.Model {
 
     static func clamped(_ value: Double) -> Double {
         min(100, max(0, value))
+    }
+
+    /// The percent a meter displays for `window`: consumption when `usageBarsShowUsed`, else remaining.
+    static func displayPercent(_ window: RateWindow, input: Input) -> Double {
+        self.clamped(input.usageBarsShowUsed ? window.usedPercent : window.remainingPercent)
+    }
+
+    /// Reset display carrier honouring the absolute-clock vs countdown setting.
+    static func resetInfo(_ window: RateWindow, input: Input) -> ResetInfo {
+        ResetInfo(window: window, style: input.resetTimesShowAbsolute ? .absolute : .countdown)
     }
 }
 

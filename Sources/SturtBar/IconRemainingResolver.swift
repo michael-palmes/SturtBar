@@ -14,12 +14,17 @@
 import SturtBarCore
 
 enum IconRemainingResolver {
+    /// The fill fraction each glyph bar shows: remaining by default, or consumption when
+    /// `showUsed` is set (the "Show usage as used" setting), so the meter matches the popover.
     static func resolvedRemaining(
-        snapshot: ClaudeUsageSnapshot?)
+        snapshot: ClaudeUsageSnapshot?,
+        showUsed: Bool = false)
         -> (primary: Double?, secondary: Double?)
     {
-        (
-            primary: snapshot?.primary.remainingPercent,
-            secondary: snapshot?.secondary?.remainingPercent)
+        func fill(_ window: RateWindow?) -> Double? {
+            guard let window else { return nil }
+            return showUsed ? window.usedPercent : window.remainingPercent
+        }
+        return (primary: fill(snapshot?.primary), secondary: fill(snapshot?.secondary))
     }
 }
