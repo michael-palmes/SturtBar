@@ -219,11 +219,14 @@ struct CostUsageScannerClaudeFableTests {
         // Now that the catalog covers the model, cost should be non-nil.
         let cost = repriced.summary?.totalCostUSD
         #expect(cost != nil)
-        // Verify 1h cache tokens are repriced correctly:
-        // 100 input * 3e-6 + 20 cacheRead * 0.3e-6 + 10 cacheCreate5m * 3.75e-6
-        // + 20 cacheCreate1h * 2*3e-6 + 5 output * 15e-6
-        let expectedCost = (100.0 * 3e-6) + (20.0 * 0.3e-6) + (10.0 * 3.75e-6)
-            + (20.0 * 2 * 3e-6) + (5.0 * 15e-6)
+        // Verify 1h cache tokens are repriced correctly. Kept as sub-expressions: the
+        // five-term literal sum blows the type-checker budget on CI's toolchain as one expression.
+        let inputCost = 100.0 * 3e-6
+        let cacheReadCost = 20.0 * 0.3e-6
+        let cacheCreate5mCost = 10.0 * 3.75e-6
+        let cacheCreate1hCost = 20.0 * 2 * 3e-6 // 1h cache writes price at 2× input
+        let outputCost = 5.0 * 15e-6
+        let expectedCost = inputCost + cacheReadCost + cacheCreate5mCost + cacheCreate1hCost + outputCost
         #expect(abs((cost ?? 0) - expectedCost) < 1e-12)
     }
 
