@@ -557,7 +557,11 @@ extension UsageMenuCardView.Model {
                 ? UsagePace.weekly(window: weekly, now: input.now, defaultWindowMinutes: 10080)
                 .flatMap { $0.expectedUsedPercent >= 3 ? $0 : nil }
                 : nil
-            let paceDetail = Self.weeklyPaceDetail(window: weekly, now: input.now, pace: pace)
+            let paceDetail = Self.weeklyPaceDetail(
+                window: weekly,
+                now: input.now,
+                pace: pace,
+                showUsed: input.usageBarsShowUsed)
             metrics.append(Metric(
                 id: "secondary",
                 title: MetricTitles.weekly,
@@ -601,7 +605,10 @@ extension UsageMenuCardView.Model {
         let primary = snapshot.primary
         switch snapshot.primaryWindowKind {
         case .usage:
-            let paceDetail = Self.sessionPaceDetail(window: primary, now: input.now)
+            let paceDetail = Self.sessionPaceDetail(
+                window: primary,
+                now: input.now,
+                showUsed: input.usageBarsShowUsed)
             return Metric(
                 id: "primary",
                 title: MetricTitles.session,
@@ -650,29 +657,33 @@ extension UsageMenuCardView.Model {
         let paceOnTop: Bool
     }
 
-    static func sessionPaceDetail(window: RateWindow, now: Date) -> PaceDetail? {
+    static func sessionPaceDetail(window: RateWindow, now: Date, showUsed: Bool) -> PaceDetail? {
         guard let detail = UsagePaceText.sessionDetail(window: window, now: now) else { return nil }
-        return Self.paceDetail(detail: detail, window: window)
+        return Self.paceDetail(detail: detail, window: window, showUsed: showUsed)
     }
 
-    static func weeklyPaceDetail(window: RateWindow, now: Date, pace: UsagePace?) -> PaceDetail? {
+    static func weeklyPaceDetail(window: RateWindow, now: Date, pace: UsagePace?, showUsed: Bool) -> PaceDetail? {
         guard let pace else { return nil }
         let detail = UsagePaceText.weeklyDetail(pace: pace, now: now)
-        return Self.paceDetail(detail: detail, window: window)
+        return Self.paceDetail(detail: detail, window: window, showUsed: showUsed)
     }
 
-    /// Remaining-style mapping of the legacy pace projection (the rebuild has no "show used"
-    /// toggle): the bar tip marks expected REMAINING percent; on-track hides the tip.
+    /// Maps the pace projection onto the bar's display axis: the tip marks expected USED percent
+    /// when `showUsed`, else expected REMAINING percent; on-track hides the tip. `paceOnTop`
+    /// (the reserve/deficit colour signal) tracks usage state and does not flip with the axis.
     ///
     /// The tip percent is quantized to 0.1% (≈0.3px at card width): expected-used is a
     /// continuous function of `now`, so without quantization two derives milliseconds apart
     /// produce unequal Models and defeat the Equatable rootView gate (Phase 4b re-make gating).
-    private static func paceDetail(detail: UsagePaceText.WeeklyDetail, window: RateWindow) -> PaceDetail? {
+    private static func paceDetail(
+        detail: UsagePaceText.WeeklyDetail,
+        window: RateWindow,
+        showUsed: Bool) -> PaceDetail?
+    {
         let expectedUsed = detail.expectedUsedPercent
         let actualUsed = window.usedPercent
-        let expectedPercent = 100 - expectedUsed
-        let actualPercent = 100 - actualUsed
-        if expectedPercent.isFinite == false || actualPercent.isFinite == false { return nil }
+        if expectedUsed.isFinite == false || actualUsed.isFinite == false { return nil }
+        let expectedPercent = showUsed ? expectedUsed : 100 - expectedUsed
         let paceOnTop = actualUsed <= expectedUsed
         let pacePercent: Double? = if detail.stage == .onTrack {
             nil

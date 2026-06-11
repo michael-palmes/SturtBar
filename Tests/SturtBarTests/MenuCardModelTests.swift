@@ -190,6 +190,49 @@ struct MenuCardModelTests {
     }
 
     @Test
+    func `usageBarsShowUsed places the pace tip on the used axis`() throws {
+        let now = Self.now
+        // Quarter of each window elapsed → expected 25% used; actual 10% → 15% in reserve.
+        let snapshot = self.snapshot(
+            primary: self.window(used: 10, minutes: 300, resetsAt: now.addingTimeInterval(225 * 60)),
+            secondary: self.window(used: 10, minutes: 10080, resetsAt: now.addingTimeInterval(5.25 * 24 * 3600)))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            usageBarsShowUsed: true,
+            now: now))
+        let sessionMetric = try #require(model.metrics.first { $0.id == "primary" })
+        let weeklyMetric = try #require(model.metrics.first { $0.id == "secondary" })
+
+        // The tip marks expected-used (25%), not expected-remaining (75%).
+        #expect(weeklyMetric.detailLeftText == "15% in reserve")
+        #expect(weeklyMetric.pacePercent == 25)
+        #expect(weeklyMetric.paceOnTop)
+        #expect(sessionMetric.pacePercent == 25)
+        #expect(sessionMetric.paceOnTop)
+    }
+
+    @Test
+    func `usageBarsShowUsed keeps deficit state while flipping the tip`() throws {
+        let now = Self.now
+        // Quarter elapsed → expected 25% used; actual 40% → 15% in deficit.
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(5.25 * 24 * 3600)))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            usageBarsShowUsed: true,
+            now: now))
+        let weeklyMetric = try #require(model.metrics.first { $0.id == "secondary" })
+
+        // Deficit/reserve is a fact about usage, not the display axis: still red (paceOnTop == false).
+        #expect(weeklyMetric.detailLeftText == "15% in deficit")
+        #expect(weeklyMetric.pacePercent == 25)
+        #expect(weeklyMetric.paceOnTop == false)
+    }
+
+    @Test
     func `spend limit primary renders spend detail instead of reset`() {
         let now = Self.now
         let snapshot = self.snapshot(
