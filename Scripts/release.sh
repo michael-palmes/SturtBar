@@ -21,6 +21,7 @@ source "$ROOT/version.env"
 
 APP_BUNDLE="$ROOT/dist/SturtBar.app"
 TAG="v${MARKETING_VERSION}"
+APP_DMG="$ROOT/dist/SturtBar-${MARKETING_VERSION}.dmg"
 APP_ZIP="$ROOT/dist/SturtBar-${MARKETING_VERSION}.zip"
 DSYM_ZIP="$ROOT/dist/SturtBar-${MARKETING_VERSION}.dSYM.zip"
 # Derive the dSYM path from the same arm64 release build sign-and-notarize.sh produces
@@ -43,8 +44,9 @@ fi
 echo "==> Running tests (release guard)"
 swift test -q
 
-# --- Build, sign, notarize ------------------------------------------------------
+# --- Build, sign, notarize (app + DMG) ------------------------------------------
 "$ROOT/Scripts/sign-and-notarize.sh"
+[[ -f "$APP_DMG" ]] || { echo "ERROR: expected DMG missing at $APP_DMG" >&2; exit 1; }
 
 # --- Artifacts ----------------------------------------------------------------
 echo "==> Zipping artifacts"
@@ -78,7 +80,7 @@ git tag -a "$TAG" -m "SturtBar ${MARKETING_VERSION}"
 git push origin "$TAG"
 
 echo "==> Creating draft GitHub release $TAG"
-ASSETS=("$APP_ZIP")
+ASSETS=("$APP_DMG" "$APP_ZIP") # DMG first: the human installer
 [[ -f "$DSYM_ZIP" ]] && ASSETS+=("$DSYM_ZIP")
 gh release create "$TAG" "${ASSETS[@]}" \
   --draft \

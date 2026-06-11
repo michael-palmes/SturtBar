@@ -2,6 +2,11 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.0.1
+
+- Installer now ships as a styled, notarised DMG: open it and drag SturtBar onto Applications, guided by the Sturt Light chart. The `.zip` of the app remains available for scripted installs.
+- New display options in Settings: "Show reset time as clock" (absolute clock instead of a countdown) and "Show usage as used" (meters fill as you consume quota instead of showing what's left). Both default off.
+
 ## 1.0.0
 
 First light. (The Sturt Light itself was first lit in 1852.)

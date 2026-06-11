@@ -18,7 +18,10 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
+# shellcheck source=/dev/null
+source "$ROOT/version.env"
 APP_BUNDLE="$ROOT/dist/SturtBar.app"
+DMG="$ROOT/dist/SturtBar-${MARKETING_VERSION}.dmg"
 
 if [[ -z "${STURTBAR_SIGNING_IDENTITY:-}" ]]; then
   echo "ERROR: STURTBAR_SIGNING_IDENTITY is not set." >&2
@@ -82,4 +85,18 @@ find "$APP_BUNDLE" -name '._*' -delete
 echo "==> Gatekeeper assessment"
 spctl -a -t exec -vv "$APP_BUNDLE"
 
-echo "Done: $APP_BUNDLE is signed, notarized, and stapled."
+# --- DMG installer (built from the stapled app; independently notarised) -------
+echo "==> Building styled DMG installer"
+"$ROOT/Scripts/make_dmg.sh" # signs the DMG (identity already in env)
+
+echo "==> Submitting DMG for notarization (waits for Apple)"
+xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
+
+echo "==> Stapling DMG ticket"
+xcrun stapler staple "$DMG"
+xcrun stapler validate "$DMG"
+
+echo "==> Gatekeeper assessment (DMG)"
+spctl -a -t open --context context:primary-signature -vv "$DMG"
+
+echo "Done: $APP_BUNDLE and $DMG are signed, notarized, and stapled."

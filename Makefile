@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build test run package release lint format clean
+.PHONY: build test run package dmg release lint format clean
 
 build:
 	swift build
@@ -14,6 +14,9 @@ run:
 package:
 	./Scripts/package_app.sh release
 
+dmg: package
+	./Scripts/make_dmg.sh
+
 release:
 	./Scripts/release.sh
 
@@ -25,4 +28,4 @@ format:
 
 clean:
 	swift package clean
-	rm -rf dist .build/package .build/icon
+	rm -rf dist .build/package .build/icon .build/dmg

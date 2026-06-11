@@ -35,7 +35,9 @@ Everything stays on your Mac. The only network calls SturtBar makes are to the u
 
 ## Install
 
-Download the latest notarised build from the [Releases](https://github.com/michael-palmes/SturtBar/releases) page, unzip it, and move `SturtBar.app` to your Applications folder. SturtBar lives in the menu bar; it has no Dock icon.
+Download the latest notarised `SturtBar-<version>.dmg` from the [Releases](https://github.com/michael-palmes/SturtBar/releases) page. Open it and drag **SturtBar** onto the **Applications** folder, following the chart. Eject the disk image when you're done. SturtBar lives in the menu bar; it has no Dock icon.
+
+(A `.zip` of the app is also attached for scripted installs.)
 
 ## Build from source
 
@@ -46,6 +48,7 @@ make build      # swift build
 make test       # swift test
 make run        # build, package, and launch a local dev build
 make package    # assemble dist/SturtBar.app
+make dmg        # build a local unsigned DMG installer for preview
 make lint       # SwiftFormat + SwiftLint
 ```
 
