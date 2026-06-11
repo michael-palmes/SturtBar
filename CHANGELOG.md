@@ -2,6 +2,10 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.0.2
+
+- "Show usage as used" now also flips the pace tip (the reserve/deficit marker): it marks expected usage on the same axis as the bar fill instead of staying on the remaining side. Reserve stays green and deficit red in both modes.
+
 ## 1.0.1
 
 - Installer now ships as a styled, notarised DMG: open it and drag SturtBar onto Applications, guided by the Sturt Light chart. The `.zip` of the app remains available for scripted installs.
