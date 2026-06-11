@@ -1,0 +1,598 @@
+import Foundation
+import Testing
+@testable import SturtBarCore
+
+/// Ported from CodexBar CostUsageScannerTests (Claude cases only; codex/vertex
+/// provider cases dropped with the Codex trim).
+struct CostUsageScannerTests {
+    @Test
+    func `claude daily report excludes vertex entries`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        // Vertex AI entries have "_vrtx_" in message.id and requestId.
+        let vertexEntry: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "requestId": "req_vrtx_011CWjK86SWeFuXqZKUtgB1H",
+            "message": [
+                "id": "msg_vrtx_0154LUXjFVzQGUca3yK2RUeo",
+                "model": "claude-opus-4-5-20251101",
+                "usage": [
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 50,
+                ],
+            ],
+        ]
+        // Anthropic API entries have regular IDs without "_vrtx_".
+        let claudeEntry: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "requestId": "req_011CW7BFSFkbK9qJrV8kiptH",
+            "message": [
+                "id": "msg_0152zX6DsQYcwH1qiXi4B3y2",
+                "model": "claude-opus-4-5-20251101",
+                "usage": [
+                    "input_tokens": 200,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 100,
+                ],
+            ],
+        ]
+
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([vertexEntry, claudeEntry]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        // The Claude scan hardcodes the .excludeVertexAI filter.
+        let claudeReport = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        #expect(claudeReport.data.count == 1)
+        #expect(claudeReport.data[0].inputTokens == 200)
+        #expect(claudeReport.data[0].outputTokens == 100)
+        #expect(claudeReport.data[0].totalTokens == 300)
+    }
+
+    @Test
+    func `claude report preserves per-request threshold pricing`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 5, day: 9)
+        let first = env.isoString(for: day)
+        let second = env.isoString(for: day.addingTimeInterval(1))
+        let model = "claude-sonnet-4-5"
+        let firstEntry: [String: Any] = [
+            "type": "assistant",
+            "timestamp": first,
+            "requestId": "req_one",
+            "message": [
+                "id": "msg_one",
+                "model": model,
+                "usage": [
+                    "input_tokens": 150_000,
+                    "output_tokens": 0,
+                ],
+            ],
+        ]
+        let secondEntry: [String: Any] = [
+            "type": "assistant",
+            "timestamp": second,
+            "requestId": "req_two",
+            "message": [
+                "id": "msg_two",
+                "model": model,
+                "usage": [
+                    "input_tokens": 150_000,
+                    "output_tokens": 0,
+                ],
+            ],
+        ]
+
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/threshold.jsonl",
+            contents: env.jsonl([firstEntry, secondEntry]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let expectedRequestCost = CostUsagePricing.claudeCostUSD(
+            model: model,
+            inputTokens: 150_000,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            outputTokens: 0) ?? 0
+        let aggregateCost = CostUsagePricing.claudeCostUSD(
+            model: model,
+            inputTokens: 300_000,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            outputTokens: 0) ?? 0
+        let expectedCost = expectedRequestCost * 2
+
+        #expect(report.data.count == 1)
+        #expect(report.data.first?.inputTokens == 300_000)
+        #expect(abs((report.data.first?.costUSD ?? 0) - expectedCost) < 0.000001)
+        #expect(abs((report.data.first?.costUSD ?? 0) - aggregateCost) > 0.000001)
+        #expect(abs((report.data.first?.modelBreakdowns?.first?.costUSD ?? 0) - expectedCost) < 0.000001)
+    }
+
+    @Test
+    func `claude parses large lines with usage at tail`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 28)
+        let iso0 = env.isoString(for: day)
+        let largeText = String(repeating: "a", count: 70000)
+
+        let assistant: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "message": [
+                "model": "claude-sonnet-4-20250514",
+                "content": [
+                    ["type": "text", "text": largeText],
+                ],
+                "usage": [
+                    "input_tokens": 3714,
+                    "output_tokens": 1,
+                ],
+            ],
+        ]
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/large-line.jsonl",
+            contents: env.jsonl([assistant]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        #expect(report.data.count == 1)
+        #expect(report.data[0].inputTokens == 3714)
+        #expect(report.data[0].outputTokens == 1)
+        #expect(report.data[0].totalTokens == 3715)
+    }
+
+    @Test
+    func `claude daily report refreshes when file changes`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let model = "claude-sonnet-4-20250514"
+        let first: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 200,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                    "output_tokens": 80,
+                ],
+            ],
+        ]
+        let fileURL = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([first]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let firstReport = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        #expect(firstReport.data.first?.totalTokens == 355)
+
+        let second: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 40,
+                    "cache_creation_input_tokens": 10,
+                    "cache_read_input_tokens": 5,
+                    "output_tokens": 20,
+                ],
+            ],
+        ]
+        try env.jsonl([first, second]).write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let secondReport = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        #expect(secondReport.data.first?.totalTokens == 430)
+    }
+
+    @Test
+    func `claude incremental parsing reads appended lines only`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let model = "claude-sonnet-4-20250514"
+        let first: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 200,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                    "output_tokens": 80,
+                ],
+            ],
+        ]
+        let fileURL = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([first]))
+
+        let range = CostUsageScanner.CostUsageDayRange(since: day, until: day)
+        let firstParse = CostUsageScanner.parseClaudeFile(
+            fileURL: fileURL,
+            range: range,
+            providerFilter: .all)
+        #expect(firstParse.parsedBytes > 0)
+
+        let second: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 40,
+                    "cache_creation_input_tokens": 10,
+                    "cache_read_input_tokens": 5,
+                    "output_tokens": 20,
+                ],
+            ],
+        ]
+        try env.jsonl([first, second]).write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let delta = CostUsageScanner.parseClaudeFile(
+            fileURL: fileURL,
+            range: range,
+            providerFilter: .all,
+            startOffset: firstParse.parsedBytes)
+        let normalizedModel = CostUsagePricing.normalizeClaudeModel(model)
+        let deltaRow = delta.rows.first { $0.model == normalizedModel }
+        let row = try #require(deltaRow, "expected a delta row for \(normalizedModel)")
+        #expect(row.input == 40)
+        #expect(row.cacheRead == 5)
+        #expect(row.cacheCreate == 10)
+        #expect(row.output == 20)
+    }
+
+    @Test
+    func `day key from timestamp matches ISO parsing`() {
+        let timestamps = [
+            "2025-12-20T23:59:59Z",
+            "2025-12-20T23:59:59+02:00",
+        ]
+
+        for ts in timestamps {
+            let expected = CostUsageScanner.dayKeyFromParsedISO(ts)
+            let fast = CostUsageScanner.dayKeyFromTimestamp(ts)
+            #expect(fast == expected)
+        }
+    }
+
+    @Test
+    func `claude deduplicates streaming chunks`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+        let iso2 = env.isoString(for: day.addingTimeInterval(2))
+
+        let model = "claude-sonnet-4-20250514"
+        let messageId = "msg_01ABC123"
+        let requestId = "req_01XYZ789"
+
+        // Streaming emits multiple chunks with same message.id + requestId.
+        // Each chunk has cumulative usage, not delta.
+        let chunk1: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "requestId": requestId,
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                    "output_tokens": 10,
+                ],
+            ],
+        ]
+        let chunk2: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "requestId": requestId,
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                    "output_tokens": 10,
+                ],
+            ],
+        ]
+        let chunk3: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso2,
+            "requestId": requestId,
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                    "output_tokens": 10,
+                ],
+            ],
+        ]
+
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([chunk1, chunk2, chunk3]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        // Should only count once, not 3x.
+        #expect(report.data.count == 1)
+        #expect(report.data[0].inputTokens == 100)
+        #expect(report.data[0].cacheCreationTokens == 50)
+        #expect(report.data[0].cacheReadTokens == 25)
+        #expect(report.data[0].outputTokens == 10)
+        #expect(report.data[0].totalTokens == 185)
+    }
+
+    @Test
+    func `claude counts entries without ids as separate`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let model = "claude-sonnet-4-20250514"
+
+        // Entries without message.id or requestId should still be counted
+        // (fallback for older log formats).
+        let entry1: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 100,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 50,
+                ],
+            ],
+        ]
+        let entry2: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "message": [
+                "model": model,
+                "usage": [
+                    "input_tokens": 200,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 100,
+                ],
+            ],
+        ]
+
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([entry1, entry2]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        // Both entries should be counted since no IDs to dedupe.
+        #expect(report.data.count == 1)
+        #expect(report.data[0].inputTokens == 300)
+        #expect(report.data[0].outputTokens == 150)
+        #expect(report.data[0].totalTokens == 450)
+    }
+
+    @Test
+    func `claude counts different request ids separately`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 20)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let model = "claude-sonnet-4-20250514"
+        let messageId = "msg_01ABC123"
+
+        let entry1: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso0,
+            "requestId": "req_01AAA",
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 10,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 5,
+                ],
+            ],
+        ]
+        let entry2: [String: Any] = [
+            "type": "assistant",
+            "timestamp": iso1,
+            "requestId": "req_01BBB",
+            "message": [
+                "id": messageId,
+                "model": model,
+                "usage": [
+                    "input_tokens": 20,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 10,
+                ],
+            ],
+        ]
+
+        _ = try env.writeClaudeProjectFile(
+            relativePath: "project-a/session-a.jsonl",
+            contents: env.jsonl([entry1, entry2]))
+
+        var options = CostUsageScanner.Options(
+            claudeProjectsRoots: [env.claudeProjectsRoot],
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        #expect(report.data.count == 1)
+        #expect(report.data[0].inputTokens == 30)
+        #expect(report.data[0].outputTokens == 15)
+        #expect(report.data[0].totalTokens == 45)
+    }
+}
+
+/// Ported from CodexBar (trimmed to the Claude roots; codex/pi session roots
+/// and writers were dropped with the Codex trim).
+struct CostUsageTestEnvironment {
+    let root: URL
+    let cacheRoot: URL
+    let claudeProjectsRoot: URL
+
+    init() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sturtbar-cost-usage-\(UUID().uuidString)",
+            isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        self.root = root
+        self.cacheRoot = root.appendingPathComponent("cache", isDirectory: true)
+        self.claudeProjectsRoot = root.appendingPathComponent("claude-projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: self.cacheRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: self.claudeProjectsRoot, withIntermediateDirectories: true)
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: self.root)
+    }
+
+    func makeLocalNoon(year: Int, month: Int, day: Int) throws -> Date {
+        var comps = DateComponents()
+        comps.calendar = Calendar.current
+        comps.timeZone = TimeZone.current
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        comps.hour = 12
+        comps.minute = 0
+        comps.second = 0
+        guard let date = comps.date else { throw NSError(domain: "CostUsageTestEnvironment", code: 1) }
+        return date
+    }
+
+    func isoString(for date: Date) -> String {
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime]
+        return fmt.string(from: date)
+    }
+
+    func writeClaudeProjectFile(relativePath: String, contents: String) throws -> URL {
+        let url = self.claudeProjectsRoot.appendingPathComponent(relativePath, isDirectory: false)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func jsonl(_ objects: [Any]) throws -> String {
+        let lines = try objects.map { obj in
+            let data = try JSONSerialization.data(withJSONObject: obj)
+            guard let text = String(bytes: data, encoding: .utf8) else {
+                throw NSError(domain: "CostUsageTestEnvironment", code: 2)
+            }
+            return text
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}

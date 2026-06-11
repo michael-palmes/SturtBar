@@ -1,0 +1,48 @@
+# Xcode user/session
+xcuserdata/
+.swiftpm/xcode/xcshareddata/
+*.env
+# version.env is tracked build config: package_app.sh stamps the bundle version from it.
+!version.env
+*.local
+
+# Build products
+.build/
+DerivedData
+
+# Bundles / artifacts
+# Packaged app bundles + release staging
+dist/
+SturtBar.app/
+SturtBar *.app/
+# Legacy main app bundle (any variation)
+CodexBar.app/
+CodexBar *.app/
+CodexBar_*.app/
+Codexbar.app/
+# Release artifacts
+*.ipa
+*.dSYM*
+*.zip
+*.delta
+*.dmg
+*.pkg
+*.tar.gz
+*.tgz
+Icon.iconset
+debug_*.swift
+
+# Misc
+.DS_Store
+.vscode/
+.codex/environments/
+.swiftpm-cache/
+.tmp-clang/
+
+# Debug/analysis docs
+docs/*-analysis.md
+docs/.astro/
+
+# Swift Package Manager metadata (leave sources tracked)
+# Packages/
+# Package.resolved
