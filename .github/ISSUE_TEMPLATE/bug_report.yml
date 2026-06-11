@@ -1,0 +1,58 @@
+name: Bug report
+description: Something ran aground. Tell the Keeper what happened.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The more precise the bearings, the faster the fix.
+
+        Please do not paste anything from `~/.claude` (credentials, session logs). SturtBar reports never need that data.
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. macOS 26.1"
+    validations:
+      required: true
+  - type: input
+    id: sturtbar-version
+    attributes:
+      label: SturtBar version
+      description: Shown in the About window, or the DMG filename.
+      placeholder: "e.g. 1.0.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Notarised DMG from Releases
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect to see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the popover
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Optional. SturtBar logs via the unified logging system; `log show --predicate 'subsystem == "com.michaelpalmes.sturtbar"' --last 1h` captures recent entries. Check the output for anything sensitive before pasting.
+      render: shell
