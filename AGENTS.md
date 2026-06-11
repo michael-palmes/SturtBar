@@ -10,6 +10,12 @@ Guidance for AI agents working in this repo. SturtBar is a lean, Claude Code onl
 - `make package` assembles `dist/SturtBar.app`; `make run` builds, packages, and launches a local dev build
 - Always run `swift build && swift test` and `make lint` before claiming work is done. Keep the suite and a release build warning-free.
 
+## Git workflow
+
+- **Never commit or push directly to `main`**: a branch ruleset rejects it for everyone, including the maintainer. Work on a branch, open a PR, wait for the `build-test` check, squash merge.
+- Merges are squash-only; merged branches are deleted automatically.
+- Tags are pushed by `Scripts/release.sh` only (releases are manual and maintainer-only; the ruleset does not block tags).
+
 ## Layout
 
 - `Sources/SturtBarCore/` library: logging, HTTP, Keychain, OAuth, CostUsage (the testable core, no AppKit)
