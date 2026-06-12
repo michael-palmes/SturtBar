@@ -8,16 +8,16 @@ import Testing
 struct LogRedactorTests {
     // MARK: - Email
 
-    @Test("email address is redacted")
-    func emailIsRedacted() {
+    @Test
+    func `email address is redacted`() {
         let input = "Contact: user@example.com"
         let output = LogRedactor.redact(input)
         #expect(output.contains("user@example.com") == false)
         #expect(output.contains("<redacted-email>"))
     }
 
-    @Test("email in longer string leaves surrounding text intact")
-    func emailLeavesContext() {
+    @Test
+    func `email in longer string leaves surrounding text intact`() {
         let input = "Sending to user@example.com for billing"
         let output = LogRedactor.redact(input)
         #expect(output.contains("user@example.com") == false)
@@ -27,16 +27,16 @@ struct LogRedactorTests {
 
     // MARK: - Bearer header
 
-    @Test("Bearer token in Authorization header is redacted")
-    func bearerInAuthorizationHeader() {
+    @Test
+    func `Bearer token in Authorization header is redacted`() {
         let input = "Authorization: Bearer fake-bearer-token"
         let output = LogRedactor.redact(input)
         #expect(output.contains("fake-bearer-token") == false)
         #expect(output.contains("Authorization:"))
     }
 
-    @Test("lowercase bearer token is redacted")
-    func lowercaseBearerToken() {
+    @Test
+    func `lowercase bearer token is redacted`() {
         let input = "authorization: bearer eyJhbGciOiJSUzI1NiJ9.payload.sig"
         let output = LogRedactor.redact(input)
         #expect(output.contains("eyJhbGciOiJSUzI1NiJ9") == false)
@@ -44,8 +44,8 @@ struct LogRedactorTests {
 
     // MARK: - Cookie header
 
-    @Test("Cookie header value is redacted")
-    func cookieHeaderIsRedacted() {
+    @Test
+    func `Cookie header value is redacted`() {
         let input = "Cookie: session=abc123; token=xyz789"
         let output = LogRedactor.redact(input)
         #expect(output.contains("abc123") == false)
@@ -53,8 +53,8 @@ struct LogRedactorTests {
         #expect(output.contains("Cookie: <redacted>"))
     }
 
-    @Test("Authorization header value is redacted")
-    func authorizationHeaderIsRedacted() {
+    @Test
+    func `Authorization header value is redacted`() {
         let input = "Authorization: CustomScheme some-opaque-credential"
         let output = LogRedactor.redact(input)
         #expect(output.contains("some-opaque-credential") == false)
@@ -63,8 +63,8 @@ struct LogRedactorTests {
 
     // MARK: - Anthropic tokens (sk-ant-oat01 / sk-ant-ort01)
 
-    @Test("bare sk-ant-oat01 access token is redacted")
-    func skAntOat01BareIsRedacted() {
+    @Test
+    func `bare sk-ant-oat01 access token is redacted`() {
         let token = self.buildToken(prefix: "sk-ant-oat01")
         let input = token
         let output = LogRedactor.redact(input)
@@ -73,8 +73,8 @@ struct LogRedactorTests {
         #expect(output.contains("sk-ant-***"))
     }
 
-    @Test("bare sk-ant-ort01 refresh token is redacted")
-    func skAntOrt01BareIsRedacted() {
+    @Test
+    func `bare sk-ant-ort01 refresh token is redacted`() {
         let token = self.buildToken(prefix: "sk-ant-ort01")
         let input = token
         let output = LogRedactor.redact(input)
@@ -82,8 +82,8 @@ struct LogRedactorTests {
         #expect(output.contains("sk-ant-***"))
     }
 
-    @Test("sk-ant token in a longer log string is redacted")
-    func skAntTokenInLongerString() {
+    @Test
+    func `sk-ant token in a longer log string is redacted`() {
         let token = self.buildToken(prefix: "sk-ant-oat01")
         let input = "Refreshing credentials token=\(token) for account"
         let output = LogRedactor.redact(input)
@@ -93,8 +93,8 @@ struct LogRedactorTests {
         #expect(output.hasSuffix("for account"))
     }
 
-    @Test("sk-ant token inside double-quoted JSON value is redacted")
-    func skAntTokenInJsonQuotes() {
+    @Test
+    func `sk-ant token inside double-quoted JSON value is redacted`() {
         let token = self.buildToken(prefix: "sk-ant-oat01")
         let input = #"{"access_token":"\#(token)"}"#
         let output = LogRedactor.redact(input)
@@ -103,8 +103,8 @@ struct LogRedactorTests {
         #expect(output.contains("sk-ant-***"))
     }
 
-    @Test("sk-ant token inside single-quoted attribute is redacted")
-    func skAntTokenInSingleQuotes() {
+    @Test
+    func `sk-ant token inside single-quoted attribute is redacted`() {
         let token = self.buildToken(prefix: "sk-ant-ort01")
         let input = "token='\(token)'"
         let output = LogRedactor.redact(input)
@@ -112,8 +112,8 @@ struct LogRedactorTests {
         #expect(output.contains("sk-ant-***"))
     }
 
-    @Test("sk-ant token in Authorization: Bearer is fully redacted")
-    func skAntTokenInBearerHeader() {
+    @Test
+    func `sk-ant token in Authorization: Bearer is fully redacted`() {
         let token = self.buildToken(prefix: "sk-ant-oat01")
         let input = "Authorization: Bearer \(token)"
         let output = LogRedactor.redact(input)

@@ -19,7 +19,7 @@ import Observation
 
 // MARK: - RefreshFrequency
 
-enum RefreshFrequency: String, CaseIterable, Identifiable, Sendable {
+enum RefreshFrequency: String, CaseIterable, Identifiable {
     case manual
     case oneMinute
     case twoMinutes

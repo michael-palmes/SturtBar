@@ -22,8 +22,8 @@ struct KeychainNoUIQueryTests {
         return (valuePointer.pointee as String?) ?? "u_AuthUIF"
     }
 
-    @Test("apply sets non-interactive context and UI-fail policy")
-    func applySetNonInteractiveContextAndUIFailPolicy() {
+    @Test
+    func `apply sets non-interactive context and UI-fail policy`() {
         var query: [String: Any] = [:]
 
         KeychainNoUIQuery.apply(to: &query)
@@ -38,8 +38,8 @@ struct KeychainNoUIQueryTests {
         #expect(uiPolicy != "kSecUseAuthenticationUIFail")
     }
 
-    @Test("preflight query is strictly non-interactive and does not request secret data")
-    func preflightQueryIsNonInteractiveAndDoesNotRequestData() {
+    @Test
+    func `preflight query is strictly non-interactive and does not request secret data`() {
         let query = KeychainAccessPreflight.makeGenericPasswordPreflightQuery(
             service: "test.service",
             account: "test.account")
@@ -50,8 +50,8 @@ struct KeychainNoUIQueryTests {
         #expect((query[kSecUseAuthenticationUI as String] as? String) == self.resolveSecurityUIFailValue())
     }
 
-    @Test("preflight query executes without invalid UI policy")
-    func preflightQueryExecutesWithoutInvalidUIPolicy() {
+    @Test
+    func `preflight query executes without invalid UI policy`() {
         let query = KeychainAccessPreflight.makeGenericPasswordPreflightQuery(
             service: "sturtbar.keychain.noui.\(UUID().uuidString)",
             account: nil)

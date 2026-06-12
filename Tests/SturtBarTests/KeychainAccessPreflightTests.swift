@@ -5,8 +5,8 @@ import Testing
 
 @Suite("KeychainAccessPreflight", .serialized)
 struct KeychainAccessPreflightTests {
-    @Test("KeychainPromptContext only exposes claudeOAuth kind")
-    func promptContextOnlyExposesClaudeOAuth() {
+    @Test
+    func `KeychainPromptContext only exposes claudeOAuth kind`() {
         // The only kind that survived the trim is .claudeOAuth
         let ctx = KeychainPromptContext(kind: .claudeOAuth, service: "Claude Code-credentials", account: nil)
         if case .claudeOAuth = ctx.kind {
@@ -16,8 +16,8 @@ struct KeychainAccessPreflightTests {
         }
     }
 
-    @Test("checkGenericPassword returns notFound when gate is disabled")
-    func checkGenericPasswordReturnsNotFoundWhenGateDisabled() {
+    @Test
+    func `checkGenericPassword returns notFound when gate is disabled`() {
         KeychainAccessGate.withTaskOverrideForTesting(true) {
             let outcome = KeychainAccessPreflight.checkGenericPassword(
                 service: "com.test.service",
@@ -26,8 +26,8 @@ struct KeychainAccessPreflightTests {
         }
     }
 
-    @Test("checkGenericPassword override is respected in debug builds")
-    func checkGenericPasswordOverrideIsRespected() {
+    @Test
+    func `checkGenericPassword override is respected in debug builds`() {
         KeychainAccessGate.withTaskOverrideForTesting(false) {
             KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting { _, _ in
                 .allowed
@@ -40,8 +40,8 @@ struct KeychainAccessPreflightTests {
         }
     }
 
-    @Test("KeychainPromptHandler task handler fires before global handler")
-    func promptHandlerTaskHandlerFiresBeforeGlobal() {
+    @Test
+    func `KeychainPromptHandler task handler fires before global handler`() {
         let globalFired = Mutex(false)
         let taskFired = Mutex(false)
         KeychainPromptHandler.handler = { _ in globalFired.withLock { $0 = true } }
@@ -58,8 +58,8 @@ struct KeychainAccessPreflightTests {
         #expect(globalFired.withLock { $0 } == false)
     }
 
-    @Test("KeychainPromptHandler global handler fires when no task handler")
-    func promptHandlerGlobalHandlerFiresWhenNoTaskHandler() {
+    @Test
+    func `KeychainPromptHandler global handler fires when no task handler`() {
         let globalFired = Mutex(false)
         KeychainPromptHandler.handler = { _ in globalFired.withLock { $0 = true } }
         defer { KeychainPromptHandler.handler = nil }

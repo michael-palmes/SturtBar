@@ -26,7 +26,7 @@ import SturtBarCore
 @MainActor
 final class QuotaNotifier {
     /// Fully-resolved notification request: pure function of (crossing, sound setting).
-    struct Delivery: Equatable, Sendable {
+    struct Delivery: Equatable {
         var idPrefix: String
         var title: String
         var body: String
