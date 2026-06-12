@@ -59,21 +59,68 @@ struct IconState: Equatable {
 
     @MainActor
     static func derive(store: UsageStore, settings: SettingsStore, now: Date = .init()) -> IconState {
-        let usage = store.usage
+        // Read EVERY input unconditionally before branching: each read registers as an
+        // observation dependency, so a change to either lane (or any toggle) re-derives even
+        // when the current winner doesn't display it.
+        let claudeEnabled = settings.claudeProviderEnabled
+        let codexEnabled = settings.codexProviderEnabled
+        let source = settings.menuBarProviderSource
         let showUsed = settings.usageBarsShowUsed
-        let fill = IconRemainingResolver.resolvedRemaining(snapshot: usage, showUsed: showUsed)
-        let auth = store.auth
+        let mode = settings.menuBarDisplayMode
+        let claudeUsage = store.usage
+        let codexUsage = store.codexUsage
+        let claudeAuth = store.auth
+        let codexAuth = store.codexAuth
+        let claudeStale = store.isStale
+        let codexStale = store.codexIsStale
+
+        let winner = MenuBarProviderResolver.winner(
+            source: source,
+            claudeEnabled: claudeEnabled,
+            claude: claudeUsage,
+            codexEnabled: codexEnabled,
+            codex: codexUsage)
+        let multiProvider = claudeEnabled && codexEnabled
+
+        // The winning lane supplies the snapshot AND the dim-state inputs; both-off is the
+        // neutral empty icon (decision 6).
+        let snapshot: ProviderUsageSnapshot?
+        let isStale: Bool
+        let needsAuth: Bool
+        let credentialsMissing: Bool
+        switch winner {
+        case .claude:
+            snapshot = claudeUsage
+            isStale = claudeStale
+            needsAuth = claudeAuth.isNeedsReauth
+            credentialsMissing = claudeAuth == .credentialsMissing
+        case .codex:
+            snapshot = codexUsage
+            isStale = codexStale
+            needsAuth = codexAuth == .signInRequired || codexAuth == .apiKeyOnlyUnsupported
+            credentialsMissing = codexAuth == .credentialsMissing
+        case nil:
+            snapshot = nil
+            isStale = false
+            needsAuth = false
+            credentialsMissing = false
+        }
+
+        let fill = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, showUsed: showUsed)
+        let baseText = MenuBarMetricWindowResolver.displayText(
+            mode: mode,
+            snapshot: snapshot,
+            showUsed: showUsed,
+            now: now)
         return IconState(
             primaryBucket: fill.primary.map(Self.bucket),
             secondaryBucket: fill.secondary.map(Self.bucket),
-            isStale: store.isStale,
-            needsAuth: auth.isNeedsReauth,
-            credentialsMissing: auth == .credentialsMissing,
-            displayText: MenuBarMetricWindowResolver.displayText(
-                mode: settings.menuBarDisplayMode,
-                snapshot: usage,
-                showUsed: showUsed,
-                now: now))
+            isStale: isStale,
+            needsAuth: needsAuth,
+            credentialsMissing: credentialsMissing,
+            displayText: winner.flatMap {
+                MenuBarProviderResolver.prefixed(baseText, provider: $0, multiProvider: multiProvider)
+            })
     }
 
     /// Whole-point quantization, clamped to 0...100.
