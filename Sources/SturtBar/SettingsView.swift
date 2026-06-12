@@ -257,7 +257,10 @@ struct LabeledPickerRow<PickerContent: View>: View {
             self.picker()
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(maxWidth: 180)
+                // Trailing alignment: the frame caps the picker's width, and without it a
+                // narrow picker would float centred inside the 180pt box — ragged right edges
+                // across rows ("5 min" / "Hidden" vs "Auto (most used)").
+                .frame(maxWidth: 180, alignment: .trailing)
         }
     }
 }
