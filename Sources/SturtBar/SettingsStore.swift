@@ -68,6 +68,9 @@ enum RefreshFrequency: String, CaseIterable, Identifiable {
 final class SettingsStore {
     private enum Keys {
         static let refreshFrequency = "sturtbar.refreshFrequency"
+        static let claudeProviderEnabled = "sturtbar.claudeProviderEnabled"
+        static let codexProviderEnabled = "sturtbar.codexProviderEnabled"
+        static let menuBarProviderSource = "sturtbar.menuBarProviderSource"
         static let sessionQuotaNotificationsEnabled = "sturtbar.sessionQuotaNotificationsEnabled"
         static let quotaWarningNotificationsEnabled = "sturtbar.quotaWarningNotificationsEnabled"
         static let quotaWarningThresholds = "sturtbar.quotaWarningThresholds"
@@ -89,6 +92,47 @@ final class SettingsStore {
     @ObservationIgnored var onRefreshFrequencyChange: ((RefreshFrequency) -> Void)?
     /// App wiring (AppDelegate): kick a cost rescan when cost settings change.
     @ObservationIgnored var onCostSettingsChange: (() -> Void)?
+    /// App wiring (AppDelegate): wipe/kick the provider's lane in UsageStore when toggled.
+    @ObservationIgnored var onProviderEnabledChange: ((UsageProviderKind, Bool) -> Void)?
+
+    // MARK: Providers
+
+    // The privacy gate (decision 6): a disabled provider performs no network calls, no file
+    // reads, and no background work — UsageStore enforces this; these flags are the source of
+    // truth. Claude ships ON, Codex is strictly opt-in (OFF).
+
+    var claudeProviderEnabled: Bool {
+        didSet {
+            guard oldValue != self.claudeProviderEnabled else { return }
+            self.defaults.set(self.claudeProviderEnabled, forKey: Keys.claudeProviderEnabled)
+            self.onProviderEnabledChange?(.claude, self.claudeProviderEnabled)
+        }
+    }
+
+    var codexProviderEnabled: Bool {
+        didSet {
+            guard oldValue != self.codexProviderEnabled else { return }
+            self.defaults.set(self.codexProviderEnabled, forKey: Keys.codexProviderEnabled)
+            self.onProviderEnabledChange?(.codex, self.codexProviderEnabled)
+        }
+    }
+
+    /// Drives both the menu bar icon and its text (decisions 10+11).
+    var menuBarProviderSource: MenuBarProviderSource {
+        didSet { self.defaults.set(self.menuBarProviderSource.rawValue, forKey: Keys.menuBarProviderSource) }
+    }
+
+    func providerEnabled(_ provider: UsageProviderKind) -> Bool {
+        switch provider {
+        case .claude: self.claudeProviderEnabled
+        case .codex: self.codexProviderEnabled
+        }
+    }
+
+    /// Enabled providers in canonical (`allCases`) order.
+    var enabledProviders: [UsageProviderKind] {
+        UsageProviderKind.allCases.filter { self.providerEnabled($0) }
+    }
 
     // MARK: Refresh cadence
 
@@ -224,6 +268,12 @@ final class SettingsStore {
 
         self.refreshFrequency = userDefaults.string(forKey: Keys.refreshFrequency)
             .flatMap(RefreshFrequency.init(rawValue:)) ?? .default
+
+        // Absent keys reproduce today's Claude-only behavior — no migration needed.
+        self.claudeProviderEnabled = userDefaults.object(forKey: Keys.claudeProviderEnabled) as? Bool ?? true
+        self.codexProviderEnabled = userDefaults.object(forKey: Keys.codexProviderEnabled) as? Bool ?? false
+        self.menuBarProviderSource = userDefaults.string(forKey: Keys.menuBarProviderSource)
+            .flatMap(MenuBarProviderSource.init(rawValue:)) ?? .default
 
         self.sessionQuotaNotificationsEnabled =
             userDefaults.object(forKey: Keys.sessionQuotaNotificationsEnabled) as? Bool ?? true

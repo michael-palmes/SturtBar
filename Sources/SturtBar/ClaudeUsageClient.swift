@@ -80,6 +80,12 @@ actor ClaudeUsageClient {
         return try await self.run(interaction: interaction, phase: phase)
     }
 
+    /// Aborts the in-flight fetch, if any (provider-disable path). The slot self-clears when the
+    /// cancelled task finishes.
+    func cancelInFlight() {
+        self.inFlight?.task.cancel()
+    }
+
     private func run(
         interaction: Interaction,
         phase: RefreshPhase) async throws -> ProviderUsageSnapshot
