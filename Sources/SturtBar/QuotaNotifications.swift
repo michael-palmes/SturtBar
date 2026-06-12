@@ -5,7 +5,7 @@
 //   - Copy rewritten as Notices to Mariners in the Keeper's voice (BRAND.md §3.3): no provider
 //     name in this flavour copy. The provider segment is also dropped from the dedup id prefixes
 //     (`session-claude-depleted` → `session-depleted`).
-//   - `accountDisplayName` body variant dropped: `ClaudeUsageSnapshot` carries no account
+//   - `accountDisplayName` body variant dropped: `ProviderUsageSnapshot` carries no account
 //     identity, so the legacy hidePersonalInfo/account-name copy paths are unreachable.
 //   - Startup-depleted parity: like legacy, the quota machine starts each launch with a fresh
 //     baseline, so an already-depleted session re-fires "session depleted" once per launch. The

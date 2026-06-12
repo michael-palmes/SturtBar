@@ -88,9 +88,12 @@ public struct ProviderCostSnapshot: Equatable, Codable, Sendable {
     }
 }
 
-/// App-wide Claude usage snapshot produced by `ClaudeUsageService`.
+/// Provider-agnostic usage snapshot (produced by `ClaudeUsageService`, and by `CodexUsageService`
+/// for the opt-in Codex provider). Providers fill the windows they have: Claude populates
+/// `opus`/`extraRateWindows`/`providerCost`; Codex fills only `primary`/`secondary`/`loginMethod`
+/// and leaves the rest nil/empty.
 /// Codable so later phases can persist the last snapshot to disk.
-public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
+public struct ProviderUsageSnapshot: Codable, Equatable, Sendable {
     public enum PrimaryWindowKind: String, Codable, Equatable, Sendable {
         case usage
         case spendLimit

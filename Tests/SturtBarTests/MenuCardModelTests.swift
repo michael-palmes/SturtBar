@@ -27,14 +27,14 @@ struct MenuCardModelTests {
 
     private func snapshot(
         primary: RateWindow,
-        primaryWindowKind: ClaudeUsageSnapshot.PrimaryWindowKind = .usage,
+        primaryWindowKind: ProviderUsageSnapshot.PrimaryWindowKind = .usage,
         secondary: RateWindow? = nil,
         opus: RateWindow? = nil,
         extraRateWindows: [NamedRateWindow] = [],
         providerCost: ProviderCostSnapshot? = nil,
-        loginMethod: String? = "Claude Max") -> ClaudeUsageSnapshot
+        loginMethod: String? = "Claude Max") -> ProviderUsageSnapshot
     {
-        ClaudeUsageSnapshot(
+        ProviderUsageSnapshot(
             primary: primary,
             primaryWindowKind: primaryWindowKind,
             secondary: secondary,

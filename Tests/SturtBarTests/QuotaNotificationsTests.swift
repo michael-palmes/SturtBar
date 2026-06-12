@@ -6,7 +6,7 @@
 //
 // Dropped legacy cases, with rationale:
 //   - "quota warning copy includes account when provided" + the hidePersonalInfo/account-name
-//     variants: ClaudeUsageSnapshot carries no account identity, so QuotaCrossing has no
+//     variants: ProviderUsageSnapshot carries no account identity, so QuotaCrossing has no
 //     accountDisplayName — the body variant is unreachable in the rebuild.
 //   - zh-Hant/zh-Hans localization cases: the rebuild has English literals only.
 //

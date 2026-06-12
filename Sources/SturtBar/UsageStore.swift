@@ -93,7 +93,7 @@ final class UsageStore {
     // MARK: Published state
 
     /// Last good usage snapshot (persisted across launches).
-    private(set) var usage: ClaudeUsageSnapshot?
+    private(set) var usage: ProviderUsageSnapshot?
     /// Last cost snapshot (persisted across launches); nil = no data / cost disabled.
     private(set) var cost: CostUsageTokenSnapshot?
     private(set) var auth: AuthState = .ok
@@ -326,7 +326,7 @@ final class UsageStore {
         }
     }
 
-    private func applySuccess(_ snapshot: ClaudeUsageSnapshot) {
+    private func applySuccess(_ snapshot: ProviderUsageSnapshot) {
         let now = self.now()
         // Equality gate: suppress unnecessary observation notifications when the snapshot is
         // identical to the one already in memory (e.g. two back-to-back fetches within the same
@@ -372,7 +372,7 @@ final class UsageStore {
 
     // MARK: - Quota crossings
 
-    private func emitQuotaCrossings(for snapshot: ClaudeUsageSnapshot) {
+    private func emitQuotaCrossings(for snapshot: ProviderUsageSnapshot) {
         let configuration = QuotaTransitionMachine.Configuration(
             sessionQuotaNotificationsEnabled: self.settings.sessionQuotaNotificationsEnabled,
             quotaWarningNotificationsEnabled: self.settings.quotaWarningNotificationsEnabled,

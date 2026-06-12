@@ -14,7 +14,7 @@
 //   - Spend-limit snapshots: legacy mapped them to `primary == nil`; the rebuild maps them to a
 //     primary window with `primaryWindowKind == .spendLimit`. Both machines must ignore that
 //     pseudo-window, so `sessionRateWindow`/`warningRateWindow` treat it as nil (state clears).
-//   - `accountDisplayName` dropped from crossing events: `ClaudeUsageSnapshot` carries no account
+//   - `accountDisplayName` dropped from crossing events: `ProviderUsageSnapshot` carries no account
 //     identity. Phase 3b can re-attach identity at notification time if it ever lands.
 //   - The machine emits `QuotaCrossing` EVENTS instead of posting notifications; Phase 3b wires
 //     `UsageStore.onQuotaThresholdCrossing` into the notifier.
@@ -183,7 +183,7 @@ struct QuotaTransitionMachine {
     private(set) var weeklyWarning = WindowState()
 
     /// Processes one snapshot through both machines and returns the crossings to surface.
-    mutating func process(snapshot: ClaudeUsageSnapshot, configuration: Configuration) -> [QuotaCrossing] {
+    mutating func process(snapshot: ProviderUsageSnapshot, configuration: Configuration) -> [QuotaCrossing] {
         var crossings: [QuotaCrossing] = []
         self.processSessionDepletion(snapshot: snapshot, configuration: configuration, into: &crossings)
         self.processWarnings(snapshot: snapshot, configuration: configuration, into: &crossings)
@@ -194,7 +194,7 @@ struct QuotaTransitionMachine {
 
     /// Session-quota transitions are tied to a genuine session-scale primary window. Weekly-only
     /// primaries (7-day fallback) and spend-limit pseudo-windows never emit depletion events.
-    private static func sessionRateWindow(of snapshot: ClaudeUsageSnapshot) -> RateWindow? {
+    private static func sessionRateWindow(of snapshot: ProviderUsageSnapshot) -> RateWindow? {
         guard snapshot.primaryWindowKind == .usage else { return nil }
         guard self.isSessionWindow(snapshot.primary) else { return nil }
         return snapshot.primary
@@ -207,7 +207,7 @@ struct QuotaTransitionMachine {
     }
 
     private mutating func processSessionDepletion(
-        snapshot: ClaudeUsageSnapshot,
+        snapshot: ProviderUsageSnapshot,
         configuration: Configuration,
         into crossings: inout [QuotaCrossing])
     {
@@ -247,7 +247,7 @@ struct QuotaTransitionMachine {
     // MARK: Threshold warnings (legacy handleQuotaWarningTransitions)
 
     private mutating func processWarnings(
-        snapshot: ClaudeUsageSnapshot,
+        snapshot: ProviderUsageSnapshot,
         configuration: Configuration,
         into crossings: inout [QuotaCrossing])
     {

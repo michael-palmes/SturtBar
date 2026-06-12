@@ -82,11 +82,11 @@ actor CallRecorder {
 func makeUsageSnapshot(
     primaryUsedPercent: Double = 25,
     primaryWindowMinutes: Int? = 5 * 60,
-    primaryWindowKind: ClaudeUsageSnapshot.PrimaryWindowKind = .usage,
+    primaryWindowKind: ProviderUsageSnapshot.PrimaryWindowKind = .usage,
     secondaryUsedPercent: Double? = nil,
-    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> ClaudeUsageSnapshot
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> ProviderUsageSnapshot
 {
-    ClaudeUsageSnapshot(
+    ProviderUsageSnapshot(
         primary: RateWindow(
             usedPercent: primaryUsedPercent,
             windowMinutes: primaryWindowMinutes,

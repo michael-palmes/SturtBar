@@ -122,7 +122,7 @@ struct MenuBarDisplayTests {
     func `resolver computes pace on the percent window`() {
         let now = Date(timeIntervalSince1970: 1_000_000_000)
         // Halfway through a 5h session window with 50% used = exactly on pace... use 60% for +10%.
-        let snapshot = ClaudeUsageSnapshot(
+        let snapshot = ProviderUsageSnapshot(
             primary: RateWindow(
                 usedPercent: 60,
                 windowMinutes: 300,

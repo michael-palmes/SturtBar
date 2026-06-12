@@ -452,7 +452,7 @@ extension UsageMenuCardView.Model {
     /// through StatusItemController+MenuCardModel; the rebuild derives straight from the
     /// snapshot). Phase 4b assembles this from UsageStore + SettingsStore on menu open.
     struct Input {
-        var snapshot: ClaudeUsageSnapshot?
+        var snapshot: ProviderUsageSnapshot?
         var cost: CostUsageTokenSnapshot?
         var auth: AuthState = .ok
         var health: FetchHealth = .ok
@@ -601,7 +601,7 @@ extension UsageMenuCardView.Model {
         return metrics
     }
 
-    private static func primaryMetric(snapshot: ClaudeUsageSnapshot, input: Input) -> Metric {
+    private static func primaryMetric(snapshot: ProviderUsageSnapshot, input: Input) -> Metric {
         let primary = snapshot.primary
         switch snapshot.primaryWindowKind {
         case .usage:
@@ -719,7 +719,7 @@ extension UsageMenuCardView.Model {
 #if DEBUG
 extension UsageMenuCardView.Model.Input {
     fileprivate static func preview(now: Date = .init()) -> Self {
-        let snapshot = ClaudeUsageSnapshot(
+        let snapshot = ProviderUsageSnapshot(
             primary: RateWindow(
                 usedPercent: 36,
                 windowMinutes: 300,
@@ -825,7 +825,7 @@ extension UsageMenuCardView.Model.Input {
 
 #Preview("Spend-limit primary") {
     let now = Date()
-    let snapshot = ClaudeUsageSnapshot(
+    let snapshot = ProviderUsageSnapshot(
         primary: RateWindow(
             usedPercent: 72,
             windowMinutes: nil,
@@ -856,7 +856,7 @@ extension UsageMenuCardView.Model.Input {
     let now = Date()
     // 0% remaining (exhausted) — should show no pace tip/text (guard fix)
     // 100% remaining — pace marker at right edge
-    let snapshot = ClaudeUsageSnapshot(
+    let snapshot = ProviderUsageSnapshot(
         primary: RateWindow(
             usedPercent: 0,
             windowMinutes: 300,
@@ -888,7 +888,7 @@ extension UsageMenuCardView.Model.Input {
 #Preview("Longest strings (deficit + run-out risk)") {
     let now = Date()
     // Far-ahead session: "Projected empty in 45m" with run-out risk; weekly deficit.
-    let snapshot = ClaudeUsageSnapshot(
+    let snapshot = ProviderUsageSnapshot(
         primary: RateWindow(
             usedPercent: 80,
             windowMinutes: 300,

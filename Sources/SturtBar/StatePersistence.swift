@@ -13,7 +13,7 @@ import SturtBarCore
 
 struct StatePersistence {
     struct State: Codable, Equatable {
-        var usage: ClaudeUsageSnapshot?
+        var usage: ProviderUsageSnapshot?
         var cost: CostUsageTokenSnapshot?
         var savedAt: Date
     }

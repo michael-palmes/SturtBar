@@ -141,7 +141,7 @@ extension UsageMenuCardView.Model {
 
     /// Claude extra-usage spend (legacy `providerCostSection` Claude branch). Skipped for
     /// spend-limit primaries: there the SAME cap data already renders as the primary bar.
-    static func extraUsageSection(snapshot: ClaudeUsageSnapshot?) -> ExtraUsageSection? {
+    static func extraUsageSection(snapshot: ProviderUsageSnapshot?) -> ExtraUsageSection? {
         guard let snapshot, snapshot.primaryWindowKind == .usage else { return nil }
         guard let cost = snapshot.providerCost else { return nil }
 
