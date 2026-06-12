@@ -377,14 +377,19 @@ private struct UsageMenuCardHeaderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: UsageMenuCardLayout.headerLineSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: UsageMenuCardLayout.headerColumnSpacing) {
-                if let iconProvider = self.iconProvider {
-                    // Optional logo glyph; renders nothing while the asset file is absent.
-                    ProviderIconView(provider: iconProvider)
-                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                // Inner stack: icon hugs the title at 6pt (the Settings-row gap); the outer
+                // 12pt column spacing stays reserved for the title ↔ plan badge separation.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let iconProvider = self.iconProvider {
+                        // Optional logo glyph; renders nothing while the asset file is absent.
+                        ProviderIconView(provider: iconProvider)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    }
+                    Text(self.title).font(.headline)
+                        .fontWeight(.semibold)
+                        .lineLimit(1).truncationMode(.tail)
                 }
-                Text(self.title).font(.headline)
-                    .fontWeight(.semibold)
-                    .lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                .layoutPriority(1)
                 Spacer()
                 if let plan = self.planText {
                     Text(plan)
