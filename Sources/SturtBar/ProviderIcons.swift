@@ -18,11 +18,28 @@ enum ProviderIcons {
     /// Cache nil results too — a missing asset must not re-stat the bundle on every render.
     private static var cache: [UsageProviderKind: NSImage?] = [:]
 
+    #if DEBUG
+    /// Snapshot-test seam: points lookups at a repo checkout instead of Bundle.main (test
+    /// bundles carry no resources). Clears the cache so the override takes effect immediately.
+    static func _setResourceURLOverrideForTesting(_ url: URL?) {
+        self.resourceURLOverride = url
+        self.cache = [:]
+    }
+
+    private static var resourceURLOverride: URL?
+    #endif
+
     static func image(for provider: UsageProviderKind) -> NSImage? {
         if let cached = self.cache[provider] {
             return cached
         }
-        let loaded = self.loadImage(for: provider, resourceURL: Bundle.main.resourceURL)
+        var root = Bundle.main.resourceURL
+        #if DEBUG
+        if let resourceURLOverride = self.resourceURLOverride {
+            root = resourceURLOverride
+        }
+        #endif
+        let loaded = self.loadImage(for: provider, resourceURL: root)
         self.cache[provider] = loaded
         return loaded
     }

@@ -379,11 +379,14 @@ private struct UsageMenuCardHeaderView: View {
             HStack(alignment: .firstTextBaseline, spacing: UsageMenuCardLayout.headerColumnSpacing) {
                 // Inner stack: icon hugs the title at 6pt (the Settings-row gap); the outer
                 // 12pt column spacing stays reserved for the title ↔ plan badge separation.
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                // CENTER alignment here: the glyph optically centres on the title's line while
+                // the stack still exports the title's text baseline, so the outer
+                // firstTextBaseline alignment keeps the plan badge on the title's baseline
+                // (a custom baseline guide on the icon would hijack that export).
+                HStack(alignment: .center, spacing: 6) {
                     if let iconProvider = self.iconProvider {
                         // Optional logo glyph; renders nothing while the asset file is absent.
                         ProviderIconView(provider: iconProvider)
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
                     }
                     Text(self.title).font(.headline)
                         .fontWeight(.semibold)
