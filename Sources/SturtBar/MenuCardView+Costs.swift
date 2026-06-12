@@ -47,7 +47,8 @@ extension UsageMenuCardView {
 extension UsageMenuCardView.Model {
     /// nil iff cost usage is disabled — presence is configuration-derived (fixed-height contract).
     static func costSection(input: Input) -> UsageMenuCardView.CostSection? {
-        guard input.costUsageEnabled else { return nil }
+        // Cost scanning reads ~/.claude logs, so the section rides the Claude provider gate too.
+        guard input.claudeProviderEnabled, input.costUsageEnabled else { return nil }
         guard let snapshot = input.cost else {
             return UsageMenuCardView.CostSection(
                 isSkeleton: true,

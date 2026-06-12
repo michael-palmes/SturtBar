@@ -38,12 +38,16 @@ struct MenuCardShape: Equatable {
     let metricCount: Int
     let hasExtraUsage: Bool
     let extraUsageHasBar: Bool
+    /// Codex block structure (decision 9): presence rides `sections`, but the ROW COUNT inside
+    /// the section is data-shape-derived exactly like `metricCount`.
+    let codexMetricCount: Int
 
     init(model: UsageMenuCardView.Model) {
         self.sections = model.sections
         self.metricCount = model.metrics.count
         self.hasExtraUsage = model.extraUsage != nil
         self.extraUsageHasBar = model.extraUsage?.percentUsed != nil
+        self.codexMetricCount = model.codexSection?.metrics.count ?? 0
     }
 }
 
@@ -63,6 +67,14 @@ extension UsageMenuCardView.Model {
         input.isRefreshing = store.isRefreshing
         input.isStale = store.isStale
         input.lastSuccessAt = store.lastSuccessAt
+        input.claudeProviderEnabled = settings.claudeProviderEnabled
+        input.codexProviderEnabled = settings.codexProviderEnabled
+        input.codexSnapshot = store.codexUsage
+        input.codexAuth = store.codexAuth
+        input.codexHealth = store.codexHealth
+        input.codexIsRefreshing = store.codexIsRefreshing
+        input.codexIsStale = store.codexIsStale
+        input.codexLastSuccessAt = store.codexLastSuccessAt
         input.costUsageEnabled = settings.costUsageEnabled
         input.costScanState = store.costScanState
         input.resetTimesShowAbsolute = settings.resetTimesShowAbsolute

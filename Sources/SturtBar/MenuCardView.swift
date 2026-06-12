@@ -61,6 +61,8 @@ struct UsageMenuCardView: View {
             case header
             case status
             case metrics
+            /// Stacked second-provider block (decision 9); present iff 2+ providers are enabled.
+            case codex
             case cost
         }
 
@@ -146,6 +148,8 @@ struct UsageMenuCardView: View {
             case refreshing
             case updated(Date)
             case neverFetched
+            /// Reserved blank line (the no-providers placeholder header).
+            case blank
 
             func text(now: Date) -> String {
                 switch self {
@@ -155,6 +159,8 @@ struct UsageMenuCardView: View {
                     UsageFormatter.updatedString(from: date, now: now)
                 case .neverFetched:
                     "Not fetched yet"
+                case .blank:
+                    " "
                 }
             }
         }
@@ -173,6 +179,14 @@ struct UsageMenuCardView: View {
             case retrying
             /// Data present but older than the staleness threshold.
             case stale
+            /// Both provider toggles off — the placeholder card's single line (decision 6).
+            case noProvidersEnabled
+            /// CodexAuthState.credentialsMissing — no codex CLI sign-in on this machine.
+            case codexCredentialsMissing
+            /// CodexAuthState.signInRequired — token rejected; the codex CLI owns re-auth.
+            case codexSignInRequired
+            /// CodexAuthState.apiKeyOnlyUnsupported — informational, not an error (decision 4).
+            case codexApiKeyUnsupported
 
             func text(now: Date) -> String? {
                 switch self {
@@ -193,15 +207,24 @@ struct UsageMenuCardView: View {
                     return "Refresh issue, retrying"
                 case .stale:
                     return "Data may be out of date"
+                case .noProvidersEnabled:
+                    return "No providers enabled. Turn one on in Settings."
+                case .codexCredentialsMissing:
+                    return "No Codex sign-in found. Run `codex` to connect."
+                case .codexSignInRequired:
+                    return "Sign in again via the codex CLI."
+                case .codexApiKeyUnsupported:
+                    return "API-key accounts have no usage limits to show."
                 }
             }
 
             /// Error (red) styling for actionable problems; secondary for transient/info lines.
             var isError: Bool {
                 switch self {
-                case .credentialsMissing, .needsReauth, .rateLimited:
+                case .credentialsMissing, .needsReauth, .rateLimited,
+                     .codexCredentialsMissing, .codexSignInRequired:
                     true
-                case .empty, .retrying, .stale:
+                case .empty, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported:
                     false
                 }
             }
@@ -222,17 +245,35 @@ struct UsageMenuCardView: View {
             let percentLine: String?
         }
 
+        /// Stacked second-provider block (decision 9): own 2-line header + 1-line status strip +
+        /// fixed-shape metric rows, reusing the exact slot components the main card uses.
+        struct ProviderSection: Equatable {
+            let title: String
+            let planText: String?
+            let subtitle: Subtitle
+            let status: StatusLine
+            let metrics: [Metric]
+        }
+
+        /// Header title of the main slots — the top (or only) enabled provider's display name;
+        /// "SturtBar" for the no-providers placeholder.
+        let providerTitle: String
         let planText: String?
         let subtitle: Subtitle
         let status: StatusLine
         let metrics: [Metric]
         let extraUsage: ExtraUsageSection?
+        /// Present iff 2+ providers are enabled (configuration-gated, never data-gated).
+        let codexSection: ProviderSection?
         /// nil iff cost usage is disabled (the section is configuration-gated, never data-gated).
         let costSection: CostSection?
 
         /// The fixed-height slot list — configuration-derived only (assertable; see tests).
         var sections: [Section] {
             var sections: [Section] = [.header, .status, .metrics]
+            if self.codexSection != nil {
+                sections.append(.codex)
+            }
             if self.costSection != nil {
                 sections.append(.cost)
             }
@@ -269,7 +310,11 @@ struct UsageMenuCardView: View {
         MenuCardRenderProbe.recordRender(now: now)
         #endif
         return VStack(alignment: .leading, spacing: 6) {
-            UsageMenuCardHeaderView(model: self.model, now: now)
+            UsageMenuCardHeaderView(
+                title: self.model.providerTitle,
+                planText: self.model.planText,
+                subtitle: self.model.subtitle,
+                now: now)
 
             Divider()
 
@@ -281,6 +326,21 @@ struct UsageMenuCardView: View {
                 }
                 if let extraUsage = self.model.extraUsage {
                     ExtraUsageContent(section: extraUsage)
+                }
+            }
+
+            if let codexSection = self.model.codexSection {
+                Divider()
+                UsageMenuCardHeaderView(
+                    title: codexSection.title,
+                    planText: codexSection.planText,
+                    subtitle: codexSection.subtitle,
+                    now: now)
+                UsageMenuCardStatusStripView(status: codexSection.status, now: now)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(codexSection.metrics) { metric in
+                        MetricRow(metric: metric, now: now)
+                    }
                 }
             }
 
@@ -299,25 +359,27 @@ struct UsageMenuCardView: View {
 // MARK: - Header (slot: 2 fixed lines)
 
 private struct UsageMenuCardHeaderView: View {
-    let model: UsageMenuCardView.Model
+    let title: String
+    let planText: String?
+    let subtitle: UsageMenuCardView.Model.Subtitle
     let now: Date
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
         VStack(alignment: .leading, spacing: UsageMenuCardLayout.headerLineSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: UsageMenuCardLayout.headerColumnSpacing) {
-                Text("Claude").font(.headline)
+                Text(self.title).font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1).truncationMode(.tail).layoutPriority(1)
                 Spacer()
-                if let plan = self.model.planText {
+                if let plan = self.planText {
                     Text(plan)
                         .font(.subheadline)
                         .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                         .lineLimit(1)
                 }
             }
-            Text(self.model.subtitle.text(now: self.now))
+            Text(self.subtitle.text(now: self.now))
                 .font(.footnote)
                 .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
                 .lineLimit(1)
@@ -461,6 +523,16 @@ extension UsageMenuCardView.Model {
         /// Local-clock time of the last successful fetch (UsageStore.lastSuccessAt) — the
         /// "Updated Xm ago" source.
         var lastSuccessAt: Date?
+        /// Provider routing (decision 9). Defaults reproduce the pre-codex claude-only card so
+        /// every existing Input construction keeps meaning exactly what it meant.
+        var claudeProviderEnabled = true
+        var codexProviderEnabled = false
+        var codexSnapshot: ProviderUsageSnapshot?
+        var codexAuth: CodexAuthState = .ok
+        var codexHealth: FetchHealth = .ok
+        var codexIsRefreshing = false
+        var codexIsStale = false
+        var codexLastSuccessAt: Date?
         var costUsageEnabled = false
         var costScanState: CostScanState = .idle
         /// Marker thresholds per window; callers pass [] / omit a window to hide its markers
@@ -476,13 +548,67 @@ extension UsageMenuCardView.Model {
     }
 
     static func make(_ input: Input) -> UsageMenuCardView.Model {
+        switch (input.claudeProviderEnabled, input.codexProviderEnabled) {
+        case (true, false):
+            self.claudeModel(input, codexSection: nil)
+        case (true, true):
+            self.claudeModel(input, codexSection: self.codexProviderSection(input))
+        case (false, true):
+            self.codexOnlyModel(input)
+        case (false, false):
+            self.noProvidersModel()
+        }
+    }
+
+    /// The pre-codex card, verbatim, plus the optional stacked section.
+    private static func claudeModel(
+        _ input: Input,
+        codexSection: ProviderSection?) -> UsageMenuCardView.Model
+    {
         UsageMenuCardView.Model(
+            providerTitle: ClaudeLinks.displayName,
             planText: self.planText(loginMethod: input.snapshot?.loginMethod),
             subtitle: self.subtitle(input: input),
             status: self.statusLine(input: input),
             metrics: self.metrics(input: input),
             extraUsage: extraUsageSection(snapshot: input.snapshot),
+            codexSection: codexSection,
             costSection: costSection(input: input))
+    }
+
+    /// Codex carries the main slots when it is the only enabled provider. Cost stays nil —
+    /// cost scanning is Claude-gated (it reads ~/.claude logs).
+    private static func codexOnlyModel(_ input: Input) -> UsageMenuCardView.Model {
+        UsageMenuCardView.Model(
+            providerTitle: CodexLinks.displayName,
+            planText: self.codexPlanText(loginMethod: input.codexSnapshot?.loginMethod),
+            subtitle: self.codexSubtitle(input: input),
+            status: self.codexStatusLine(input: input),
+            metrics: self.codexMetrics(input: input),
+            extraUsage: nil,
+            codexSection: nil,
+            costSection: nil)
+    }
+
+    private static func noProvidersModel() -> UsageMenuCardView.Model {
+        UsageMenuCardView.Model(
+            providerTitle: "SturtBar",
+            planText: nil,
+            subtitle: .blank,
+            status: .noProvidersEnabled,
+            metrics: [],
+            extraUsage: nil,
+            codexSection: nil,
+            costSection: nil)
+    }
+
+    private static func codexProviderSection(_ input: Input) -> ProviderSection {
+        ProviderSection(
+            title: CodexLinks.displayName,
+            planText: self.codexPlanText(loginMethod: input.codexSnapshot?.loginMethod),
+            subtitle: self.codexSubtitle(input: input),
+            status: self.codexStatusLine(input: input),
+            metrics: self.codexMetrics(input: input))
     }
 
     // MARK: Plan
@@ -495,6 +621,15 @@ extension UsageMenuCardView.Model {
         return ClaudePlan.fromCompatibilityLoginMethod(trimmed)?.compactLoginMethod ?? trimmed
     }
 
+    /// Codex plan badge: the service already title-cased `plan_type`; pass through trimmed.
+    /// Deliberately NOT routed through ClaudePlan — "Pro" matching a Claude tier would be
+    /// string-luck, not semantics.
+    static func codexPlanText(loginMethod: String?) -> String? {
+        guard let trimmed = loginMethod?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     // MARK: Subtitle
 
     private static func subtitle(input: Input) -> Subtitle {
@@ -502,6 +637,16 @@ extension UsageMenuCardView.Model {
             return .refreshing
         }
         if let lastSuccessAt = input.lastSuccessAt {
+            return .updated(lastSuccessAt)
+        }
+        return .neverFetched
+    }
+
+    private static func codexSubtitle(input: Input) -> Subtitle {
+        if input.codexIsRefreshing, input.codexSnapshot == nil {
+            return .refreshing
+        }
+        if let lastSuccessAt = input.codexLastSuccessAt {
             return .updated(lastSuccessAt)
         }
         return .neverFetched
@@ -532,6 +677,29 @@ extension UsageMenuCardView.Model {
         return input.isStale ? .stale : .empty
     }
 
+    /// Codex twin of `statusLine`, same priority order over the codex lane's states.
+    private static func codexStatusLine(input: Input) -> StatusLine {
+        switch input.codexAuth {
+        case .credentialsMissing:
+            return .codexCredentialsMissing
+        case .signInRequired:
+            return .codexSignInRequired
+        case .apiKeyOnlyUnsupported:
+            return .codexApiKeyUnsupported
+        case .ok:
+            break
+        }
+        switch input.codexHealth {
+        case let .rateLimited(until):
+            return .rateLimited(until: until)
+        case .degraded:
+            return .retrying
+        case .ok:
+            break
+        }
+        return input.codexIsStale ? .stale : .empty
+    }
+
     // MARK: Metrics
 
     /// Shared display-title constants for the standard Claude quota windows.
@@ -551,28 +719,7 @@ extension UsageMenuCardView.Model {
         metrics.append(Self.primaryMetric(snapshot: snapshot, input: input))
 
         if let weekly = snapshot.secondary {
-            // Guard matches legacy: no pace text/tip when the window is fully exhausted (0% left),
-            // so a completely used weekly quota shows a plain empty bar without deficit labels.
-            let pace: UsagePace? = weekly.remainingPercent > 0
-                ? UsagePace.weekly(window: weekly, now: input.now, defaultWindowMinutes: 10080)
-                .flatMap { $0.expectedUsedPercent >= 3 ? $0 : nil }
-                : nil
-            let paceDetail = Self.weeklyPaceDetail(
-                window: weekly,
-                now: input.now,
-                pace: pace,
-                showUsed: input.usageBarsShowUsed)
-            metrics.append(Metric(
-                id: "secondary",
-                title: MetricTitles.weekly,
-                percent: Self.displayPercent(weekly, input: input),
-                reset: Self.resetInfo(weekly, input: input),
-                detailLeftText: paceDetail?.leftLabel,
-                detailRightText: paceDetail?.rightLabel,
-                pacePercent: paceDetail?.pacePercent,
-                paceOnTop: paceDetail?.paceOnTop ?? true,
-                warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: weekly.windowMinutes),
-                isUsed: input.usageBarsShowUsed))
+            metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "secondary"))
         }
 
         if let opus = snapshot.opus {
@@ -601,27 +748,81 @@ extension UsageMenuCardView.Model {
         return metrics
     }
 
+    /// Standard session row (the `.usage` primary). Shared verbatim between providers; only the
+    /// metric `id` differs.
+    private static func sessionMetric(window: RateWindow, input: Input, id: String) -> Metric {
+        let paceDetail = Self.sessionPaceDetail(
+            window: window,
+            now: input.now,
+            showUsed: input.usageBarsShowUsed)
+        return Metric(
+            id: id,
+            title: MetricTitles.session,
+            percent: Self.displayPercent(window, input: input),
+            reset: Self.resetInfo(window, input: input),
+            detailLeftText: paceDetail?.leftLabel,
+            detailRightText: paceDetail?.rightLabel,
+            pacePercent: paceDetail?.pacePercent,
+            paceOnTop: paceDetail?.paceOnTop ?? true,
+            warningMarkerPercents: Self.warningMarkerPercents(
+                thresholds: input.quotaWarningThresholds[.session],
+                showUsed: input.usageBarsShowUsed),
+            isUsed: input.usageBarsShowUsed)
+    }
+
+    /// Standard weekly row, shared between providers. Guard matches legacy: no pace text/tip
+    /// when the window is fully exhausted (0% left), so a completely used weekly quota shows a
+    /// plain empty bar without deficit labels.
+    private static func weeklyMetric(window: RateWindow, input: Input, id: String) -> Metric {
+        let pace: UsagePace? = window.remainingPercent > 0
+            ? UsagePace.weekly(window: window, now: input.now, defaultWindowMinutes: 10080)
+            .flatMap { $0.expectedUsedPercent >= 3 ? $0 : nil }
+            : nil
+        let paceDetail = Self.weeklyPaceDetail(
+            window: window,
+            now: input.now,
+            pace: pace,
+            showUsed: input.usageBarsShowUsed)
+        return Metric(
+            id: id,
+            title: MetricTitles.weekly,
+            percent: Self.displayPercent(window, input: input),
+            reset: Self.resetInfo(window, input: input),
+            detailLeftText: paceDetail?.leftLabel,
+            detailRightText: paceDetail?.rightLabel,
+            pacePercent: paceDetail?.pacePercent,
+            paceOnTop: paceDetail?.paceOnTop ?? true,
+            warningMarkerPercents: Self.weeklyMarkerPercents(input: input, windowMinutes: window.windowMinutes),
+            isUsed: input.usageBarsShowUsed)
+    }
+
+    /// Codex metrics: session + weekly through the shared row builders with `codex-` ids.
+    /// Placeholder PAIR (not the Claude trio) keeps the section's shape stable until data lands.
+    private static func codexMetrics(input: Input) -> [Metric] {
+        guard let snapshot = input.codexSnapshot else {
+            return self.codexPlaceholderMetrics()
+        }
+        var metrics = [Self.sessionMetric(window: snapshot.primary, input: input, id: "codex-primary")]
+        if let weekly = snapshot.secondary {
+            metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "codex-secondary"))
+        }
+        return metrics
+    }
+
+    private static func codexPlaceholderMetrics() -> [Metric] {
+        [
+            ("codex-primary", MetricTitles.session),
+            ("codex-secondary", MetricTitles.weekly),
+        ].map { id, title in
+            Metric(id: id, title: title, percent: 0, isPlaceholder: true)
+        }
+    }
+
     private static func primaryMetric(snapshot: ProviderUsageSnapshot, input: Input) -> Metric {
         let primary = snapshot.primary
         switch snapshot.primaryWindowKind {
         case .usage:
-            let paceDetail = Self.sessionPaceDetail(
-                window: primary,
-                now: input.now,
-                showUsed: input.usageBarsShowUsed)
-            return Metric(
-                id: "primary",
-                title: MetricTitles.session,
-                percent: Self.displayPercent(primary, input: input),
-                reset: Self.resetInfo(primary, input: input),
-                detailLeftText: paceDetail?.leftLabel,
-                detailRightText: paceDetail?.rightLabel,
-                pacePercent: paceDetail?.pacePercent,
-                paceOnTop: paceDetail?.paceOnTop ?? true,
-                warningMarkerPercents: Self.warningMarkerPercents(
-                    thresholds: input.quotaWarningThresholds[.session],
-                    showUsed: input.usageBarsShowUsed),
-                isUsed: input.usageBarsShowUsed)
+            return self.sessionMetric(window: primary, input: input, id: "primary")
         case .spendLimit:
             // Spend-limit pseudo-window: the bar shows cap utilization; the spend line
             // ("Spend limit: $X / $Y" from the service) goes on the reserved detail line —
