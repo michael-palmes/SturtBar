@@ -60,4 +60,37 @@ struct ProviderIconsTests {
     func `missing resource root degrades to nil`() {
         #expect(ProviderIcons.loadImage(for: .claude, resourceURL: nil) == nil)
     }
+
+    // MARK: - Vector support (monochrome template assets)
+
+    private static let svgBytes = Data("""
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>
+    """.utf8)
+
+    @Test
+    func `loads an svg asset when no png exists`() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sturtbar-provider-icons-svg-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let iconsDir = directory.appendingPathComponent("ProviderIcons", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
+        try Self.svgBytes.write(to: iconsDir.appendingPathComponent("claude.svg"))
+
+        #expect(ProviderIcons.loadImage(for: .claude, resourceURL: directory) != nil)
+    }
+
+    @Test
+    func `prefers the svg over a png when both exist`() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sturtbar-provider-icons-both-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let iconsDir = directory.appendingPathComponent("ProviderIcons", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true)
+        try Self.svgBytes.write(to: iconsDir.appendingPathComponent("codex.svg"))
+        try Self.pngBytes.write(to: iconsDir.appendingPathComponent("codex.png"))
+
+        let image = try #require(ProviderIcons.loadImage(for: .codex, resourceURL: directory))
+        // The SVG fixture is 16pt; the PNG fixture is 1px — size identifies which one loaded.
+        #expect(image.size.width == 16)
+    }
 }
