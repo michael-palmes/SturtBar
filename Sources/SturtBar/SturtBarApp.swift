@@ -60,9 +60,13 @@ import SturtBarCore
         // allowStartupBootstrapPrompt: permits the one-time background keychain prompt during the
         // startup fetch when no cached credentials exist yet (first run after install).
         let client = ClaudeUsageClient(service: ClaudeUsageService(allowStartupBootstrapPrompt: true))
+        // Inert until the opt-in Codex provider is enabled: constructing the service performs no
+        // IO; the store's privacy gate keeps the lane idle while the toggle is off.
+        let codexClient = CodexUsageClient(service: CodexUsageService())
         let store = UsageStore(
             settings: settings,
             client: client,
+            codexClient: codexClient,
             scanner: CostScanner(),
             persistence: StatePersistence())
         let scheduler = RefreshScheduler(store: store)
@@ -73,14 +77,17 @@ import SturtBarCore
         settings.onCostSettingsChange = { [weak store] in
             store?.costSettingsDidChange()
         }
+        settings.onProviderEnabledChange = { [weak store] provider, enabled in
+            store?.providerEnabledDidChange(provider, enabled: enabled)
+        }
 
         // Quota notifications. Contract (UsageStore.onQuotaThresholdCrossing): fires synchronously
         // on the MainActor mid-refresh; the notifier only reads settings and enqueues async
         // notification work — it never mutates store state or re-enters refresh.
         let quotaNotifier = QuotaNotifier()
-        store.onQuotaThresholdCrossing = { [weak settings, weak quotaNotifier] crossing in
+        store.onQuotaThresholdCrossing = { [weak settings, weak quotaNotifier] provider, crossing in
             guard let settings, let quotaNotifier else { return }
-            quotaNotifier.post(crossing, soundEnabled: settings.quotaWarningSoundEnabled)
+            quotaNotifier.post(crossing, provider: provider, soundEnabled: settings.quotaWarningSoundEnabled)
         }
 
         // Windows (Settings/About) + icon/menu pipeline.

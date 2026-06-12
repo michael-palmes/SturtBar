@@ -2,9 +2,10 @@
 //
 // Ported from legacy CodexBar/SessionQuotaNotifications.swift (the delivery layer; the pure
 // transition logic moved to QuotaWarnings.swift in Phase 3a). Changes vs legacy:
-//   - Copy rewritten as Notices to Mariners in the Keeper's voice (BRAND.md §3.3): no provider
-//     name in this flavour copy. The provider segment is also dropped from the dedup id prefixes
-//     (`session-claude-depleted` → `session-depleted`).
+//   - Copy rewritten as Notices to Mariners in the Keeper's voice (BRAND.md §3.3). With
+//     multi-provider parity (decision 15) the provider name opens the BODY as functional
+//     disambiguation (titles stay flavour-only), and dedup id prefixes are provider-scoped
+//     (`claude-session-depleted`, `quota-warning-codex-weekly-50`).
 //   - `accountDisplayName` body variant dropped: `ProviderUsageSnapshot` carries no account
 //     identity, so the legacy hidePersonalInfo/account-name copy paths are unreachable.
 //   - Startup-depleted parity: like legacy, the quota machine starts each launch with a fresh
@@ -41,29 +42,37 @@ final class QuotaNotifier {
     init() {}
 
     /// Notices to Mariners (BRAND.md §3.3): the Keeper signals only when it matters, in the
-    /// station's dry maritime register. Provider names are dropped from this flavour copy (the
-    /// user knows which coast they sail); numbers stay exact and prominent.
-    static func delivery(for crossing: QuotaCrossing, soundEnabled: Bool) -> Delivery {
+    /// station's dry maritime register. Titles stay provider-free flavour copy; the provider
+    /// name opens the body as FUNCTIONAL disambiguation (decision 15: with two coasts tracked,
+    /// "which one ran aground" is information, not flavour). Dedup ids are provider-scoped so a
+    /// Claude notice never replaces a Codex one.
+    static func delivery(
+        for crossing: QuotaCrossing,
+        provider: UsageProviderKind,
+        soundEnabled: Bool) -> Delivery
+    {
         switch crossing {
         case .sessionDepleted:
             Delivery(
-                idPrefix: "session-depleted",
+                idPrefix: "\(provider.rawValue)-session-depleted",
                 title: "Notice to Mariners: aground",
-                body: "Session spent. Nothing in or out until it refloats; you'll get word when it does.",
+                body: "\(provider.displayName): session spent. "
+                    + "Nothing in or out until it refloats; you'll get word when it does.",
                 notificationSoundEnabled: true,
                 playsAlertSound: false)
         case .sessionRestored:
             Delivery(
-                idPrefix: "session-restored",
+                idPrefix: "\(provider.rawValue)-session-restored",
                 title: "Notice to Mariners: tide's turned",
-                body: "Session refloated. Full passage restored.",
+                body: "\(provider.displayName): session refloated. Full passage restored.",
                 notificationSoundEnabled: true,
                 playsAlertSound: false)
         case let .warningThresholdCrossed(window, threshold, currentRemaining):
             Delivery(
-                idPrefix: "quota-warning-\(window.rawValue)-\(threshold)",
+                idPrefix: "quota-warning-\(provider.rawValue)-\(window.rawValue)-\(threshold)",
                 title: Self.warningTitle(window),
-                body: "\(Self.percentText(currentRemaining)) of the \(Self.windowNoun(window)) remains.",
+                body: "\(provider.displayName): \(Self.percentText(currentRemaining)) "
+                    + "of the \(Self.windowNoun(window)) remains.",
                 notificationSoundEnabled: false,
                 playsAlertSound: soundEnabled)
         }
@@ -83,8 +92,8 @@ final class QuotaNotifier {
         }
     }
 
-    func post(_ crossing: QuotaCrossing, soundEnabled: Bool) {
-        let delivery = Self.delivery(for: crossing, soundEnabled: soundEnabled)
+    func post(_ crossing: QuotaCrossing, provider: UsageProviderKind, soundEnabled: Bool) {
+        let delivery = Self.delivery(for: crossing, provider: provider, soundEnabled: soundEnabled)
         self.logger.info("enqueuing", metadata: ["prefix": delivery.idPrefix])
         if delivery.playsAlertSound {
             (NSSound(named: "Glass") ?? NSSound(named: "Ping"))?.play()

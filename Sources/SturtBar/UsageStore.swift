@@ -47,6 +47,19 @@ enum AuthState: Equatable {
     case credentialsMissing
 }
 
+/// Codex auth states differ from Claude's in kind (no reauth message, plus the API-key-only
+/// "unsupported" state), so they get their own small enum rather than overloading `AuthState`.
+enum CodexAuthState: Equatable {
+    case ok
+    /// No auth.json / unusable auth file — run `codex` to connect.
+    case credentialsMissing
+    /// Token rejected (expired/revoked) — sign in again via the codex CLI. SturtBar never
+    /// refreshes Codex tokens on the CLI's behalf (decision 3).
+    case signInRequired
+    /// Platform API-key account: no ChatGPT rate-limit usage exists to display (decision 4).
+    case apiKeyOnlyUnsupported
+}
+
 enum FetchHealth: Equatable {
     case ok
     case degraded(until: Date?)
@@ -100,6 +113,13 @@ final class UsageStore {
     private(set) var health: FetchHealth = .ok
     private(set) var isRefreshing = false
     private(set) var costScanState: CostScanState = .idle
+
+    // Codex lane (decision 6: all of this stays empty while the provider is disabled).
+    /// Last good Codex snapshot (persisted across launches; wiped on provider disable).
+    private(set) var codexUsage: ProviderUsageSnapshot?
+    private(set) var codexAuth: CodexAuthState = .ok
+    private(set) var codexHealth: FetchHealth = .ok
+    private(set) var codexIsRefreshing = false
     /// Set by the menu UI (Phase 3b); published so renderers can react.
     ///
     /// Expected call sequence (Phase 3b):
@@ -110,40 +130,55 @@ final class UsageStore {
     /// redraw already sees `true`; step 2 is fire-and-forget (no refresh on close).
     var isMenuOpen = false
 
-    /// Quota crossing events (Phase 3b wires the notifier into this).
+    /// Quota crossing events (Phase 3b wires the notifier into this), tagged with the provider
+    /// whose windows crossed.
     ///
-    /// Contract: fires **synchronously** on `@MainActor` from inside `applySuccess`, mid-refresh.
-    /// Callers may dispatch async work (e.g. `UNUserNotificationCenter.add`) but MUST NOT call
-    /// `store.refresh(_:)` or otherwise mutate store state synchronously — doing so re-enters
-    /// the refresh path and violates single-flight invariants.
-    @ObservationIgnored var onQuotaThresholdCrossing: ((QuotaCrossing) -> Void)?
+    /// Contract: fires **synchronously** on `@MainActor` from inside the apply-success paths,
+    /// mid-refresh. Callers may dispatch async work (e.g. `UNUserNotificationCenter.add`) but
+    /// MUST NOT call `store.refresh(_:)` or otherwise mutate store state synchronously — doing so
+    /// re-enters the refresh path and violates single-flight invariants.
+    @ObservationIgnored var onQuotaThresholdCrossing: ((UsageProviderKind, QuotaCrossing) -> Void)?
 
-    /// True when the last successful fetch is older than max(2×interval, 10 min)
-    /// (manual cadence: 60 min).
-    var isStale: Bool {
-        guard self.usage != nil else { return false }
-        guard let lastSuccessAt = self.lastSuccessAt else { return true }
-        let threshold: TimeInterval = if let interval = self.settings.refreshFrequency.seconds {
+    /// Shared staleness threshold: max(2×interval, 10 min); manual cadence 60 min.
+    private var stalenessThreshold: TimeInterval {
+        if let interval = self.settings.refreshFrequency.seconds {
             max(2 * interval, 600)
         } else {
             Self.manualCadenceIntervalSeconds
         }
-        return self.now().timeIntervalSince(lastSuccessAt) > threshold
     }
 
-    /// The wall-clock date at which `isStale` will first become true, or nil when already stale
-    /// or when there is no successful fetch to be stale from. Used by `StatusItemController` to
-    /// schedule a one-shot wake-up that forces a re-derive even when no tracked property mutates.
-    ///
-    /// Policy lives here — next to `isStale` — so the staleness threshold is defined in one place.
+    private func laneIsStale(usage: ProviderUsageSnapshot?, lastSuccessAt: Date?) -> Bool {
+        guard usage != nil else { return false }
+        guard let lastSuccessAt else { return true }
+        return self.now().timeIntervalSince(lastSuccessAt) > self.stalenessThreshold
+    }
+
+    private func laneStalenessDeadline(usage: ProviderUsageSnapshot?, lastSuccessAt: Date?) -> Date? {
+        guard !self.laneIsStale(usage: usage, lastSuccessAt: lastSuccessAt),
+              let lastSuccessAt else { return nil }
+        return lastSuccessAt.addingTimeInterval(self.stalenessThreshold)
+    }
+
+    /// True when the last successful Claude fetch is older than the staleness threshold.
+    var isStale: Bool {
+        self.laneIsStale(usage: self.usage, lastSuccessAt: self.lastSuccessAt)
+    }
+
+    /// Codex twin of `isStale`, tracked entirely on the codex lane's fields.
+    var codexIsStale: Bool {
+        self.laneIsStale(usage: self.codexUsage, lastSuccessAt: self.codexLastSuccessAt)
+    }
+
+    /// The wall-clock date at which any enabled lane first becomes stale, or nil when nothing
+    /// will (already stale / no data). Used by `StatusItemController` to schedule a one-shot
+    /// wake-up that forces a re-derive even when no tracked property mutates. A disabled lane
+    /// contributes nothing: its wiped fields make the per-lane deadline nil.
     var stalenessDeadline: Date? {
-        guard !self.isStale, let lastSuccessAt = self.lastSuccessAt else { return nil }
-        let threshold: TimeInterval = if let interval = self.settings.refreshFrequency.seconds {
-            max(2 * interval, 600)
-        } else {
-            Self.manualCadenceIntervalSeconds
-        }
-        return lastSuccessAt.addingTimeInterval(threshold)
+        [
+            self.laneStalenessDeadline(usage: self.usage, lastSuccessAt: self.lastSuccessAt),
+            self.laneStalenessDeadline(usage: self.codexUsage, lastSuccessAt: self.codexLastSuccessAt),
+        ].compactMap(\.self).min()
     }
 
     /// Current date per the injected clock. Exposed so `StatusItemController` can compute the
@@ -157,6 +192,7 @@ final class UsageStore {
 
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let client: ClaudeUsageClient
+    @ObservationIgnored private let codexClient: CodexUsageClient
     @ObservationIgnored private let scanner: CostScanner
     @ObservationIgnored private let persistence: StatePersistence?
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -175,6 +211,13 @@ final class UsageStore {
     @ObservationIgnored private(set) var failureStreak = 0
     @ObservationIgnored private var quotaMachine = QuotaTransitionMachine()
 
+    /// Codex twin of `lastSuccessAt` (observable: feeds `codexIsStale` and the card subtitle).
+    private(set) var codexLastSuccessAt: Date?
+    @ObservationIgnored private(set) var codexLastAttemptAt: Date?
+    @ObservationIgnored private(set) var codexFailureStreak = 0
+    @ObservationIgnored private var codexQuotaMachine = QuotaTransitionMachine()
+    @ObservationIgnored private var codexRefreshTask: Task<Void, Never>?
+
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var costScanTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
@@ -183,8 +226,6 @@ final class UsageStore {
     /// completed task never nils a newer task's slot.
     @ObservationIgnored private var pendingSaveGeneration: UInt64 = 0
 
-    private static let menuOpenMinimumGapSeconds: TimeInterval = 30
-    private static let backoffCapSeconds: TimeInterval = 30 * 60
     private static let manualCadenceIntervalSeconds: TimeInterval = 60 * 60
     private static let persistDebounceSeconds: TimeInterval = 5
     private static let log = SturtBarLog.logger("usage-store")
@@ -192,6 +233,7 @@ final class UsageStore {
     init(
         settings: SettingsStore,
         client: ClaudeUsageClient,
+        codexClient: CodexUsageClient,
         scanner: CostScanner,
         persistence: StatePersistence?,
         now: @escaping @Sendable () -> Date = { Date() },
@@ -204,6 +246,7 @@ final class UsageStore {
     {
         self.settings = settings
         self.client = client
+        self.codexClient = codexClient
         self.scanner = scanner
         self.persistence = persistence
         self.now = now
@@ -229,14 +272,30 @@ final class UsageStore {
         if self.cost == nil, let cost = state.cost, self.settings.costUsageEnabled {
             self.cost = cost
         }
+        // Same gating for codex (decision 6): a snapshot persisted before a disable must never
+        // flash on a later launch while the provider is off.
+        if self.codexUsage == nil, let codexUsage = state.codexUsage, self.settings.codexProviderEnabled {
+            self.codexUsage = codexUsage
+            self.codexLastSuccessAt = codexUsage.updatedAt
+        }
     }
 
     // MARK: - Refresh
 
+    /// Fans out to every ENABLED provider lane. The lanes run as concurrent child tasks: each
+    /// suspends at its own client await, so a hung Codex fetch never delays Claude data (and
+    /// vice versa). A disabled lane is an instant no-op — the privacy gate (decision 6).
     func refresh(trigger: RefreshTrigger) async {
         if trigger.kicksCostScan {
             self.kickCostScan(bypassGate: trigger == .manual)
         }
+        async let claude: Void = self.refreshClaude(trigger: trigger)
+        async let codex: Void = self.refreshCodex(trigger: trigger)
+        _ = await (claude, codex)
+    }
+
+    private func refreshClaude(trigger: RefreshTrigger) async {
+        guard self.settings.claudeProviderEnabled else { return }
 
         // Single-flight: join the in-flight refresh. `.manual` then loops to run once more —
         // when the slot frees up it starts its own user-initiated run.
@@ -257,43 +316,71 @@ final class UsageStore {
         await task.value
     }
 
-    private func shouldAttempt(trigger: RefreshTrigger) -> Bool {
-        let now = self.now()
+    private func refreshCodex(trigger: RefreshTrigger) async {
+        guard self.settings.codexProviderEnabled else { return }
 
-        // Rate-limit gate: blocks ALL triggers (manual included) until the server-provided date.
-        if case let .rateLimited(until) = self.health, now < until {
-            Self.log.info(
-                "Refresh suppressed: rate limited",
-                metadata: ["trigger": trigger.rawValue, "until": "\(until)"])
-            return false
+        while let existing = self.codexRefreshTask {
+            await existing.value
+            if trigger != .manual { return }
         }
 
-        switch trigger {
-        case .manual, .launch:
-            return true
+        guard self.shouldAttemptCodex(trigger: trigger) else { return }
 
-        case .menuOpen:
-            guard let lastSuccessAt = self.lastSuccessAt else { return true }
-            return now.timeIntervalSince(lastSuccessAt) >= Self.menuOpenMinimumGapSeconds
+        let task = Task {
+            defer { self.codexRefreshTask = nil }
+            await self.performCodexRefresh(trigger: trigger)
+        }
+        self.codexRefreshTask = task
+        await task.value
+    }
 
-        case .interval, .wake:
-            if let lastSuccessAt = self.lastSuccessAt,
-               now.timeIntervalSince(lastSuccessAt) < self.effectiveIntervalSeconds / 2
-            {
-                return false
-            }
-            if self.failureStreak > 0, let lastAttemptAt = self.lastAttemptAt {
-                let backoff = min(
-                    self.effectiveIntervalSeconds * pow(2, Double(self.failureStreak)),
-                    Self.backoffCapSeconds)
-                if now.timeIntervalSince(lastAttemptAt) < backoff {
-                    Self.log.debug(
-                        "Refresh suppressed: backoff",
-                        metadata: ["trigger": trigger.rawValue, "streak": "\(self.failureStreak)"])
-                    return false
-                }
-            }
+    private func shouldAttempt(trigger: RefreshTrigger) -> Bool {
+        let decision = RefreshGatePolicy.decision(
+            trigger: trigger,
+            lane: RefreshGatePolicy.LaneState(
+                health: self.health,
+                lastSuccessAt: self.lastSuccessAt,
+                lastAttemptAt: self.lastAttemptAt,
+                failureStreak: self.failureStreak),
+            intervalSeconds: self.effectiveIntervalSeconds,
+            now: self.now())
+        return self.logGateDecision(decision, lane: "claude", trigger: trigger, streak: self.failureStreak)
+    }
+
+    private func shouldAttemptCodex(trigger: RefreshTrigger) -> Bool {
+        let decision = RefreshGatePolicy.decision(
+            trigger: trigger,
+            lane: RefreshGatePolicy.LaneState(
+                health: self.codexHealth,
+                lastSuccessAt: self.codexLastSuccessAt,
+                lastAttemptAt: self.codexLastAttemptAt,
+                failureStreak: self.codexFailureStreak),
+            intervalSeconds: self.effectiveIntervalSeconds,
+            now: self.now())
+        return self.logGateDecision(decision, lane: "codex", trigger: trigger, streak: self.codexFailureStreak)
+    }
+
+    private func logGateDecision(
+        _ decision: RefreshGateDecision,
+        lane: String,
+        trigger: RefreshTrigger,
+        streak: Int) -> Bool
+    {
+        switch decision {
+        case .proceed:
             return true
+        case let .rateLimited(until):
+            Self.log.info(
+                "Refresh suppressed: rate limited",
+                metadata: ["lane": lane, "trigger": trigger.rawValue, "until": "\(until)"])
+            return false
+        case .tooSoon:
+            return false
+        case .backingOff:
+            Self.log.debug(
+                "Refresh suppressed: backoff",
+                metadata: ["lane": lane, "trigger": trigger.rawValue, "streak": "\(streak)"])
+            return false
         }
     }
 
@@ -326,7 +413,33 @@ final class UsageStore {
         }
     }
 
+    private func performCodexRefresh(trigger: RefreshTrigger) async {
+        self.codexIsRefreshing = true
+        defer { self.codexIsRefreshing = false }
+
+        do {
+            let snapshot = try await self.codexClient.fetch()
+            self.applyCodexSuccess(snapshot)
+            Self.log.info(
+                "Codex refresh succeeded",
+                metadata: [
+                    "trigger": trigger.rawValue,
+                    "primaryUsedPercent": "\(snapshot.primary.usedPercent)",
+                ])
+        } catch is CancellationError {
+            Self.log.debug("Codex refresh cancelled", metadata: ["trigger": trigger.rawValue])
+        } catch {
+            self.applyCodexFailure(error)
+            Self.log.warning(
+                "Codex refresh failed",
+                metadata: ["trigger": trigger.rawValue, "error": error.localizedDescription])
+        }
+    }
+
     private func applySuccess(_ snapshot: ProviderUsageSnapshot) {
+        // Disable race: a fetch completing after the provider was turned off must not
+        // resurrect wiped state (same pattern as the cost-disable race).
+        guard self.settings.claudeProviderEnabled else { return }
         let now = self.now()
         // Equality gate: suppress unnecessary observation notifications when the snapshot is
         // identical to the one already in memory (e.g. two back-to-back fetches within the same
@@ -341,7 +454,46 @@ final class UsageStore {
         self.schedulePersist()
     }
 
+    private func applyCodexSuccess(_ snapshot: ProviderUsageSnapshot) {
+        guard self.settings.codexProviderEnabled else { return }
+        let now = self.now()
+        if self.codexUsage != snapshot { self.codexUsage = snapshot }
+        self.codexAuth = .ok
+        self.codexHealth = .ok
+        self.codexFailureStreak = 0
+        self.codexLastSuccessAt = now
+        self.codexLastAttemptAt = now
+        self.emitCodexQuotaCrossings(for: snapshot)
+        self.schedulePersist()
+    }
+
+    /// Codex failure mapping — typed predicates only, mirroring the Claude lane's rules:
+    /// auth states are sticky across unrelated failures; rate limits gate without touching the
+    /// backoff streak; everything else degrades health and grows the streak.
+    private func applyCodexFailure(_ error: any Error) {
+        guard self.settings.codexProviderEnabled else { return }
+        self.codexLastAttemptAt = self.now()
+        let usageError = error as? CodexUsageError
+
+        if let usageError, usageError.indicatesCredentialsMissing {
+            self.codexAuth = .credentialsMissing
+        } else if let usageError, usageError.indicatesSignInRequired {
+            self.codexAuth = .signInRequired
+        } else if let usageError, usageError.indicatesUnsupportedAccount {
+            self.codexAuth = .apiKeyOnlyUnsupported
+        }
+
+        if case let .rateLimited(retryAfter) = usageError {
+            // The until-date is the gate; the failure streak stays untouched.
+            self.codexHealth = .rateLimited(until: retryAfter)
+        } else {
+            self.codexHealth = .degraded(until: nil)
+            self.codexFailureStreak += 1
+        }
+    }
+
     private func applyFailure(_ error: any Error) {
+        guard self.settings.claudeProviderEnabled else { return }
         self.lastAttemptAt = self.now()
         let usageError = error as? ClaudeUsageError
         let gateStatus = self.blockStatus()
@@ -372,17 +524,83 @@ final class UsageStore {
 
     // MARK: - Quota crossings
 
-    private func emitQuotaCrossings(for snapshot: ProviderUsageSnapshot) {
-        let configuration = QuotaTransitionMachine.Configuration(
+    /// One shared threshold configuration drives both providers (decision 15: full parity,
+    /// no per-provider threshold settings).
+    private var quotaConfiguration: QuotaTransitionMachine.Configuration {
+        QuotaTransitionMachine.Configuration(
             sessionQuotaNotificationsEnabled: self.settings.sessionQuotaNotificationsEnabled,
             quotaWarningNotificationsEnabled: self.settings.quotaWarningNotificationsEnabled,
             sessionWarningEnabled: self.settings.quotaWarningWindowEnabled(.session),
             weeklyWarningEnabled: self.settings.quotaWarningWindowEnabled(.weekly),
             sessionThresholds: self.settings.quotaWarningThresholds(.session),
             weeklyThresholds: self.settings.quotaWarningThresholds(.weekly))
-        for crossing in self.quotaMachine.process(snapshot: snapshot, configuration: configuration) {
-            Self.log.info("Quota crossing", metadata: ["crossing": "\(crossing)"])
-            self.onQuotaThresholdCrossing?(crossing)
+    }
+
+    private func emitQuotaCrossings(for snapshot: ProviderUsageSnapshot) {
+        for crossing in self.quotaMachine.process(snapshot: snapshot, configuration: self.quotaConfiguration) {
+            Self.log.info("Quota crossing", metadata: ["provider": "claude", "crossing": "\(crossing)"])
+            self.onQuotaThresholdCrossing?(.claude, crossing)
+        }
+    }
+
+    private func emitCodexQuotaCrossings(for snapshot: ProviderUsageSnapshot) {
+        for crossing in self.codexQuotaMachine.process(
+            snapshot: snapshot,
+            configuration: self.quotaConfiguration)
+        {
+            Self.log.info("Quota crossing", metadata: ["provider": "codex", "crossing": "\(crossing)"])
+            self.onQuotaThresholdCrossing?(.codex, crossing)
+        }
+    }
+
+    // MARK: - Provider lifecycle (decision 6)
+
+    /// Settings wiring: a provider toggle either wipes the lane to inert (disable) or kicks one
+    /// user-initiated fetch (enable). Wiping covers memory, in-flight work, the quota machine's
+    /// fired-set, and — via the scheduled persist — disk.
+    func providerEnabledDidChange(_ provider: UsageProviderKind, enabled: Bool) {
+        switch (provider, enabled) {
+        case (.claude, true):
+            Task { await self.refreshClaude(trigger: .manual) }
+            self.kickCostScan(bypassGate: true)
+
+        case (.claude, false):
+            self.refreshTask?.cancel()
+            let client = self.client
+            Task { await client.cancelInFlight() }
+            self.usage = nil
+            self.auth = .ok
+            self.health = .ok
+            self.isRefreshing = false
+            self.lastSuccessAt = nil
+            self.lastAttemptAt = nil
+            self.failureStreak = 0
+            self.quotaMachine = QuotaTransitionMachine()
+            // A disabled Claude provider must be fully inert, including the ~/.claude cost-log
+            // scanning — reuse the cost-disable arm's cancel+clear.
+            self.costScanTask?.cancel()
+            let scanner = self.scanner
+            Task { await scanner.cancelInFlight() }
+            self.cost = nil
+            self.costScanState = .idle
+            self.schedulePersist()
+
+        case (.codex, true):
+            Task { await self.refreshCodex(trigger: .manual) }
+
+        case (.codex, false):
+            self.codexRefreshTask?.cancel()
+            let codexClient = self.codexClient
+            Task { await codexClient.cancelInFlight() }
+            self.codexUsage = nil
+            self.codexAuth = .ok
+            self.codexHealth = .ok
+            self.codexIsRefreshing = false
+            self.codexLastSuccessAt = nil
+            self.codexLastAttemptAt = nil
+            self.codexFailureStreak = 0
+            self.codexQuotaMachine = QuotaTransitionMachine()
+            self.schedulePersist()
         }
     }
 
@@ -406,6 +624,8 @@ final class UsageStore {
     }
 
     private func kickCostScan(bypassGate: Bool) {
+        // Cost scanning reads ~/.claude project logs, so it rides the Claude provider gate too.
+        guard self.settings.claudeProviderEnabled else { return }
         guard self.settings.costUsageEnabled else { return }
         guard self.costScanTask == nil else { return } // in-flight; the scanner would join anyway
         self.costScanState = .scanning
@@ -459,7 +679,11 @@ final class UsageStore {
 
     private func persistNow() async {
         guard let persistence = self.persistence else { return }
-        let state = StatePersistence.State(usage: self.usage, cost: self.cost, savedAt: self.now())
+        let state = StatePersistence.State(
+            usage: self.usage,
+            codexUsage: self.codexUsage,
+            cost: self.cost,
+            savedAt: self.now())
         await persistence.save(state)
     }
 
@@ -470,8 +694,11 @@ final class UsageStore {
         guard self.pendingSaveTask != nil else { return }
         self.pendingSaveTask?.cancel()
         self.pendingSaveTask = nil
-        self.persistence?.saveNow(
-            StatePersistence.State(usage: self.usage, cost: self.cost, savedAt: self.now()))
+        self.persistence?.saveNow(StatePersistence.State(
+            usage: self.usage,
+            codexUsage: self.codexUsage,
+            cost: self.cost,
+            savedAt: self.now()))
     }
 
     /// App shutdown: flush state and cancel background work.
@@ -480,6 +707,7 @@ final class UsageStore {
         // the refreshTask/costScanTask cancels below are the only remaining cleanup needed.
         self.flushPersistedStateForTermination()
         self.refreshTask?.cancel()
+        self.codexRefreshTask?.cancel()
         self.costScanTask?.cancel()
         let scanner = self.scanner
         Task { await scanner.cancelInFlight() }
