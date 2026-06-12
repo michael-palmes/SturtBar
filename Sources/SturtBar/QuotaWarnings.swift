@@ -25,13 +25,13 @@ import SturtBarCore
 // MARK: - Types
 
 /// Rate windows the warning machine tracks (legacy `QuotaWarningWindow`).
-enum QuotaWindow: String, Codable, Sendable, CaseIterable, Equatable {
+enum QuotaWindow: String, Codable, CaseIterable, Equatable {
     case session
     case weekly
 }
 
 /// A quota event the app surfaces to the user (Phase 3b: notifications).
-enum QuotaCrossing: Equatable, Sendable {
+enum QuotaCrossing: Equatable {
     /// Remaining quota dropped to/below a configured warning threshold.
     case warningThresholdCrossed(window: QuotaWindow, threshold: Int, currentRemaining: Double)
     /// The session window hit 0% remaining.
@@ -80,7 +80,7 @@ enum QuotaWarningThresholds {
 
 /// Session depleted/restored detection (port of legacy `SessionQuotaNotificationLogic`).
 enum SessionQuotaLogic {
-    enum Transition: Equatable, Sendable {
+    enum Transition: Equatable {
         case none
         case depleted
         case restored

@@ -374,7 +374,7 @@ struct ClaudeOAuthUsageMappingTests {
 /// OAuth executor behavior: prompt policy flags, 429 pass-through, the 401 invalidate-and-retry-once
 /// flow, startup bootstrap prompts, and typed needs-reauth derivation.
 struct ClaudeUsageServiceFlowTests {
-    private struct LoadCall: Equatable, Sendable {
+    private struct LoadCall: Equatable {
         let allowKeychainPrompt: Bool
         let respectKeychainPromptCooldown: Bool
     }

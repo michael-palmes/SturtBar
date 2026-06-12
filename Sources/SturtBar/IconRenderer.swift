@@ -35,7 +35,7 @@ enum IconRenderer {
 
     /// Quantized render inputs == cache key. Whole-point buckets (sub-point usage moves never
     /// re-render: at 30px bar width a whole point is already below pixel resolution).
-    struct Key: Hashable, Sendable {
+    struct Key: Hashable {
         /// Remaining percent of the primary window, 0...100; nil = no data (empty track).
         var primaryBucket: Int?
         /// Remaining percent of the secondary/weekly window; nil = window absent (dimmed track).

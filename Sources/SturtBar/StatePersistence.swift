@@ -11,8 +11,8 @@
 import Foundation
 import SturtBarCore
 
-struct StatePersistence: Sendable {
-    struct State: Codable, Equatable, Sendable {
+struct StatePersistence {
+    struct State: Codable, Equatable {
         var usage: ClaudeUsageSnapshot?
         var cost: CostUsageTokenSnapshot?
         var savedAt: Date

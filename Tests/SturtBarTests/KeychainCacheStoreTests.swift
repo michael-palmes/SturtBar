@@ -9,8 +9,8 @@ struct KeychainCacheStoreTests {
         let storedAt: Date
     }
 
-    @Test("tests suppress real keychain access by default")
-    func sSuppressRealKeychainAccessByDefault() {
+    @Test
+    func `tests suppress real keychain access by default`() {
         guard ProcessInfo.processInfo.environment["STURTBAR_ALLOW_TEST_KEYCHAIN_ACCESS"] != "1" else { return }
 
         #expect(KeychainCacheStore.canUseRealKeychainForTesting == false)
@@ -35,15 +35,15 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("gate-false task override exposes real keychain access")
-    func gateFalseTaskOverrideExposesRealKeychainAccess() {
+    @Test
+    func `gate-false task override exposes real keychain access`() {
         KeychainAccessGate.withTaskOverrideForTesting(false) {
             #expect(KeychainCacheStore.canUseRealKeychainForTesting == true)
         }
     }
 
-    @Test("stores and loads entry")
-    func storesAndLoadsEntry() {
+    @Test
+    func `stores and loads entry`() {
         KeychainCacheStore.setTestStoreForTesting(true)
         defer { KeychainCacheStore.setTestStoreForTesting(false) }
 
@@ -62,8 +62,8 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("overwrites existing entry")
-    func overwritesExistingEntry() {
+    @Test
+    func `overwrites existing entry`() {
         KeychainCacheStore.setTestStoreForTesting(true)
         defer { KeychainCacheStore.setTestStoreForTesting(false) }
 
@@ -83,8 +83,8 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("clear removes entry")
-    func clearRemovesEntry() {
+    @Test
+    func `clear removes entry`() {
         KeychainCacheStore.setTestStoreForTesting(true)
         defer { KeychainCacheStore.setTestStoreForTesting(false) }
 
@@ -102,8 +102,8 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("clear reports whether an entry was removed")
-    func clearReportsWhetherEntryWasRemoved() {
+    @Test
+    func `clear reports whether an entry was removed`() {
         KeychainCacheStore.setTestStoreForTesting(true)
         defer { KeychainCacheStore.setTestStoreForTesting(false) }
 
@@ -115,8 +115,8 @@ struct KeychainCacheStoreTests {
         #expect(KeychainCacheStore.clear(key: key) == false)
     }
 
-    @Test("oauthClaude key has expected category and identifier")
-    func oauthClaudeKeyHasExpectedShape() {
+    @Test
+    func `oauthClaude key has expected category and identifier`() {
         let key = KeychainCacheStore.Key.oauthClaude
         #expect(key.category == "oauth")
         #expect(key.identifier == "claude")
@@ -125,9 +125,8 @@ struct KeychainCacheStoreTests {
 
     #if os(macOS)
     @Test(
-        "suppressed-UI read failures are treated as temporarily unavailable",
         arguments: [errSecInteractionNotAllowed, errSecAuthFailed])
-    func suppressedUIReadFailureIsTemporarilyUnavailable(status: OSStatus) {
+    func `suppressed-UI read failures are treated as temporarily unavailable`(status: OSStatus) {
         // With the legacy ACL prompt suppressed, a locked keychain reports errSecInteractionNotAllowed
         // and a binary that isn't on the item's ACL reports errSecAuthFailed. Both must fall back
         // (temporarilyUnavailable), not be surfaced as an invalid/corrupt cache.
@@ -144,8 +143,8 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("legacy keychain UI is suppressed during a wrapped read and restored afterward")
-    func legacyKeychainUISuppressedThenRestored() {
+    @Test
+    func `legacy keychain UI is suppressed during a wrapped read and restored afterward`() {
         // Proves the SecKeychainSetUserInteractionAllowed toggle actually flips the process-wide
         // legacy-ACL prompt off for the cache read and puts the prior value back. This is what stops
         // the "SturtBar wants to access key 'SturtBar Cache'" dialog for a non-matching binary; the
@@ -155,14 +154,14 @@ struct KeychainCacheStoreTests {
         #expect(probe.afterAllowed == true)
     }
 
-    @Test("delete interaction not allowed is non-fatal")
-    func deleteInteractionNotAllowedIsNonFatal() {
+    @Test
+    func `delete interaction not allowed is non-fatal`() {
         let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
         #expect(KeychainCacheStore.clearResultForKeychainDeleteStatus(errSecInteractionNotAllowed, key: key) == false)
     }
 
-    @Test("load failure override bypasses test store without affecting store or clear")
-    func loadFailureOverrideBypassesTestStore() {
+    @Test
+    func `load failure override bypasses test store without affecting store or clear`() {
         KeychainCacheStore.setTestStoreForTesting(true)
         defer { KeychainCacheStore.setTestStoreForTesting(false) }
 
@@ -188,8 +187,8 @@ struct KeychainCacheStoreTests {
         }
     }
 
-    @Test("cache ACL trusts bundled app and CLI helper")
-    func cacheACLTrustsBundledAppAndCLIHelper() {
+    @Test
+    func `cache ACL trusts bundled app and CLI helper`() {
         let root = URL(fileURLWithPath: "/Applications/SturtBar.app")
         let executable = root.appendingPathComponent("Contents/MacOS/SturtBar")
         let helper = root.appendingPathComponent("Contents/Helpers/SturtBarCLI")

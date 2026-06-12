@@ -22,7 +22,7 @@
 import Foundation
 import SturtBarCore
 
-enum CostScanResult: Sendable, Equatable {
+enum CostScanResult: Equatable {
     /// A scan ran; nil snapshot means "no usage data in the window".
     case scanned(CostUsageTokenSnapshot?)
     /// The 60s min-gap suppressed the scan; callers keep their previous snapshot.

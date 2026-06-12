@@ -41,13 +41,13 @@ import SturtBarCore
 
 // MARK: - State types
 
-enum AuthState: Equatable, Sendable {
+enum AuthState: Equatable {
     case ok
     case needsReauth(message: String?)
     case credentialsMissing
 }
 
-enum FetchHealth: Equatable, Sendable {
+enum FetchHealth: Equatable {
     case ok
     case degraded(until: Date?)
     case rateLimited(until: Date)
@@ -56,12 +56,12 @@ enum FetchHealth: Equatable, Sendable {
 /// Minimal by design: `ClaudeCostFetcher` swallows scan failures into a nil snapshot (cost is
 /// best-effort eye candy), so a `.failed` case would be unreachable; cancellation only happens at
 /// shutdown where nobody is watching.
-enum CostScanState: Equatable, Sendable {
+enum CostScanState: Equatable {
     case idle
     case scanning
 }
 
-enum RefreshTrigger: String, Sendable {
+enum RefreshTrigger: String {
     case launch
     case interval
     case menuOpen

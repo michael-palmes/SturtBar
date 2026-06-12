@@ -82,7 +82,7 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
 /// spawn); this service is designed to be wrapped in an actor (`ClaudeUsageClient`) in a later
 /// phase, so its public API is async and Sendable-clean.
 public struct ClaudeUsageService: Sendable {
-    private struct Configuration: Sendable {
+    private struct Configuration {
         let environment: [String: String]
         let allowStartupBootstrapPrompt: Bool
     }

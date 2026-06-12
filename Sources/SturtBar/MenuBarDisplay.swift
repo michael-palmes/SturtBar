@@ -23,7 +23,7 @@ import SturtBarCore
 // MARK: - MenuBarDisplayMode
 
 /// Controls what text (if any) the menu bar shows next to the usage meter icon.
-enum MenuBarDisplayMode: String, CaseIterable, Identifiable, Sendable {
+enum MenuBarDisplayMode: String, CaseIterable, Identifiable {
     /// Icon only (legacy default: brand-percent text was opt-in).
     case hidden
     case percent

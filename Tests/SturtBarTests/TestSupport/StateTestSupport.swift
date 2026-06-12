@@ -50,7 +50,7 @@ final class TestClock: Sendable {
 
 // MARK: - Fetch recording
 
-struct RecordedFetch: Equatable, Sendable {
+struct RecordedFetch: Equatable {
     let interaction: Interaction
     let phase: RefreshPhase
 }

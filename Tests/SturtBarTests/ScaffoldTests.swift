@@ -6,8 +6,8 @@ import Testing
 
 @Suite("RateWindow")
 struct RateWindowTests {
-    @Test("remainingPercent is 100 - usedPercent")
-    func remainingPercent() {
+    @Test
+    func `remainingPercent is 100 - usedPercent`() {
         let window = RateWindow(
             usedPercent: 40,
             windowMinutes: 300,
@@ -16,8 +16,8 @@ struct RateWindowTests {
         #expect(window.remainingPercent == 60)
     }
 
-    @Test("remainingPercent clamps to zero when fully used")
-    func remainingPercentClamped() {
+    @Test
+    func `remainingPercent clamps to zero when fully used`() {
         let window = RateWindow(
             usedPercent: 110,
             windowMinutes: nil,
@@ -26,8 +26,8 @@ struct RateWindowTests {
         #expect(window.remainingPercent == 0)
     }
 
-    @Test("backfillingResetTime returns self when resetsAt is already set")
-    func backfillReturnsSelfWhenAlreadySet() {
+    @Test
+    func `backfillingResetTime returns self when resetsAt is already set`() {
         let resetDate = Date(timeIntervalSinceNow: 3600)
         let window = RateWindow(
             usedPercent: 50,
@@ -38,8 +38,8 @@ struct RateWindowTests {
         #expect(result.resetsAt == resetDate)
     }
 
-    @Test("backfillingResetTime carries over cached resetsAt when self has none")
-    func backfillCarriesOverCachedReset() {
+    @Test
+    func `backfillingResetTime carries over cached resetsAt when self has none`() {
         let future = Date(timeIntervalSinceNow: 3600)
         let cached = RateWindow(
             usedPercent: 30,
@@ -61,8 +61,8 @@ struct RateWindowTests {
 
 @Suite("NamedRateWindow")
 struct NamedRateWindowTests {
-    @Test("round-trips through Codable")
-    func codable() throws {
+    @Test
+    func `round-trips through Codable`() throws {
         let window = RateWindow(
             usedPercent: 75,
             windowMinutes: 300,
@@ -79,8 +79,8 @@ struct NamedRateWindowTests {
 
 @Suite("SturtBarLog", .serialized)
 struct SturtBarLogTests {
-    @Test("logger does not crash on all levels")
-    func loggerAllLevels() {
+    @Test
+    func `logger does not crash on all levels`() {
         let log = SturtBarLog.logger("test")
         log.trace("trace message")
         log.verbose("verbose message")
@@ -91,14 +91,14 @@ struct SturtBarLogTests {
         log.critical("critical message")
     }
 
-    @Test("logger does not crash with metadata")
-    func loggerWithMetadata() {
+    @Test
+    func `logger does not crash with metadata`() {
         let log = SturtBarLog.logger("test")
         log.info("message with metadata", metadata: ["key": "value", "other": "data"])
     }
 
-    @Test("setMinimumLevel updates the level")
-    func setMinimumLevel() {
+    @Test
+    func `setMinimumLevel updates the level`() {
         let prior = SturtBarLog.minimumLevel()
         defer {
             SturtBarLog.setMinimumLevel(prior)
