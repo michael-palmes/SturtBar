@@ -315,11 +315,31 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 if let expiredRecord {
-                    return expiredRecord
+                    return try self.validatedStaleRecord(expiredRecord)
                 }
                 if let lastError { throw lastError }
                 throw ClaudeOAuthCredentialsError.notFound
             }
+        }
+
+        /// A stale record that cannot be refreshed (no refresh token) is a dead end. When a Claude
+        /// keychain item exists that the silent paths above could not read, the actionable remedy
+        /// is granting Keychain access — not the generic "run `claude`" hint, which the user may
+        /// already have followed.
+        private func validatedStaleRecord(
+            _ record: ClaudeOAuthCredentialRecord) throws -> ClaudeOAuthCredentialRecord
+        {
+            guard self.staleRecordNeedsClaudeKeychainAccess(record) else { return record }
+            throw ClaudeOAuthCredentialsError.claudeKeychainAccessRequired(
+                underlying: "refresh token missing from \(record.source.humanLabel)")
+        }
+
+        private func staleRecordNeedsClaudeKeychainAccess(_ record: ClaudeOAuthCredentialRecord) -> Bool {
+            let refreshToken = record.credentials.refreshToken?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard refreshToken.isEmpty else { return false }
+            guard record.source != .claudeKeychain else { return false }
+            return ClaudeOAuthCredentialsStore.hasClaudeKeychainItemWithoutPrompt()
         }
 
         private func loadFromClaudeKeychainWithPromptIfAllowed(
@@ -1165,7 +1185,7 @@ public enum ClaudeOAuthCredentialsStore {
         switch record.owner {
         case .environment:
             self.log.warning("Environment OAuth token expired and cannot be auto-refreshed")
-            throw ClaudeOAuthCredentialsError.noRefreshToken
+            throw ClaudeOAuthCredentialsError.noRefreshToken(source: .environment)
         case .claudeCLI, .sturtbar:
             // Legacy CodexBar delegated `.claudeCLI`-owned refreshes to the Claude CLI binary; SturtBar
             // refreshes every locally stored credential directly (gated by ClaudeOAuthRefreshFailureGate).
@@ -1175,7 +1195,7 @@ public enum ClaudeOAuthCredentialsStore {
         // Try to refresh if we have a refresh token.
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
             self.log.warning("Token expired but no refresh token available")
-            throw ClaudeOAuthCredentialsError.noRefreshToken
+            throw ClaudeOAuthCredentialsError.noRefreshToken(source: record.source)
         }
         self.log.info("Access token expired, attempting auto-refresh")
 
@@ -1187,10 +1207,29 @@ public enum ClaudeOAuthCredentialsStore {
                 existingSubscriptionType: credentials.subscriptionType)
             self.log.info("Token refresh successful, expires in \(refreshed.expiresIn ?? 0) seconds")
             return refreshed
+        } catch let error as ClaudeOAuthCredentialsError {
+            self.log.error("Token refresh failed: \(error.localizedDescription)")
+            throw self.redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
+                error,
+                recordSource: record.source)
         } catch {
             self.log.error("Token refresh failed: \(error.localizedDescription)")
             throw error
         }
+    }
+
+    /// Rewrites a terminal refresh failure into `.claudeKeychainAccessRequired` when the failing
+    /// token did NOT come from the Claude keychain item, yet such an item exists. In that state
+    /// "run `claude` to re-authenticate" is misleading — the user may already have done so; the
+    /// rotated lineage SturtBar holds stays dead until it can read Claude Code's item again.
+    static func redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
+        _ error: ClaudeOAuthCredentialsError,
+        recordSource: ClaudeOAuthCredentialSource) -> ClaudeOAuthCredentialsError
+    {
+        guard case let .refreshFailed(kind, message) = error, kind == .terminal else { return error }
+        guard recordSource != .claudeKeychain else { return error }
+        guard self.hasClaudeKeychainItemWithoutPrompt() else { return error }
+        return .claudeKeychainAccessRequired(underlying: message)
     }
 
     /// Save refreshed credentials to SturtBar's own keychain cache.
