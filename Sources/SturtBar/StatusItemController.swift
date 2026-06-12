@@ -185,6 +185,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Shape changed while the menu was open; re-measure on close (NSMenu can't resize a visible
     /// custom item).
     var pendingCardRemeasure = false
+    /// Per-provider link items (decision 12): always built with stable identity; `isHidden`
+    /// tracks the enabled set so the menu structure never mutates for provider toggles.
+    var claudeConsoleItem: NSMenuItem?
+    var claudeStatusPageItem: NSMenuItem?
+    var codexUsageItem: NSMenuItem?
+    var codexStatusPageItem: NSMenuItem?
+    /// Provider toggled while the menu was open; apply visibility on close (same conservative
+    /// deferral as chart presence).
+    var pendingProviderLinksUpdate = false
     /// costUsageEnabled flipped while the menu was open; rebuild the chart item on close (menu
     /// structure changes are closed-menu operations).
     var pendingChartPresenceUpdate = false

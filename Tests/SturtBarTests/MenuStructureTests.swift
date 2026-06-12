@@ -47,6 +47,8 @@ struct MenuStructureTests {
 
         #expect(!menu.autoenablesItems)
 
+        // All four provider link items are always BUILT; visibility tracks the enabled set
+        // (claude visible by default, codex hidden until opted in — decision 12).
         var expected: [(title: String, key: String)] = [
             ("", ""), // card (custom view)
             ("Cost History", ""),
@@ -54,6 +56,8 @@ struct MenuStructureTests {
             ("Refresh Now", "r"),
             ("Open Claude Console", ""),
             ("Claude Status Page", ""),
+            ("Open Codex Usage", ""),
+            ("OpenAI Status Page", ""),
             ("Settings…", ","),
             ("About SturtBar", ""),
             ("", ""), // separator
@@ -73,13 +77,19 @@ struct MenuStructureTests {
             #expect(item.keyEquivalent == expected[index].key, "item \(index)")
         }
         #expect(menu.items[2].isSeparatorItem)
-        #expect(menu.items[8].isSeparatorItem)
+        #expect(menu.items[10].isSeparatorItem)
+
+        // Default visibility: claude links shown, codex links hidden (provider opt-in).
+        #expect(!menu.items[4].isHidden)
+        #expect(!menu.items[5].isHidden)
+        #expect(menu.items[6].isHidden)
+        #expect(menu.items[7].isHidden)
 
         // Shortcuts are ⌘-only; Quit goes through the standard responder-chain terminate.
         #expect(menu.items[3].keyEquivalentModifierMask == .command)
-        #expect(menu.items[6].keyEquivalentModifierMask == .command)
-        #expect(menu.items[9].keyEquivalentModifierMask == .command)
-        #expect(menu.items[9].action == #selector(NSApplication.terminate(_:)))
+        #expect(menu.items[8].keyEquivalentModifierMask == .command)
+        #expect(menu.items[11].keyEquivalentModifierMask == .command)
+        #expect(menu.items[11].action == #selector(NSApplication.terminate(_:)))
 
         // Action wiring: every native item targets the controller with its @objc selector
         // (private cross-file ⇒ string selectors instead of #selector).
@@ -87,14 +97,71 @@ struct MenuStructureTests {
             (3, "refreshNowFromMenu"),
             (4, "openClaudeConsole"),
             (5, "openClaudeStatusPage"),
-            (6, "showSettingsWindow"),
-            (7, "showAboutWindow"),
+            (6, "openCodexUsage"),
+            (7, "openOpenAIStatusPage"),
+            (8, "showSettingsWindow"),
+            (9, "showAboutWindow"),
         ]
         for (index, selector) in expectedActions {
             #expect(menu.items[index].action == Selector(selector), "item \(index)")
             #expect(menu.items[index].target === controller, "item \(index)")
         }
-        #expect(menu.items[9].target == nil) // terminate goes to NSApp via the responder chain
+        #expect(menu.items[11].target == nil) // terminate goes to NSApp via the responder chain
+    }
+
+    @Test
+    func `provider link visibility tracks the enabled set`() async throws {
+        let (controller, ts) = self.makeController(suiteName: "sturtbar-menu-provider-links")
+        controller.startWithMenuForTesting()
+        let menu = try #require(controller.menu)
+        func item(_ title: String) -> NSMenuItem? {
+            menu.items.first { $0.title == title }
+        }
+
+        ts.settings.codexProviderEnabled = true
+        await self.drainMainQueue()
+        #expect(item("Open Codex Usage")?.isHidden == false)
+        #expect(item("OpenAI Status Page")?.isHidden == false)
+
+        ts.settings.claudeProviderEnabled = false
+        await self.drainMainQueue()
+        #expect(item("Open Claude Console")?.isHidden == true)
+        #expect(item("Claude Status Page")?.isHidden == true)
+        #expect(item("Open Codex Usage")?.isHidden == false)
+    }
+
+    @Test
+    func `provider link changes while open defer to menuDidClose`() async throws {
+        let (controller, ts) = self.makeController(suiteName: "sturtbar-menu-provider-links-defer")
+        controller.startWithMenuForTesting()
+        let menu = try #require(controller.menu)
+        let codexItem = try #require(menu.items.first { $0.title == "Open Codex Usage" })
+
+        controller.menuWillOpen(menu)
+        ts.settings.codexProviderEnabled = true
+        await self.drainMainQueue()
+        #expect(codexItem.isHidden) // visibility change deferred while open
+        #expect(controller.pendingProviderLinksUpdate)
+
+        controller.menuDidClose(menu)
+        #expect(!codexItem.isHidden)
+        #expect(!controller.pendingProviderLinksUpdate)
+        await self.drainMainQueue() // drain the .menuOpen refresh task spawned by menuWillOpen
+    }
+
+    @Test
+    func `chart presence also requires the claude provider`() async {
+        let (controller, ts) = self.makeController(suiteName: "sturtbar-menu-chart-claude-gate")
+        controller.startWithMenuForTesting()
+        #expect(controller.chartItem != nil) // cost on + claude on (defaults)
+
+        ts.settings.claudeProviderEnabled = false
+        await self.drainMainQueue()
+        #expect(controller.chartItem == nil) // cost stays enabled, but claude is off
+
+        ts.settings.claudeProviderEnabled = true
+        await self.drainMainQueue()
+        #expect(controller.chartItem != nil)
     }
 
     @Test

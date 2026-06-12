@@ -16,9 +16,13 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
+    /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
+    @State private var codexAuthFileDetected: Bool?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            self.providersSection
+            Divider()
             self.generalSection
             Divider()
             self.menuBarSection
@@ -31,7 +35,34 @@ struct SettingsView: View {
         }
         .frame(width: 460, alignment: .leading)
         .padding(20)
-        .onAppear { self.launchAtLogin = LaunchAtLoginManager.isEnabled }
+        .onAppear {
+            self.launchAtLogin = LaunchAtLoginManager.isEnabled
+            // Decision 7: one stat() per Settings open — never reads file contents, never runs
+            // at launch. WindowsController recreates the root view each show, so this re-probes.
+            self.codexAuthFileDetected = CodexCredentialsReader.authFileExists()
+        }
+    }
+
+    // MARK: - Providers
+
+    private var providersSection: some View {
+        SettingsSection(title: "Providers") {
+            PreferenceToggleRow(
+                title: "Claude",
+                subtitle: "Track Claude usage (api.anthropic.com, plus local Claude Code logs for cost).",
+                isOn: self.$settings.claudeProviderEnabled)
+
+            PreferenceToggleRow(
+                title: "Codex",
+                subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
+                isOn: self.$settings.codexProviderEnabled)
+
+            if self.codexAuthFileDetected == false {
+                Text("codex CLI not detected (no ~/.codex/auth.json)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - General
@@ -52,7 +83,7 @@ struct SettingsView: View {
 
             LabeledPickerRow(
                 title: "Refresh usage",
-                subtitle: "How often SturtBar fetches Claude usage.")
+                subtitle: "How often SturtBar fetches usage from enabled providers.")
             {
                 Picker("Refresh usage", selection: self.$settings.refreshFrequency) {
                     ForEach(RefreshFrequency.allCases) { option in
@@ -79,6 +110,20 @@ struct SettingsView: View {
                 Picker("Text next to icon", selection: self.$settings.menuBarDisplayMode) {
                     ForEach(MenuBarDisplayMode.allCases) { option in
                         Text(option.label).tag(option)
+                    }
+                }
+            }
+
+            // Meaningless with a single provider — the winner is always that provider.
+            if self.settings.enabledProviders.count >= 2 {
+                LabeledPickerRow(
+                    title: "Menu bar shows",
+                    subtitle: "Which provider drives the icon and its text.")
+                {
+                    Picker("Menu bar shows", selection: self.$settings.menuBarProviderSource) {
+                        ForEach(MenuBarProviderSource.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
                     }
                 }
             }

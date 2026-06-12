@@ -81,6 +81,7 @@ extension StatusItemController {
             action: #selector(self.openClaudeConsole),
             keyEquivalent: "")
         console.target = self
+        self.claudeConsoleItem = console
         menu.addItem(console)
 
         let statusPage = NSMenuItem(
@@ -88,7 +89,26 @@ extension StatusItemController {
             action: #selector(self.openClaudeStatusPage),
             keyEquivalent: "")
         statusPage.target = self
+        self.claudeStatusPageItem = statusPage
         menu.addItem(statusPage)
+
+        let codexUsage = NSMenuItem(
+            title: "Open Codex Usage",
+            action: #selector(self.openCodexUsage),
+            keyEquivalent: "")
+        codexUsage.target = self
+        self.codexUsageItem = codexUsage
+        menu.addItem(codexUsage)
+
+        let openAIStatus = NSMenuItem(
+            title: "OpenAI Status Page",
+            action: #selector(self.openOpenAIStatusPage),
+            keyEquivalent: "")
+        openAIStatus.target = self
+        self.codexStatusPageItem = openAIStatus
+        menu.addItem(openAIStatus)
+
+        self.applyProviderLinkVisibility()
 
         let settingsItem = NSMenuItem(
             title: "Settings…",
@@ -166,6 +186,7 @@ extension StatusItemController {
         }
         self.applyCardModel(model)
         self.updateChartItemPresence()
+        self.updateProviderLinkItems()
     }
 
     /// Non-arming re-derive for the wall-clock staleness flip (no observable mutation occurs;
@@ -175,6 +196,7 @@ extension StatusItemController {
         self.applyCardModel(
             UsageMenuCardView.Model.derive(store: self.store, settings: self.settings, now: Date()))
         self.updateChartItemPresence()
+        self.updateProviderLinkItems()
     }
 
     /// Equatable-gated rootView swap + shape-fingerprint re-measure scheduling.
@@ -229,11 +251,35 @@ extension StatusItemController {
 
     // MARK: - Chart item presence (cost toggle)
 
-    /// Inserts/removes the "Cost History" item to track `settings.costUsageEnabled`. Menu
-    /// structure changes are closed-menu operations — while open they defer to menuDidClose.
+    /// Reconciles the per-provider link items' visibility with the enabled set; deferred to
+    /// menuDidClose while the menu is open (same conservative rule as structure changes).
+    func updateProviderLinkItems() {
+        guard self.menu != nil else { return }
+        let wantsUpdate = self.claudeConsoleItem?.isHidden == self.settings.claudeProviderEnabled
+            || self.codexUsageItem?.isHidden == self.settings.codexProviderEnabled
+        guard wantsUpdate else { return }
+        if self.menuIsOpen {
+            self.pendingProviderLinksUpdate = true
+            return
+        }
+        self.applyProviderLinkVisibility()
+    }
+
+    func applyProviderLinkVisibility() {
+        let claudeHidden = !self.settings.claudeProviderEnabled
+        let codexHidden = !self.settings.codexProviderEnabled
+        self.claudeConsoleItem?.isHidden = claudeHidden
+        self.claudeStatusPageItem?.isHidden = claudeHidden
+        self.codexUsageItem?.isHidden = codexHidden
+        self.codexStatusPageItem?.isHidden = codexHidden
+    }
+
+    /// Inserts/removes the "Cost History" item to track `settings.costUsageEnabled` (and the
+    /// Claude provider gate — cost reads ~/.claude logs). Menu structure changes are closed-menu
+    /// operations — while open they defer to menuDidClose.
     func updateChartItemPresence() {
         guard let menu = self.menu else { return }
-        let wantsChart = self.settings.costUsageEnabled
+        let wantsChart = self.settings.costUsageEnabled && self.settings.claudeProviderEnabled
         guard wantsChart != (self.chartItem != nil) else { return }
         if self.menuIsOpen {
             self.pendingChartPresenceUpdate = true
@@ -333,6 +379,10 @@ extension StatusItemController {
             self.pendingChartPresenceUpdate = false
             self.updateChartItemPresence()
         }
+        if self.pendingProviderLinksUpdate {
+            self.pendingProviderLinksUpdate = false
+            self.applyProviderLinkVisibility()
+        }
         if let state = self.menuOpenSignpostState {
             Signposts.menu.endInterval("menuOpen", state)
             self.menuOpenSignpostState = nil
@@ -353,6 +403,14 @@ extension StatusItemController {
 
     @objc private func openClaudeStatusPage() {
         self.open(urlString: ClaudeLinks.statusPageURL)
+    }
+
+    @objc private func openCodexUsage() {
+        self.open(urlString: CodexLinks.usageDashboardURL)
+    }
+
+    @objc private func openOpenAIStatusPage() {
+        self.open(urlString: CodexLinks.statusPageURL)
     }
 
     @objc private func showSettingsWindow() {
