@@ -30,6 +30,8 @@ Refresh runs on a hybrid schedule: whenever you open the menu, plus a background
 
 **On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
 
+If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude *desktop app* doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
+
 ## Privacy
 
 Everything stays on your Mac. The only network calls SturtBar makes are to the usage API (to read your numbers) and to `models.dev` (to keep its pricing table current). There is no analytics, no telemetry, and no account of any kind with SturtBar.
