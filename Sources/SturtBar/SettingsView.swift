@@ -50,11 +50,13 @@ struct SettingsView: View {
             PreferenceToggleRow(
                 title: "Claude",
                 subtitle: "Track Claude usage (api.anthropic.com, plus local Claude Code logs for cost).",
+                iconProvider: .claude,
                 isOn: self.$settings.claudeProviderEnabled)
 
             PreferenceToggleRow(
                 title: "Codex",
                 subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
+                iconProvider: .codex,
                 isOn: self.$settings.codexProviderEnabled)
 
             if self.codexAuthFileDetected == false {
@@ -215,13 +217,21 @@ struct SettingsSection<Content: View>: View {
 struct PreferenceToggleRow: View {
     let title: String
     let subtitle: String?
+    /// Optional provider glyph between the checkbox and the title (renders nothing while the
+    /// icon asset is absent).
+    var iconProvider: UsageProviderKind?
     @Binding var isOn: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(isOn: self.$isOn) {
-                Text(self.title)
-                    .font(.body)
+                HStack(spacing: 6) {
+                    if let iconProvider = self.iconProvider {
+                        ProviderIconView(provider: iconProvider)
+                    }
+                    Text(self.title)
+                        .font(.body)
+                }
             }
             .toggleStyle(.checkbox)
 

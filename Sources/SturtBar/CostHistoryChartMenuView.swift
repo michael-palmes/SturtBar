@@ -321,7 +321,7 @@ struct CostHistoryChartMenuView: View {
             entriesByDateKey: entriesByKey,
             dateKeys: dateKeys,
             axisDates: axisDates,
-            barColor: ClaudeBranding.color,
+            barColor: ProviderBranding.claude,
             peakKey: maxCostUSD > 0 ? peak?.key : nil,
             maxCostUSD: maxCostUSD,
             maxRenderedBreakdownRows: maxRenderedBreakdownRows,

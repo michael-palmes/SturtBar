@@ -258,6 +258,9 @@ struct UsageMenuCardView: View {
         /// Header title of the main slots — the top (or only) enabled provider's display name;
         /// "SturtBar" for the no-providers placeholder.
         let providerTitle: String
+        /// Which provider owns the MAIN slots (drives bar tint + header icon); nil for the
+        /// no-providers placeholder. The stacked codex section is always `.codex`.
+        let mainProvider: UsageProviderKind?
         let planText: String?
         let subtitle: Subtitle
         let status: StatusLine
@@ -312,6 +315,7 @@ struct UsageMenuCardView: View {
         return VStack(alignment: .leading, spacing: 6) {
             UsageMenuCardHeaderView(
                 title: self.model.providerTitle,
+                iconProvider: self.model.mainProvider,
                 planText: self.model.planText,
                 subtitle: self.model.subtitle,
                 now: now)
@@ -322,7 +326,10 @@ struct UsageMenuCardView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(self.model.metrics) { metric in
-                    MetricRow(metric: metric, now: now)
+                    MetricRow(
+                        metric: metric,
+                        tint: ProviderBranding.tint(self.model.mainProvider ?? .claude),
+                        now: now)
                 }
                 if let extraUsage = self.model.extraUsage {
                     ExtraUsageContent(section: extraUsage)
@@ -333,13 +340,14 @@ struct UsageMenuCardView: View {
                 Divider()
                 UsageMenuCardHeaderView(
                     title: codexSection.title,
+                    iconProvider: .codex,
                     planText: codexSection.planText,
                     subtitle: codexSection.subtitle,
                     now: now)
                 UsageMenuCardStatusStripView(status: codexSection.status, now: now)
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(codexSection.metrics) { metric in
-                        MetricRow(metric: metric, now: now)
+                        MetricRow(metric: metric, tint: ProviderBranding.codex, now: now)
                     }
                 }
             }
@@ -360,6 +368,7 @@ struct UsageMenuCardView: View {
 
 private struct UsageMenuCardHeaderView: View {
     let title: String
+    let iconProvider: UsageProviderKind?
     let planText: String?
     let subtitle: UsageMenuCardView.Model.Subtitle
     let now: Date
@@ -368,6 +377,11 @@ private struct UsageMenuCardHeaderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: UsageMenuCardLayout.headerLineSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: UsageMenuCardLayout.headerColumnSpacing) {
+                if let iconProvider = self.iconProvider {
+                    // Optional logo glyph; renders nothing while the asset file is absent.
+                    ProviderIconView(provider: iconProvider)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                }
                 Text(self.title).font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1).truncationMode(.tail).layoutPriority(1)
@@ -421,6 +435,7 @@ private struct UsageMenuCardStatusStripView: View {
 
 private struct MetricRow: View {
     let metric: UsageMenuCardView.Model.Metric
+    let tint: Color
     let now: Date
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
@@ -432,7 +447,7 @@ private struct MetricRow: View {
                 .lineLimit(1)
             UsageProgressBar(
                 percent: self.metric.isPlaceholder ? 0 : self.metric.percent,
-                tint: ClaudeBranding.color,
+                tint: self.tint,
                 accessibilityLabel: self.metric.isUsed ? "Usage used" : "Usage remaining",
                 accessibilityValueOverride: self.metric.isPlaceholder ? "no data" : nil,
                 pacePercent: self.metric.pacePercent,
@@ -487,7 +502,7 @@ private struct ExtraUsageContent: View {
             if let percentUsed = self.section.percentUsed {
                 UsageProgressBar(
                     percent: percentUsed,
-                    tint: ClaudeBranding.color,
+                    tint: ProviderBranding.claude, // extra usage is Claude-only data
                     accessibilityLabel: "Extra usage spent")
             }
             HStack(alignment: .firstTextBaseline) {
@@ -567,6 +582,7 @@ extension UsageMenuCardView.Model {
     {
         UsageMenuCardView.Model(
             providerTitle: ClaudeLinks.displayName,
+            mainProvider: .claude,
             planText: self.planText(loginMethod: input.snapshot?.loginMethod),
             subtitle: self.subtitle(input: input),
             status: self.statusLine(input: input),
@@ -581,6 +597,7 @@ extension UsageMenuCardView.Model {
     private static func codexOnlyModel(_ input: Input) -> UsageMenuCardView.Model {
         UsageMenuCardView.Model(
             providerTitle: CodexLinks.displayName,
+            mainProvider: .codex,
             planText: self.codexPlanText(loginMethod: input.codexSnapshot?.loginMethod),
             subtitle: self.codexSubtitle(input: input),
             status: self.codexStatusLine(input: input),
@@ -593,6 +610,7 @@ extension UsageMenuCardView.Model {
     private static func noProvidersModel() -> UsageMenuCardView.Model {
         UsageMenuCardView.Model(
             providerTitle: "SturtBar",
+            mainProvider: nil,
             planText: nil,
             subtitle: .blank,
             status: .noProvidersEnabled,
