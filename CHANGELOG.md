@@ -2,6 +2,14 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.1.0
+
+- New opt-in Codex provider: track OpenAI Codex (ChatGPT) usage alongside Claude. Off by default: until you turn it on in Settings → Providers, SturtBar makes no calls to OpenAI and never reads `~/.codex`. When enabled it reads `~/.codex/auth.json` read-only (never writes it, never refreshes Codex tokens) and shows the 5-hour and weekly windows with the plan badge.
+- Providers are now individually toggleable, Claude included (on by default). A disabled provider is fully inert: no network, no file reads, and its cached snapshot is wiped. With both off, the card says so plainly.
+- With two providers enabled the popover stacks both sections in one card, and the menu bar follows whichever provider is most constrained (highest session usage) with a one-letter prefix ("C 45%", "X 81%"). A new "Menu bar shows" setting can pin it to one provider. Single-provider displays are unchanged.
+- Notices to Mariners now name the coast: notification bodies open with the provider ("Claude: session spent…"), and per-provider notices no longer replace each other. One housekeeping note: the first notice after this upgrade may stack with one left over from an older version.
+- Provider links in the menu (console/usage and status pages) follow the enabled set.
+
 ## 1.0.2
 
 - "Show usage as used" now also flips the pace tip (the reserve/deficit marker): it marks expected usage on the same axis as the bar fill instead of staying on the remaining side. Reserve stays green and deficit red in both modes.

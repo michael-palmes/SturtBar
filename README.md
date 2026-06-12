@@ -10,6 +10,8 @@
 
 SturtBar is a small, calm macOS menu bar app that keeps watch over your Claude Code usage: how much of the current session window is left, how much of the week, when each one resets, and what you have spent. Usage limits are the rocks. Your remaining quota is your sea room. SturtBar keeps the light burning so you always know how much passage you have left.
 
+If you also sail with OpenAI's Codex CLI, SturtBar can keep watch over that coast too. It is strictly **opt-in**: off by default, with both providers stacked in one view when enabled together.
+
 It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangaroo Island: South Australia's first lighthouse, first lit on 16 January 1852, watching over Backstairs Passage so ships did not run aground. The light's namesake, as Colonial Secretary, raised the money from shipping interests to build the very light that warned their ships off the rocks. The funder paid for the warning. SturtBar is that light, re-manned by software.
 
 > Note: SturtBar is an independent project. It is not affiliated with, endorsed by, or built by Anthropic. It reads the usage data Claude Code already stores on your Mac.
@@ -30,14 +32,19 @@ Refresh runs on a hybrid schedule: whenever you open the menu, plus a background
 
 **On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
 
+**Codex (opt-in):** enable the Codex provider in Settings and SturtBar reads the sign-in the codex CLI already keeps at `~/.codex/auth.json` (read-only: SturtBar never writes that file, never refreshes Codex tokens, and never parses the identity token) and calls the same ChatGPT usage endpoint the CLI uses. If the token has expired, SturtBar simply says so and waits for you to run `codex`; it never touches `auth.openai.com`. Disable the provider and its lane goes fully dark again: no reads, no requests, and the cached snapshot is wiped.
+
 ## Privacy
 
-Everything stays on your Mac. The only network calls SturtBar makes are to the usage API (to read your numbers) and to `models.dev` (to keep its pricing table current). There is no analytics, no telemetry, and no account of any kind with SturtBar.
+Everything stays on your Mac. With the default settings the only network calls SturtBar makes are to the Claude usage API (to read your numbers) and to `models.dev` (to keep its pricing table current). If you opt in to the Codex provider, it additionally calls `chatgpt.com`, only while that toggle is on, and never anything else. There is no analytics, no telemetry, and no account of any kind with SturtBar.
+
+Each provider toggle is a hard gate: a disabled provider gets no network calls, no credential reads, and no background work, and disabling one wipes its cached snapshot from disk.
 
 ## Requirements
 
 - macOS 26 or later
 - Claude Code installed and signed in (run `claude` once so the credentials exist)
+- Optional, for the opt-in Codex provider: the codex CLI signed in via ChatGPT (run `codex` once; platform API-key accounts have no usage limits to show)
 
 ## Install
 
@@ -60,7 +67,7 @@ make lint       # SwiftFormat + SwiftLint
 
 ## Credits
 
-The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and nothing that leaves your Mac. Thanks for the spark.
+The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: two providers instead of many (and only one by default), zero third-party dependencies, and nothing that leaves your Mac. Thanks for the spark.
 
 ## License
 
