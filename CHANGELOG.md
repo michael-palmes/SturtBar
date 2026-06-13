@@ -4,8 +4,13 @@ All notable changes to SturtBar are recorded here.
 
 ## Unreleased
 
+- Apple Silicon only, now enforced in the tooling: the packaging scripts always build arm64 (the `--universal` Intel opt-in is removed) and the README requirements name an Apple Silicon Mac.
+- Agent guidance rewritten around key principles (privacy, security and performance first, least access, every network destination disclosed), with commit style rules and a CLAUDE.md symlink so Claude Code reads the same instructions.
+- Performance made explicit: the brand guide gains the keeper's economy (lean by construction, measured before claimed), the README gains a Performance section with measured footprint figures and the method behind each, the Credits line drops the unmeasured "faster", and unmeasured performance numbers are now a hard brand boundary.
+- Privacy made explicit: the README now lists every network destination (usage API, token refresh, pricing catalogue), the About box states the privacy posture, and the keychain explainer says plainly that SturtBar reads the token and never changes it. Undisclosed network destinations are now a hard brand boundary.
+- The denied-keychain error no longer suggests a setting that doesn't exist; it now says to press ⌘R and choose Always Allow.
 - Fixed a loop where SturtBar kept showing "Re-authenticate in Claude Code" even after a successful re-login. Re-authenticating recreates Claude Code's keychain item (resetting SturtBar's read permission), and a stale `~/.claude/.credentials.json` could shadow the fresh keychain credentials:
-  - When the only readable credentials are stale and a Claude keychain item exists that SturtBar can't read, the error now says what to actually do — open the menu, press ⌘R, and allow Keychain access — instead of suggesting another re-login.
+  - When the only readable credentials are stale and a Claude keychain item exists that SturtBar can't read, the error now says what to actually do (open the menu, press ⌘R, and allow Keychain access) instead of suggesting another re-login.
   - A hard auth block can no longer become permanent when SturtBar can't observe credential changes at all; it now retries once an hour in that state.
   - "Refresh token missing" errors now name the credential store they came from (file, cached copy, or keychain item) to make remote diagnosis possible.
 - Added TROUBLESHOOTING.md with a step-by-step recovery guide for authentication issues.

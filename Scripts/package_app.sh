@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-# package_app.sh — build + assemble + sign "SturtBar.app" from SwiftPM (no Xcode project).
+# package_app.sh: build + assemble + sign "SturtBar.app" from SwiftPM (no Xcode project).
 #
-# Usage: package_app.sh [release|debug] [--universal]
+# Usage: package_app.sh [release|debug]
 #
 # Env:
 #   STURTBAR_SIGNING            adhoc (default) | dev | developer-id | none
 #                               none keeps SwiftPM's linker signature so the
-#                               build's execution-policy exception survives —
+#                               build's execution-policy exception survives,
 #                               for sandboxed/agent contexts without the
 #                               Developer Tools privacy permission.
 #   STURTBAR_SIGNING_IDENTITY   required for developer-id ("Developer ID Application: ...")
 #   STURTBAR_DEV_IDENTITY       optional identity override for dev mode
-#   ARCHES                      space-separated arch override (default "arm64";
-#                               --universal expands to "arm64 x86_64")
 #
-# SturtBar ships Apple Silicon (arm64) only; --universal is kept as an opt-in for
-# anyone who wants an Intel slice too.
+# SturtBar ships Apple Silicon (arm64) only.
 #
 # Output: dist/SturtBar.app
 set -euo pipefail
@@ -32,13 +29,11 @@ ENTITLEMENTS="$ROOT/Scripts/SturtBar.entitlements"
 ICON_SOURCE="$ROOT/Resources/AppIcon.icns"
 
 CONF="release"
-UNIVERSAL=0
 for arg in "$@"; do
   case "$arg" in
     release | debug) CONF="$arg" ;;
-    --universal) UNIVERSAL=1 ;;
     --help | -h)
-      sed -n '2,13p' "${BASH_SOURCE[0]}"
+      sed -n '2,15p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *)
@@ -53,16 +48,8 @@ SIGNING_MODE="${STURTBAR_SIGNING:-adhoc}"
 source "$ROOT/version.env"
 
 # --- Build -------------------------------------------------------------------
-# arm64 only by default; --universal (or an ARCHES override) opts into more slices.
-if [[ "$UNIVERSAL" == "1" ]]; then
-  ARCHES="${ARCHES:-arm64 x86_64}"
-else
-  ARCHES="${ARCHES:-arm64}"
-fi
-BUILD_FLAGS=(-c "$CONF")
-for arch in $ARCHES; do
-  BUILD_FLAGS+=(--arch "$arch")
-done
+# Apple Silicon only: always build a single arm64 slice.
+BUILD_FLAGS=(-c "$CONF" --arch arm64)
 
 echo "==> swift build ${BUILD_FLAGS[*]}"
 swift build "${BUILD_FLAGS[@]}"
@@ -70,10 +57,8 @@ BIN_DIR=$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)
 BINARY="$BIN_DIR/$EXECUTABLE"
 [[ -f "$BINARY" ]] || { echo "ERROR: built binary missing at $BINARY" >&2; exit 1; }
 echo "==> binary archs: $(lipo -archs "$BINARY")"
-for arch in $ARCHES; do
-  lipo "$BINARY" -verify_arch "$arch" \
-    || { echo "ERROR: build missing $arch slice" >&2; exit 1; }
-done
+lipo "$BINARY" -verify_arch arm64 \
+  || { echo "ERROR: build missing arm64 slice" >&2; exit 1; }
 
 # --- Resolve signing identity --------------------------------------------------
 resolve_dev_identity() {

@@ -12,4 +12,4 @@ You can expect an acknowledgement within a few days. If the report is valid, a f
 
 ## Scope notes
 
-SturtBar reads the Claude Code credentials already stored on your Mac (`~/.claude/.credentials.json` or the login keychain) and uses them to call the usage API. It never writes to Claude Code's credential stores; rotated tokens persist only to SturtBar's own keychain cache. Reports concerning credential handling, keychain access, or anything that could move data off the machine are especially welcome.
+SturtBar reads the Claude Code credentials already stored on your Mac (`~/.claude/.credentials.json` or the login keychain) and uses them to call the usage API. It never writes to Claude Code's credential stores; rotated tokens persist only to SturtBar's own keychain cache. The complete list of network destinations is in the README's [Privacy section](README.md#privacy); any traffic beyond that list is a bug worth reporting. Reports concerning credential handling, keychain access, or anything that could move data off the machine are especially welcome.
