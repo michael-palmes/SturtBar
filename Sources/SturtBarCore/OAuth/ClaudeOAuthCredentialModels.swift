@@ -196,9 +196,8 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
                 || status == Int(errSecInteractionNotAllowed)
                 || status == Int(errSecNoAccessForItem)
             {
-                return "Claude Keychain access was denied. SturtBar will back off in the background until you retry "
-                    + "via a user action (menu open / manual refresh). "
-                    + "Switch Claude Usage source to Web/CLI, or allow access in Keychain Access."
+                return "Claude Keychain access was denied. Open the SturtBar menu and press ⌘R, "
+                    + "then choose Always Allow. SturtBar backs off in the background until you do."
             }
             #endif
             return "Claude OAuth keychain error: \(status)"
@@ -215,7 +214,7 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
             return "Claude OAuth refresh token missing\(origin). Run `claude` to authenticate."
         case let .claudeKeychainAccessRequired(underlying):
             // Keep the action inside the first ~80 characters: the menu card truncates the detail.
-            var text = "Open the SturtBar menu, press ⌘R, then allow Keychain access — "
+            var text = "Open the SturtBar menu, press ⌘R, then allow Keychain access. "
                 + "Claude Code's sign-in changed and SturtBar can't read it yet."
             if let underlying, !underlying.isEmpty {
                 text += " (\(underlying))"
