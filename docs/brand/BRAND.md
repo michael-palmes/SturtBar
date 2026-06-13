@@ -1,6 +1,6 @@
 # SturtBar Brand, Voice and Design Guidelines
 
-Version 1.853-draft. Australian English throughout. No em dashes, ever.
+Version 1.854-draft. Australian English throughout. No em dashes, ever.
 
 SturtBar is a macOS menu bar app that tracks AI plan usage: session windows, credit balances, and reset countdowns. It launches supporting one provider and is designed to expand to several. The brand never names, imitates, or implies affiliation with any provider. Providers are simply "stations" whose lights we keep.
 
@@ -55,8 +55,9 @@ These mappings are canonical. Use them consistently in UI, copy, and code naming
 | Your Claude Code credentials | The keys |
 | SturtBar's own keychain cache | The key safe |
 | The privacy posture | The Keeper's watch |
+| The performance posture | The keeper's economy |
 
-The last three are flavour only. They never replace plain language in an actual security claim; see section 6.
+The last four are flavour only. They never replace plain language in an actual security or performance claim; see section 6.
 
 ### 2.1 Usage states
 
@@ -131,6 +132,7 @@ Trust moments (the claims are literal; see section 6):
 - Auth error (popover status line, plain and actionable, always names the credential source): "Re-authenticate in Claude Code: {detail}"
 - Keychain permission stuck (the action comes first; the menu card truncates long detail): "Open the SturtBar menu, press ⌘R, then allow Keychain access. Claude Code's sign-in changed and SturtBar can't read it yet."
 - About box privacy line (themed surface, literal claim): "The Keeper watches the water, not you. No telemetry, no analytics; your keys stay in the keychain and are never altered."
+- About box footer (literal, tiny): "No. 17 · MIT License · Zero third-party dependencies"
 
 ### 3.4 Voice don'ts, with corrections
 
@@ -235,9 +237,9 @@ Notices to Mariners are rare and useful, in keeping with a keeper who signals on
 
 ---
 
-## 6. Trust: the Keeper's watch
+## 6. The standing orders: watch, guard, waste nothing
 
-Protecting the user is part of the watch. The light exists so ships are not wrecked; the app exists so your quota, your credentials, and your privacy are minded with the same discipline. This section is the canonical statement of that posture. Every claim in it is literal and stated in plain language, per the voice rules in 3.2.
+Protecting the user is part of the watch. The light exists so ships are not wrecked; the app exists so your privacy, your credentials, and your machine's resources are minded with the same discipline. Three standing orders cover it: watch the water (privacy), guard the keys (security), waste nothing (performance). This section is the canonical statement of that posture. Every claim in it is literal and stated in plain language, per the voice rules in 3.2.
 
 ### 6.1 The sanctioned tagline
 
@@ -269,9 +271,20 @@ Links that open in the user's browser (the Claude Console, the status page) are 
 
 Keychain prompts appear on user action (opening the menu, pressing ⌘R), plus at most one prompt during the first launch after install. Routine background refreshes never prompt.
 
-### 6.5 Keeping the mirrors in sync
+### 6.5 The keeper's economy
 
-The README's Privacy section and the landing page's notice of watch (9.3) are the public mirrors of this section. When the posture or the destination list changes, all three change in the same commit.
+A well-run station wastes nothing. Performance is housekeeping, not heroics: the brand never brags about speed, it accounts for it.
+
+- **Lean by construction.** Zero third-party dependencies, native Swift on system frameworks, menu bar only. Work runs on demand: cost scans when something asks, icon renders when the reading changes, nothing on the launch path that can wait.
+- **Measured, not assumed.** The hot paths carry signposts (launch, refresh, scan, iconRender, menu), inspectable in Instruments under `com.michaelpalmes.sturtbar`, and CI fails any change that lets the cost scanner fall behind a naive baseline. A performance claim traces to one of these or it is not made.
+- **Felt, then promised.** The 300 ms glanceability rule (4.6) is the standard the Logbook is held to. It is a target we design against, never a result we report.
+- **Figures travel with their method.** Footprint numbers (bundle size, idle memory, scanner speedup) live in the README's Performance section, each with the command that produced it and the machine it ran on (hard boundary 9). This section states the standards; it never caches the numbers.
+
+The sanctioned performance line, marketing surfaces only: **"Good order, cleanliness, and discipline."** The Marine Board's own words for the station (3.1), quoted exactly, never paraphrased, and always within reach of the plain claims they front.
+
+### 6.6 Keeping the mirrors in sync
+
+The README's Privacy and Performance sections and the landing page's printed plates (the notice of watch, 9.3, and the stores ledger, 9.4) are the public mirrors of this section. When the posture, the destination list, or a published figure changes, the mirrors change in the same commit.
 
 ---
 
@@ -299,6 +312,7 @@ Reserved names: the Lamp, the Logbook, the Passage, Notices to Mariners, the Kee
 6. **No invented history.** Every date, number, and historical claim in the product must be real.
 7. **Accuracy beats theme.** If a metaphor obscures what the number means, the metaphor loses.
 8. **No silent calls.** Every network destination the app talks to is enumerated in 6.3, in the README, and on the landing page, with what is sent and when. A new destination ships with its disclosure in the same change, or it does not ship. We never invent heritage; we never hide where the signals go.
+9. **No unmeasured numbers.** Performance figures ship with the measurement that produced them: the command, the machine, and the version. Design targets (the 300 ms glanceability rule) are stated as targets, never as results. If it was not measured, it is not claimed.
 
 ---
 
@@ -337,7 +351,16 @@ The privacy claims are typeset as one of the printed artefacts: a 19th-century n
 
 The headline may be the sanctioned tagline ("The Keeper watches the water, not you."). The list items are plain language and must match section 6 in substance. The artefact follows the same treatment and rights rules as the rest of this section. The genre makes plain disclosure feel native; it never decorates it into vagueness.
 
-### 9.4 Boundaries specific to the site
+### 9.4 The stores ledger
+
+The performance claims get the same treatment as the privacy claims: typeset as a printed plate, this time in the genre of a station's stores return. A light station ran on issued stores and the keeper accounted for them; the app accounts for the resources it uses.
+
+- The artefact is product-owned and typeset, like the notice of watch: a small ruled ledger table carrying the README's published figures (bundle size, idle memory, scanner benchmark), each row with its method noted in the margin.
+- It is captioned as ours ("The keeper's return, SturtBar {version}"), never aged, distressed, or passed off as a scan. The genre is borrowed honestly; the document is new and says so.
+- If a genuine South Australian lighthouse stores ledger is ever sourced and rights-cleared, it may sit beside the typeset plate with its own provenance caption. It never carries the product's numbers.
+- Figures match the README's Performance section in substance (6.6). A figure that has not been measured does not get a row (hard boundary 9).
+
+### 9.5 Boundaries specific to the site
 
 The archival-ephemera-on-warm-paper genre is a long-standing editorial style; the collection is what must be ours. Never reproduce artefacts, motifs, or compositions from any AI provider's own campaigns (no butterflies-on-grid, no borrowed plate scans). If an artefact is not from the South Australian maritime, botanical, or cartographic record, it does not belong on the page.
 
@@ -351,4 +374,5 @@ The archival-ephemera-on-warm-paper genre is a long-standing editorial style; th
 - Type in one line: warm serif for the brand's voice, system sans for the data, tabular figures for anything that ticks.
 - Layout in one line: data first, theme last; the menu bar is mute, the About box sings.
 - Trust in one line: the Keeper watches the water, not you; claims in plain words, every destination disclosed.
+- Performance in one line: the keeper's economy; lean by construction, measured before mentioned, every figure travels with its method.
 - Landing page in one line: our own archive on warm paper; borrow the genre, never the collection.
