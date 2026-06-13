@@ -49,6 +49,30 @@ Every network call it makes:
 
 What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores, and secrets are redacted from its logs.
 
+## Performance
+
+**"Good order, cleanliness, and discipline."** The Marine Board's praise for the light station, and the standard the app is held to. A well-run light wastes nothing.
+
+Lean by construction:
+
+- Zero third-party dependencies: native Swift and system frameworks only (see [Package.swift](Package.swift)).
+- Menu bar only: no Dock icon, and windows are created only when you open them.
+- Work runs on demand: cost scans happen only when something asks for them, the menu bar icon re-renders only when the reading changes, and launch defers everything that can wait.
+
+Measured, not assumed:
+
+- The hot paths carry signposts (launch, refresh, scan, iconRender, menu), inspectable in Instruments under `com.michaelpalmes.sturtbar`.
+- CI runs a scanner benchmark on every change: the cost scanner is never allowed to fall behind a naive line-by-line baseline.
+- The Logbook is designed so the number you came for is readable within 300 ms of opening. That is the standard it is held to, not a stopwatch result.
+
+The footprint:
+
+- App bundle: 6.9 MB on disk (`make package`, release build, then `du -sh dist/SturtBar.app`).
+- Idle memory: 56 MB physical footprint (`footprint SturtBar`, sampled on a running instance with cost tracking enabled and the menu closed).
+- Session-log scanner: about 16x faster than the naive baseline in the repo's benchmark (`swift test --filter CostUsageJsonlPerformanceTests`, synthetic 20,000-line fixture, measured 16.51x).
+
+Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers will vary; the method will not.
+
 ## Requirements
 
 - macOS 26 or later
@@ -75,7 +99,7 @@ make lint       # SwiftFormat + SwiftLint
 
 ## Credits
 
-The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
+The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
 
 ## License
 
