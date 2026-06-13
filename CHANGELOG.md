@@ -2,6 +2,14 @@
 
 All notable changes to SturtBar are recorded here.
 
+## Unreleased
+
+- Fixed a loop where SturtBar kept showing "Re-authenticate in Claude Code" even after a successful re-login. Re-authenticating recreates Claude Code's keychain item (resetting SturtBar's read permission), and a stale `~/.claude/.credentials.json` could shadow the fresh keychain credentials:
+  - When the only readable credentials are stale and a Claude keychain item exists that SturtBar can't read, the error now says what to actually do — open the menu, press ⌘R, and allow Keychain access — instead of suggesting another re-login.
+  - A hard auth block can no longer become permanent when SturtBar can't observe credential changes at all; it now retries once an hour in that state.
+  - "Refresh token missing" errors now name the credential store they came from (file, cached copy, or keychain item) to make remote diagnosis possible.
+- Added TROUBLESHOOTING.md with a step-by-step recovery guide for authentication issues.
+
 ## 1.0.2
 
 - "Show usage as used" now also flips the pace tip (the reserve/deficit marker): it marks expected usage on the same axis as the bar fill instead of staying on the remaining side. Reserve stays green and deficit red in both modes.

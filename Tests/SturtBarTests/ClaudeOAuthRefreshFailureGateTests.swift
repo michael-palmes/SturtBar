@@ -274,6 +274,49 @@ struct ClaudeOAuthRefreshFailureGateTests {
     }
 
     @Test
+    func `terminal block allows slow blind retry when fingerprint is unavailable`() {
+        ClaudeOAuthRefreshFailureGate.resetForTesting()
+        defer { ClaudeOAuthRefreshFailureGate.resetForTesting() }
+
+        ClaudeOAuthRefreshFailureGate.setFingerprintProviderOverrideForTesting { nil }
+        defer { ClaudeOAuthRefreshFailureGate.setFingerprintProviderOverrideForTesting(nil) }
+
+        let start = Date(timeIntervalSince1970: 90000)
+        ClaudeOAuthRefreshFailureGate.recordTerminalAuthFailure(now: start)
+
+        // Blind comparisons cannot observe a re-auth; stay blocked within the retry interval…
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60)) == false)
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 59)) == false)
+
+        // …but allow one retry per interval so an undetectable re-auth can eventually heal.
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 60 + 1)) == true)
+
+        // The retry consumes the window: blocked again right after…
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 61)) == false)
+        // …until the next interval elapses.
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 121 + 2)) == true)
+    }
+
+    @Test
+    func `terminal block allows slow blind retry when fingerprint is unknown at failure and unchanged`() {
+        ClaudeOAuthRefreshFailureGate.resetForTesting()
+        defer { ClaudeOAuthRefreshFailureGate.resetForTesting() }
+
+        // Provider runs but cannot see any credential store (no keychain metadata, no file).
+        let unknown = ClaudeOAuthRefreshFailureGate.AuthFingerprint(keychain: nil, credentialsFile: nil)
+        ClaudeOAuthRefreshFailureGate.setFingerprintProviderOverrideForTesting { unknown }
+        defer { ClaudeOAuthRefreshFailureGate.setFingerprintProviderOverrideForTesting(nil) }
+
+        let start = Date(timeIntervalSince1970: 95000)
+        ClaudeOAuthRefreshFailureGate.recordTerminalAuthFailure(now: start)
+
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60)) == false)
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 59)) == false)
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 60 + 1)) == true)
+        #expect(ClaudeOAuthRefreshFailureGate.shouldAttempt(now: start.addingTimeInterval(60 * 61)) == false)
+    }
+
+    @Test
     func `transient backoff unblocks early when fingerprint changes`() {
         ClaudeOAuthRefreshFailureGate.resetForTesting()
         defer { ClaudeOAuthRefreshFailureGate.resetForTesting() }

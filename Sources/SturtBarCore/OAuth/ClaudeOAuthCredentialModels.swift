@@ -124,6 +124,22 @@ public enum ClaudeOAuthCredentialSource: String, Sendable {
     case cacheKeychain
     case credentialsFile
     case claudeKeychain
+
+    /// Short human label naming where credentials were read from, for user-facing errors. Knowing
+    /// the offending store is what makes "refresh token missing" actionable when debugging
+    /// remotely (e.g. a stale `~/.claude/.credentials.json` shadowing a fresh keychain item).
+    public var humanLabel: String {
+        switch self {
+        case .environment:
+            "the STURTBAR_CLAUDE_OAUTH_TOKEN environment variable"
+        case .memoryCache, .cacheKeychain:
+            "SturtBar's cached copy"
+        case .credentialsFile:
+            "~/.claude/.credentials.json"
+        case .claudeKeychain:
+            "the Claude Code keychain item"
+        }
+    }
 }
 
 public struct ClaudeOAuthCredentialRecord: Sendable {
@@ -156,7 +172,12 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
     case keychainError(Int)
     case readFailed(String)
     case refreshFailed(kind: RefreshFailureKind, message: String)
-    case noRefreshToken
+    case noRefreshToken(source: ClaudeOAuthCredentialSource?)
+    /// The only loadable credentials are stale, but a Claude Code keychain item exists that
+    /// SturtBar could not read silently — typically after a re-login in Claude Code recreated the
+    /// item and reset its access control. The fix is a user-initiated refresh plus approving the
+    /// Keychain prompt, not another re-login.
+    case claudeKeychainAccessRequired(underlying: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -185,8 +206,21 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
             return "Claude OAuth credentials read failed: \(message)"
         case let .refreshFailed(kind, message):
             return "Claude OAuth token refresh failed [\(kind.rawValue)]: \(message)"
-        case .noRefreshToken:
-            return "Claude OAuth refresh token missing. Run `claude` to authenticate."
+        case let .noRefreshToken(source):
+            if source == .environment {
+                return "Claude OAuth environment token expired and cannot be refreshed. "
+                    + "Provide a fresh STURTBAR_CLAUDE_OAUTH_TOKEN."
+            }
+            let origin = source.map { " (from \($0.humanLabel))" } ?? ""
+            return "Claude OAuth refresh token missing\(origin). Run `claude` to authenticate."
+        case let .claudeKeychainAccessRequired(underlying):
+            // Keep the action inside the first ~80 characters: the menu card truncates the detail.
+            var text = "Open the SturtBar menu, press ⌘R, then allow Keychain access — "
+                + "Claude Code's sign-in changed and SturtBar can't read it yet."
+            if let underlying, !underlying.isEmpty {
+                text += " (\(underlying))"
+            }
+            return text
         }
     }
 }
