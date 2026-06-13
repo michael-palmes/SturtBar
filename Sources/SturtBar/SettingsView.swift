@@ -107,7 +107,8 @@ struct SettingsView: View {
         SettingsSection(title: "Cost") {
             PreferenceToggleRow(
                 title: "Track local token cost",
-                subtitle: "Estimates spend locally from Claude Code session logs and shows it in the menu.",
+                subtitle: "Estimates spend locally from Claude Code session logs and shows it in the menu. "
+                    + "Scans run on demand, not in the background.",
                 isOn: self.$settings.costUsageEnabled)
 
             if self.settings.costUsageEnabled {

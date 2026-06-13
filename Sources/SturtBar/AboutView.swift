@@ -59,7 +59,7 @@ struct AboutView: View {
                 destination: URL(string: "https://github.com/michael-palmes/SturtBar")!)
                 .font(.footnote)
 
-            Text("No. 17 · MIT License")
+            Text("No. 17 · MIT License · Zero third-party dependencies")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 6)
