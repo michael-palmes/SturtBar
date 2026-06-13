@@ -24,7 +24,7 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
 
 ## How it works
 
-SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does.
+SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does. It reads them; it never changes them.
 
 Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads). Nothing is uploaded.
 
@@ -32,16 +32,54 @@ Refresh runs on a hybrid schedule: whenever you open the menu, plus a background
 
 **On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
 
+If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
+
 **Codex (opt-in):** enable the Codex provider in Settings and SturtBar reads the sign-in the codex CLI already keeps at `~/.codex/auth.json` (read-only: SturtBar never writes that file, never refreshes Codex tokens, and never parses the identity token) and calls the same ChatGPT usage endpoint the CLI uses. If the token has expired, SturtBar simply says so and waits for you to run `codex`; it never touches `auth.openai.com`. Disable the provider and its lane goes fully dark again: no reads, no requests, and the cached snapshot is wiped.
 
 ## Privacy
 
-Everything stays on your Mac. With the default settings the only network calls SturtBar makes are to the Claude usage API (to read your numbers) and to `models.dev` (to keep its pricing table current). If you opt in to the Codex provider, it additionally calls `chatgpt.com`, only while that toggle is on, and never anything else. There is no analytics, no telemetry, and no account of any kind with SturtBar.
+**The Keeper watches the water, not you.** SturtBar watches your usage, never you. Your credentials and session logs stay on your Mac; the only signals sent are the ones listed here.
 
-Each provider toggle is a hard gate: a disabled provider gets no network calls, no credential reads, and no background work, and disabling one wipes its cached snapshot from disk.
+What it reads:
+
+- Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
+- Session logs under `~/.claude/projects`, scanned locally for spend estimates. Nothing is uploaded.
+
+Every network call it makes:
+
+- `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
+- `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
+- `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
+
+What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores, and secrets are redacted from its logs.
+
+## Performance
+
+**"Good order, cleanliness, and discipline."** The Marine Board's praise for the light station, and the standard the app is held to. A well-run light wastes nothing.
+
+Lean by construction:
+
+- Zero third-party dependencies: native Swift and system frameworks only (see [Package.swift](Package.swift)).
+- Menu bar only: no Dock icon, and windows are created only when you open them.
+- Work runs on demand: cost scans happen only when something asks for them, the menu bar icon re-renders only when the reading changes, and launch defers everything that can wait.
+
+Measured, not assumed:
+
+- The hot paths carry signposts (launch, refresh, scan, iconRender, menu), inspectable in Instruments under `com.michaelpalmes.sturtbar`.
+- CI runs a scanner benchmark on every change: the cost scanner is never allowed to fall behind a naive line-by-line baseline.
+- The Logbook is designed so the number you came for is readable within 300 ms of opening. That is the standard it is held to, not a stopwatch result.
+
+The footprint:
+
+- App bundle: 6.9 MB on disk (`make package`, release build, then `du -sh dist/SturtBar.app`).
+- Idle memory: 56 MB physical footprint (`footprint SturtBar`, sampled on a running instance with cost tracking enabled and the menu closed).
+- Session-log scanner: about 16x faster than the naive baseline in the repo's benchmark (`swift test --filter CostUsageJsonlPerformanceTests`, synthetic 20,000-line fixture, measured 16.51x).
+
+Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers will vary; the method will not.
 
 ## Requirements
 
+- An Apple Silicon (M-series) Mac
 - macOS 26 or later
 - Claude Code installed and signed in (run `claude` once so the credentials exist)
 - Optional, for the opt-in Codex provider: the codex CLI signed in via ChatGPT (run `codex` once; platform API-key accounts have no usage limits to show)
@@ -67,7 +105,7 @@ make lint       # SwiftFormat + SwiftLint
 
 ## Credits
 
-The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: two providers instead of many (and only one by default), zero third-party dependencies, and nothing that leaves your Mac. Thanks for the spark.
+The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, more privacy focused take on it: two provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
 
 ## License
 

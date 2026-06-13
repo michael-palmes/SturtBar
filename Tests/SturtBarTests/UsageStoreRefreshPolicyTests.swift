@@ -354,7 +354,7 @@ struct UsageStoreHealthMappingTests {
     func `auth-required errors map to needsReauth`() async {
         for (index, error) in [
             ClaudeUsageError.scopeUnsatisfied(message: "missing user:profile"),
-            .credentials(.noRefreshToken),
+            .credentials(.noRefreshToken(source: nil)),
             .credentials(.refreshFailed(kind: .terminal, message: "invalid_grant")),
         ].enumerated() {
             let ts = self.storeFailing("sturtbar-tests-reauth-\(index)", error: error)

@@ -53,6 +53,8 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
                 true
             case .refreshFailed(kind: .terminal, message: _):
                 true
+            case .claudeKeychainAccessRequired:
+                true
             default:
                 false
             }

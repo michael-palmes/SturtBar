@@ -23,11 +23,12 @@ enum KeychainPromptCoordinator {
     private static let promptLock = NSLock()
     private static let log = SturtBarLog.logger("keychain-prompt")
 
-    // Sentence case per BRAND.md §4.3 (Title Case is forbidden); functional copy stays plain.
+    // Canonical trust moment per BRAND.md §3.3; sentence case per §4.3, the claim stays plain.
     private static let title = "Keychain access required"
     private static let claudeOAuthMessage =
         "SturtBar will ask macOS Keychain for the Claude Code OAuth token " +
-        "so it can fetch your Claude usage. Click OK to continue."
+        "so it can fetch your Claude usage. It reads the token; it never changes it. " +
+        "Click OK to continue."
 
     static func install() {
         KeychainPromptHandler.handler = { context in

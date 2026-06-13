@@ -9,7 +9,7 @@ Thanks for considering it. SturtBar is a small, deliberately narrow project: one
 
 ## Development setup
 
-You need macOS 26+ and Xcode. No package installs; the system toolchain is all there is.
+You need an Apple Silicon Mac, macOS 26+ and Xcode. No package installs; the system toolchain is all there is.
 
 ```sh
 make build      # swift build

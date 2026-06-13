@@ -42,6 +42,7 @@ public enum ClaudeOAuthRefreshFailureGate {
         var fingerprintAtFailure: AuthFingerprint?
         var lastCredentialsRecheckAt: Date?
         var terminalReason: String?
+        var lastBlindTerminalRetryAt: Date?
     }
 
     private static let lock = OSAllocatedUnfairLock<State>(initialState: State())
@@ -56,6 +57,11 @@ public enum ClaudeOAuthRefreshFailureGate {
     private static let log = SturtBarLog.logger("claude-usage")
     private static let minimumCredentialsRecheckInterval: TimeInterval = 15
     private static let unknownFingerprint = AuthFingerprint(keychain: nil, credentialsFile: nil)
+    /// When the gate cannot observe credential changes at all (no fingerprint provider, or neither
+    /// the keychain item nor the credentials file is visible), a terminal block would otherwise be
+    /// permanent — a re-auth in Claude Code could never self-heal. Allow one blind retry per this
+    /// interval instead.
+    private static let terminalBlindRetryInterval: TimeInterval = 60 * 60
     private static let transientBaseInterval: TimeInterval = 60 * 5
     private static let transientMaxInterval: TimeInterval = 60 * 60 * 6
 
@@ -85,6 +91,7 @@ public enum ClaudeOAuthRefreshFailureGate {
             state.fingerprintAtFailure = nil
             state.lastCredentialsRecheckAt = nil
             state.terminalReason = nil
+            state.lastBlindTerminalRetryAt = nil
         }
     }
 
@@ -97,6 +104,7 @@ public enum ClaudeOAuthRefreshFailureGate {
             state.fingerprintAtFailure = nil
             state.lastCredentialsRecheckAt = nil
             state.terminalReason = nil
+            state.lastBlindTerminalRetryAt = nil
             UserDefaults.standard.removeObject(forKey: self.blockedUntilKey)
             UserDefaults.standard.removeObject(forKey: self.failureCountKey)
             UserDefaults.standard.removeObject(forKey: self.fingerprintKey)
@@ -123,9 +131,20 @@ public enum ClaudeOAuthRefreshFailureGate {
                 guard self.shouldRecheckCredentials(now: now, state: state) else { return false }
 
                 state.lastCredentialsRecheckAt = now
-                if self.hasCredentialsChangedSinceFailure(state) {
+                let current = self.currentFingerprint()
+                if self.hasCredentialsChangedSinceFailure(current: current, state: state) {
                     self.resetState(&state)
                     self.persist(state)
+                    return true
+                }
+
+                if self.isBlindToCredentialChanges(current: current, state: state),
+                   self.shouldAllowBlindTerminalRetry(now: now, state: state)
+                {
+                    state.lastBlindTerminalRetryAt = now
+                    self.log.info(
+                        "Claude OAuth refresh terminal block allowing blind retry",
+                        metadata: ["terminalFailures": "\(state.terminalFailureCount)"])
                     return true
                 }
 
@@ -151,7 +170,7 @@ public enum ClaudeOAuthRefreshFailureGate {
 
                 if self.shouldRecheckCredentials(now: now, state: state) {
                     state.lastCredentialsRecheckAt = now
-                    if self.hasCredentialsChangedSinceFailure(state) {
+                    if self.hasCredentialsChangedSinceFailure(current: self.currentFingerprint(), state: state) {
                         self.resetState(&state)
                         self.persist(state)
                         return true
@@ -192,6 +211,7 @@ public enum ClaudeOAuthRefreshFailureGate {
             state.terminalReason = "invalid_grant"
             state.fingerprintAtFailure = self.currentFingerprint() ?? self.unknownFingerprint
             state.lastCredentialsRecheckAt = now
+            state.lastBlindTerminalRetryAt = now
             self.clearTransientState(&state)
             self.persist(state)
         }
@@ -229,10 +249,24 @@ public enum ClaudeOAuthRefreshFailureGate {
         return now.timeIntervalSince(last) >= self.minimumCredentialsRecheckInterval
     }
 
-    private static func hasCredentialsChangedSinceFailure(_ state: State) -> Bool {
-        guard let current = self.currentFingerprint() else { return false }
+    private static func hasCredentialsChangedSinceFailure(current: AuthFingerprint?, state: State) -> Bool {
+        guard let current else { return false }
         guard let prior = state.fingerprintAtFailure else { return false }
         return current != prior
+    }
+
+    /// True when fingerprint comparison cannot detect a re-auth: the provider is unavailable, or
+    /// both the live fingerprint and the at-failure baseline are the unknown sentinel (no visible
+    /// keychain item or credentials file either time).
+    private static func isBlindToCredentialChanges(current: AuthFingerprint?, state: State) -> Bool {
+        guard let current else { return true }
+        return current == self.unknownFingerprint
+            && (state.fingerprintAtFailure ?? self.unknownFingerprint) == self.unknownFingerprint
+    }
+
+    private static func shouldAllowBlindTerminalRetry(now: Date, state: State) -> Bool {
+        guard let last = state.lastBlindTerminalRetryAt else { return true }
+        return now.timeIntervalSince(last) >= self.terminalBlindRetryInterval
     }
 
     private static func currentFingerprint() -> AuthFingerprint? {
@@ -355,6 +389,7 @@ public enum ClaudeOAuthRefreshFailureGate {
         self.clearTransientState(&state)
         state.fingerprintAtFailure = nil
         state.lastCredentialsRecheckAt = nil
+        state.lastBlindTerminalRetryAt = nil
     }
 }
 #else

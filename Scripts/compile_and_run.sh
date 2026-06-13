@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# compile_and_run.sh — fast dev loop: build, package, relaunch "SturtBar.app".
+# compile_and_run.sh: fast dev loop. Build, package, relaunch "SturtBar.app".
 #
-# Usage: compile_and_run.sh [release] [--universal]   (debug build by default)
+# Usage: compile_and_run.sh [release]   (debug build by default)
 # Env:   STURTBAR_SIGNING=adhoc|dev|developer-id      (default: dev when a stable
-#        identity exists, else adhoc — dev keeps keychain ACLs across rebuilds)
+#        identity exists, else adhoc; dev keeps keychain ACLs across rebuilds)
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 APP_BUNDLE="$ROOT/dist/SturtBar.app"
 EXECUTABLE="SturtBar"
 CONF="debug"
-EXTRA_ARGS=()
 
 for arg in "$@"; do
   case "$arg" in
     release | debug) CONF="$arg" ;;
-    --universal) EXTRA_ARGS+=(--universal) ;;
     --help | -h)
-      echo "Usage: $(basename "$0") [release|debug] [--universal]"
+      echo "Usage: $(basename "$0") [release|debug]"
       exit 0
       ;;
     *)
@@ -41,7 +39,7 @@ if [[ -z "$SIGNING" ]]; then
 fi
 
 echo "==> Packaging ($CONF, signing: $SIGNING)"
-STURTBAR_SIGNING="$SIGNING" "$ROOT/Scripts/package_app.sh" "$CONF" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+STURTBAR_SIGNING="$SIGNING" "$ROOT/Scripts/package_app.sh" "$CONF"
 
 echo "==> Stopping running instances"
 pkill -x "$EXECUTABLE" 2>/dev/null || true

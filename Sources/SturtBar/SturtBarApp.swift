@@ -123,7 +123,7 @@ import SturtBarCore
         }
 
         // First lit 1852; standing watch since you installed it (BRAND.md §3.3 system moment).
-        Self.log.info("Cape Willoughby. The light is lit; standing watch.")
+        Self.log.info("Cape Willoughby. The light is lit; standing watch. The Keeper watches the water, not you.")
         if let state = Self.launchSignpostState {
             Signposts.launch.endInterval("launch", state)
             Self.launchSignpostState = nil

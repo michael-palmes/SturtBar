@@ -748,7 +748,7 @@ struct ClaudeUsageServiceFlowTests {
     @Test
     func `needs reauth derives from typed cases only`() {
         // indicatesAuthenticationRequired matrix
-        #expect(ClaudeUsageError.credentials(.noRefreshToken).indicatesAuthenticationRequired == true)
+        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "invalid_grant"))
             .indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope")
@@ -767,7 +767,7 @@ struct ClaudeUsageServiceFlowTests {
         #expect(ClaudeUsageError.credentials(.missingOAuth).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.missingAccessToken).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.decodeFailed).indicatesCredentialsMissing == true)
-        #expect(ClaudeUsageError.credentials(.noRefreshToken).indicatesCredentialsMissing == false)
+        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "x"))
             .indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope").indicatesCredentialsMissing == false)
