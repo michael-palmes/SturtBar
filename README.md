@@ -75,6 +75,7 @@ Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers wil
 
 ## Requirements
 
+- An Apple Silicon (M-series) Mac
 - macOS 26 or later
 - Claude Code installed and signed in (run `claude` once so the credentials exist)
 
