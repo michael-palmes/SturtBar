@@ -35,7 +35,8 @@ Guidance for AI agents working in this repo. SturtBar is a lean, Claude Code onl
 - All usage fetches go through the `ClaudeUsageClient` actor; never call OAuth-store sync entry points from the MainActor (they can block on keychain prompts).
 - Health mapping is typed only; never parse error strings.
 - The self-cache keychain read is best-effort and must never prompt (see `KeychainCacheStore.withoutLegacyKeychainUI`); it falls back to Claude Code's keychain.
+- **No silent network calls.** The complete destination list lives in `docs/brand/BRAND.md` 6.3 and the README's Privacy section. A new destination ships with its disclosure in the same change, or it does not ship (BRAND.md hard boundary 8).
 
 ## Brand voice
 
-User-facing copy follows `BRAND.md` (kept in the SturtBar planning folder): Australian English, no em dashes ever, sentence case (no Title Case), and the dry maritime "Keeper" register. Theme density is inversely proportional to glance frequency: the menu bar is mute, the popover terse, the About box can sing. Never imply affiliation with any AI provider; provider names appear only in functional UI, never in flavour copy.
+User-facing copy follows [`docs/brand/BRAND.md`](docs/brand/BRAND.md): Australian English, no em dashes ever, sentence case (no Title Case; native macOS menu item titles are exempt per platform convention), and the dry maritime "Keeper" register. Security and privacy claims are always literal and plain; themed security lines are for marketing surfaces only (BRAND.md section 6). Theme density is inversely proportional to glance frequency: the menu bar is mute, the popover terse, the About box can sing. Never imply affiliation with any AI provider; provider names appear only in functional UI, never in flavour copy.

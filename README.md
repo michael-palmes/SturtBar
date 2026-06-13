@@ -22,7 +22,7 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
 
 ## How it works
 
-SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does.
+SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does. It reads them; it never changes them.
 
 Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads). Nothing is uploaded.
 
@@ -30,11 +30,24 @@ Refresh runs on a hybrid schedule: whenever you open the menu, plus a background
 
 **On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
 
-If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude *desktop app* doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
+If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude *desktop app* doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
 
 ## Privacy
 
-Everything stays on your Mac. The only network calls SturtBar makes are to the usage API (to read your numbers) and to `models.dev` (to keep its pricing table current). There is no analytics, no telemetry, and no account of any kind with SturtBar.
+**The Keeper watches the water, not you.** SturtBar watches your usage, never you. Your credentials and session logs stay on your Mac; the only signals sent are the ones listed here.
+
+What it reads:
+
+- Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
+- Session logs under `~/.claude/projects`, scanned locally for spend estimates. Nothing is uploaded.
+
+Every network call it makes:
+
+- `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
+- `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
+- `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
+
+What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores, and secrets are redacted from its logs.
 
 ## Requirements
 
@@ -62,7 +75,7 @@ make lint       # SwiftFormat + SwiftLint
 
 ## Credits
 
-The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and nothing that leaves your Mac. Thanks for the spark.
+The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, faster, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
 
 ## License
 
