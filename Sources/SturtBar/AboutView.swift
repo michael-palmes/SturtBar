@@ -41,6 +41,16 @@ struct AboutView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 4)
 
+            // BRAND.md §3.3 trust moment: themed surface, literal claim.
+            Text(
+                "The Keeper watches the water, not you. No telemetry, no analytics; "
+                    + "your keys stay in the keychain and are never altered.")
+                .font(.system(.footnote, design: .serif))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+
             Divider()
                 .padding(.vertical, 6)
 

@@ -71,7 +71,7 @@ struct SettingsView: View {
     // MARK: - Menu bar
 
     private var menuBarSection: some View {
-        SettingsSection(title: "Menu Bar") {
+        SettingsSection(title: "Menu bar") {
             LabeledPickerRow(
                 title: "Text next to icon",
                 subtitle: self.settings.menuBarDisplayMode.description)
@@ -107,7 +107,7 @@ struct SettingsView: View {
         SettingsSection(title: "Cost") {
             PreferenceToggleRow(
                 title: "Track local token cost",
-                subtitle: "Estimates spend from Claude Code session logs and shows it in the menu.",
+                subtitle: "Estimates spend locally from Claude Code session logs and shows it in the menu.",
                 isOn: self.$settings.costUsageEnabled)
 
             if self.settings.costUsageEnabled {
