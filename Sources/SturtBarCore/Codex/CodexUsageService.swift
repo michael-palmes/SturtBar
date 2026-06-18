@@ -8,11 +8,9 @@ import Foundation
 
 // MARK: - Links
 
-/// Codex provider links and display metadata (mirrors `ClaudeLinks`).
+/// Codex provider display metadata (mirrors `ClaudeLinks`).
 public enum CodexLinks {
     public static let displayName = "Codex"
-    public static let usageDashboardURL = "https://chatgpt.com/codex/settings/usage"
-    public static let statusPageURL = "https://status.openai.com/"
 }
 
 // MARK: - CodexUsageService

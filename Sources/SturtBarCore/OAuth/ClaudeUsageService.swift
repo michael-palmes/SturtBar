@@ -2,12 +2,9 @@ import Foundation
 
 // MARK: - Links
 
-/// Claude provider links and display metadata (inlined from the legacy provider descriptor).
+/// Claude provider display metadata (inlined from the legacy provider descriptor).
 public enum ClaudeLinks {
     public static let displayName = "Claude"
-    public static let dashboardURL = "https://console.anthropic.com/settings/billing"
-    public static let subscriptionDashboardURL = "https://claude.ai/settings/usage"
-    public static let statusPageURL = "https://status.claude.com/"
 }
 
 // MARK: - Errors

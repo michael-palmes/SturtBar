@@ -3,8 +3,8 @@
 // These tests build the REAL menu (NSMenu + per-provider NSHostingView cards) headlessly via
 // `startWithMenuForTesting` — no NSStatusBar, no window, no tracking session. The menu carries a
 // card item per provider, each followed by that provider's Cost History submenu; all items are
-// built once and toggle `isHidden` with the enabled set (no insert/remove). Provider dashboards,
-// status pages, and About moved to Settings, so the action area is just Refresh / Settings / Quit.
+// built once and toggle `isHidden` with the enabled set (no insert/remove). Provider dashboards
+// and status pages were dropped; the action area is Refresh / Settings / About / Quit.
 //
 // Determinism notes: the cost-usage SKELETON swaps strings while a scan is in flight, so tests
 // that count model applies disable cost usage first; tests that count across a refresh seed a
@@ -65,19 +65,21 @@ struct MenuStructureTests {
         #expect(menu.items[8].keyEquivalentModifierMask == .command)
         #expect(menu.items[9].title == "Settings…")
         #expect(menu.items[9].keyEquivalent == ",")
-        #expect(menu.items[10].isSeparatorItem)
-        #expect(menu.items[11].title == "Quit SturtBar")
-        #expect(menu.items[11].keyEquivalent == "q")
-        #expect(menu.items[11].action == #selector(NSApplication.terminate(_:)))
+        #expect(menu.items[10].title == "About SturtBar")
+        #expect(menu.items[10].action != nil) // wired to showAboutWindow (private selector)
+        #expect(menu.items[11].isSeparatorItem)
+        #expect(menu.items[12].title == "Quit SturtBar")
+        #expect(menu.items[12].keyEquivalent == "q")
+        #expect(menu.items[12].action == #selector(NSApplication.terminate(_:)))
 
-        // The old provider-link / About items are gone (moved to Settings → Resources).
+        // The provider-link items are gone for good; About lives in the menu again.
         #expect(!menu.items.contains { $0.title == "Open Claude Console" })
-        #expect(!menu.items.contains { $0.title == "About SturtBar" })
+        #expect(menu.items.contains { $0.title == "About SturtBar" })
 
         #if DEBUG
-        #expect(menu.items.count == 15) // + separator, Refresh (debug), Fetch Usage (debug)
+        #expect(menu.items.count == 16) // + separator, Refresh (debug), Fetch Usage (debug)
         #else
-        #expect(menu.items.count == 12)
+        #expect(menu.items.count == 13)
         #endif
     }
 

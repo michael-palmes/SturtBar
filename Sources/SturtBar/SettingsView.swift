@@ -15,8 +15,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
-    /// Opens the About window (wired by WindowsController); nil in previews.
-    var onShowAbout: (() -> Void)?
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
     /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
     @State private var codexAuthFileDetected: Bool?
@@ -34,8 +32,6 @@ struct SettingsView: View {
             self.costSection
             Divider()
             self.notificationsSection
-            Divider()
-            self.resourcesSection
         }
         .frame(width: 460, alignment: .leading)
         .padding(20)
@@ -189,33 +185,6 @@ struct SettingsView: View {
             if self.settings.quotaWarningNotificationsEnabled {
                 QuotaWarningSettingsView(settings: self.settings)
             }
-        }
-    }
-
-    // MARK: - Resources
-
-    /// Provider dashboards, status pages, and About — moved here to keep the menu focused.
-    private var resourcesSection: some View {
-        SettingsSection(title: "Resources") {
-            if self.settings.claudeProviderEnabled {
-                self.linkRow("Open Claude Console", urlString: ClaudeLinks.dashboardURL)
-                self.linkRow("Claude Status Page", urlString: ClaudeLinks.statusPageURL)
-            }
-            if self.settings.codexProviderEnabled {
-                self.linkRow("Open Codex Usage", urlString: CodexLinks.usageDashboardURL)
-                self.linkRow("OpenAI Status Page", urlString: CodexLinks.statusPageURL)
-            }
-            Button("About SturtBar…") { self.onShowAbout?() }
-                .buttonStyle(.link)
-                .font(.body)
-        }
-    }
-
-    @ViewBuilder
-    private func linkRow(_ title: String, urlString: String) -> some View {
-        if let url = URL(string: urlString) {
-            Link(title, destination: url)
-                .font(.body)
         }
     }
 }

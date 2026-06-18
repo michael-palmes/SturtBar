@@ -5,7 +5,7 @@
 //   1  "Cost History" → lazy chart submenu (present iff settings.costUsageEnabled; Swift Charts
 //      first-frame cost is confined to the submenu's first menuWillOpen)
 //   —  separator
-//      Refresh Now ⌘R · Open Claude Console · Claude Status Page · Settings… ⌘, · About SturtBar
+//      Refresh Now ⌘R · Settings… ⌘, · About SturtBar
 //   —  separator
 //      Quit SturtBar ⌘Q
 //   —  separator + debug items (DEBUG builds only)
@@ -88,6 +88,13 @@ extension StatusItemController {
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let aboutItem = NSMenuItem(
+            title: "About SturtBar",
+            action: #selector(self.showAboutWindow),
+            keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(.separator())
 
@@ -350,5 +357,9 @@ extension StatusItemController {
 
     @objc private func showSettingsWindow() {
         self.windows?.showSettings()
+    }
+
+    @objc private func showAboutWindow() {
+        self.windows?.showAbout()
     }
 }
