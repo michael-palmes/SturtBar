@@ -40,10 +40,14 @@ import SturtBarCore
 import SwiftUI
 
 enum UsageMenuCardLayout {
-    static let horizontalPadding: CGFloat = 20
-    static let sectionTopPadding: CGFloat = 6
-    static let sectionBottomPadding: CGFloat = 6
-    static let headerLineSpacing: CGFloat = 4
+    static let horizontalPadding: CGFloat = 18
+    static let sectionTopPadding: CGFloat = 4
+    static let sectionBottomPadding: CGFloat = 2
+    static let sectionSpacing: CGFloat = 3
+    static let metricGroupSpacing: CGFloat = 7
+    static let metricRowSpacing: CGFloat = 3
+    static let metricDetailSpacing: CGFloat = 0
+    static let headerLineSpacing: CGFloat = 2
     static let headerColumnSpacing: CGFloat = 12
     static let defaultWidth: CGFloat = 320
 }
@@ -253,6 +257,8 @@ struct UsageMenuCardView: View {
             let subtitle: Subtitle
             let status: StatusLine
             let metrics: [Metric]
+            /// Inline cost for this stacked block (nil iff cost disabled for this provider).
+            let cost: CostSection?
         }
 
         /// Header title of the main slots — the top (or only) enabled provider's display name;
@@ -312,7 +318,7 @@ struct UsageMenuCardView: View {
         #if DEBUG
         MenuCardRenderProbe.recordRender(now: now)
         #endif
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: UsageMenuCardLayout.sectionSpacing) {
             UsageMenuCardHeaderView(
                 title: self.model.providerTitle,
                 iconProvider: self.model.mainProvider,
@@ -324,7 +330,7 @@ struct UsageMenuCardView: View {
 
             UsageMenuCardStatusStripView(status: self.model.status, now: now)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricGroupSpacing) {
                 ForEach(self.model.metrics) { metric in
                     MetricRow(
                         metric: metric,
@@ -336,6 +342,11 @@ struct UsageMenuCardView: View {
                 }
             }
 
+            // Inline cost for the main provider block (Claude, or Codex when it owns the main slots).
+            if let costSection = self.model.costSection {
+                CostSectionContent(section: costSection)
+            }
+
             if let codexSection = self.model.codexSection {
                 Divider()
                 UsageMenuCardHeaderView(
@@ -345,16 +356,15 @@ struct UsageMenuCardView: View {
                     subtitle: codexSection.subtitle,
                     now: now)
                 UsageMenuCardStatusStripView(status: codexSection.status, now: now)
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricGroupSpacing) {
                     ForEach(codexSection.metrics) { metric in
                         MetricRow(metric: metric, tint: ProviderBranding.codex, now: now)
                     }
                 }
-            }
-
-            if let costSection = self.model.costSection {
-                Divider()
-                CostSectionContent(section: costSection)
+                // Inline cost for the stacked Codex block.
+                if let codexCost = codexSection.cost {
+                    CostSectionContent(section: codexCost)
+                }
             }
         }
         .padding(.horizontal, UsageMenuCardLayout.horizontalPadding)
@@ -448,7 +458,7 @@ private struct MetricRow: View {
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricRowSpacing) {
             Text(self.metric.title)
                 .font(.body)
                 .fontWeight(.medium)
@@ -461,7 +471,7 @@ private struct MetricRow: View {
                 pacePercent: self.metric.pacePercent,
                 paceOnTop: self.metric.paceOnTop,
                 warningMarkerPercents: self.metric.warningMarkerPercents)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricDetailSpacing) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(self.metric.percentLabel)
                         .font(.footnote)
@@ -503,7 +513,7 @@ private struct ExtraUsageContent: View {
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricRowSpacing) {
             Text(self.section.title)
                 .font(.body)
                 .fontWeight(.medium)
@@ -556,6 +566,8 @@ extension UsageMenuCardView.Model {
         var codexIsRefreshing = false
         var codexIsStale = false
         var codexLastSuccessAt: Date?
+        var codexCost: CostUsageTokenSnapshot?
+        var codexCostScanState: CostScanState = .idle
         var costUsageEnabled = false
         var costScanState: CostScanState = .idle
         /// Marker thresholds per window; callers pass [] / omit a window to hide its markers
@@ -597,11 +609,11 @@ extension UsageMenuCardView.Model {
             metrics: self.metrics(input: input),
             extraUsage: extraUsageSection(snapshot: input.snapshot),
             codexSection: codexSection,
-            costSection: costSection(input: input))
+            costSection: claudeCostSection(input: input))
     }
 
-    /// Codex carries the main slots when it is the only enabled provider. Cost stays nil —
-    /// cost scanning is Claude-gated (it reads ~/.claude logs).
+    /// Codex carries the main slots when it is the only enabled provider; its inline cost rides
+    /// the Codex provider gate (un-gated from Claude — it reads ~/.codex session logs).
     private static func codexOnlyModel(_ input: Input) -> UsageMenuCardView.Model {
         UsageMenuCardView.Model(
             providerTitle: CodexLinks.displayName,
@@ -612,7 +624,7 @@ extension UsageMenuCardView.Model {
             metrics: self.codexMetrics(input: input),
             extraUsage: nil,
             codexSection: nil,
-            costSection: nil)
+            costSection: codexCostSection(input: input))
     }
 
     private static func noProvidersModel() -> UsageMenuCardView.Model {
@@ -634,7 +646,8 @@ extension UsageMenuCardView.Model {
             planText: self.codexPlanText(loginMethod: input.codexSnapshot?.loginMethod),
             subtitle: self.codexSubtitle(input: input),
             status: self.codexStatusLine(input: input),
-            metrics: self.codexMetrics(input: input))
+            metrics: self.codexMetrics(input: input),
+            cost: self.codexCostSection(input: input))
     }
 
     // MARK: Plan
@@ -1017,6 +1030,42 @@ extension UsageMenuCardView.Model.Input {
 
 #Preview("Full data") {
     UsageMenuCardView(model: .make(.preview()))
+        .padding(.vertical, 8)
+}
+
+#Preview("Both providers + cost") {
+    let now = Date()
+    var input = UsageMenuCardView.Model.Input.preview()
+    input.codexProviderEnabled = true
+    input.codexSnapshot = ProviderUsageSnapshot(
+        primary: RateWindow(usedPercent: 48, windowMinutes: 5 * 60, resetsAt: nil, resetDescription: nil),
+        secondary: RateWindow(usedPercent: 12, windowMinutes: 7 * 24 * 60, resetsAt: nil, resetDescription: nil),
+        opus: nil,
+        updatedAt: now,
+        loginMethod: "Pro")
+    input.codexLastSuccessAt = now.addingTimeInterval(-2 * 60)
+    input.codexCost = CostUsageTokenSnapshot(
+        sessionTokens: 1_100_000,
+        sessionCostUSD: 2.10,
+        last30DaysTokens: 24_000_000,
+        last30DaysCostUSD: 18.40,
+        daily: [
+            CostUsageDailyReport.Entry(
+                date: "2026-06-10",
+                inputTokens: 900_000,
+                outputTokens: 90000,
+                totalTokens: 1_100_000,
+                costUSD: 2.10,
+                modelsUsed: ["gpt-5.1-codex", "gpt-5.5"],
+                modelBreakdowns: [
+                    CostUsageDailyReport.ModelBreakdown(
+                        modelName: "gpt-5.1-codex", costUSD: 1.60, totalTokens: 700_000),
+                    CostUsageDailyReport.ModelBreakdown(
+                        modelName: "gpt-5.5", costUSD: 0.50, totalTokens: 400_000),
+                ]),
+        ],
+        updatedAt: now)
+    return UsageMenuCardView(model: .make(input))
         .padding(.vertical, 8)
 }
 

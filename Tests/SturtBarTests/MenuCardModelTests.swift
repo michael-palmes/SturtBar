@@ -461,7 +461,7 @@ struct MenuCardModelTests {
     // MARK: - Cost section
 
     @Test
-    func `cost section includes last30 days tokens and constant hint`() throws {
+    func `cost section shows a one-line cost summary`() throws {
         let now = Self.now
         let cost = CostUsageTokenSnapshot(
             sessionTokens: 123,
@@ -480,10 +480,7 @@ struct MenuCardModelTests {
 
         #expect(!section.isSkeleton)
         #expect(!model.isCostSkeleton)
-        #expect(section.sessionLine == "Today: $1.23 · 123 tokens")
-        #expect(section.monthLine.contains("456"))
-        #expect(section.monthLine.contains("tokens"))
-        #expect(section.hint == UsageFormatter.costEstimateHint)
+        #expect(section.summaryLine == "Cost  $1.23 today · $78.90 30d")
     }
 
     @Test
@@ -496,7 +493,7 @@ struct MenuCardModelTests {
             now: Self.now))
         let scanningSection = try #require(scanning.costSection)
         #expect(scanning.isCostSkeleton)
-        #expect(scanningSection.sessionLine == "Scanning session logs…")
+        #expect(scanningSection.summaryLine == "Scanning session logs…")
         #expect(scanningSection.breakdown.isEmpty)
 
         let idle = UsageMenuCardView.Model.make(.init(
@@ -506,7 +503,7 @@ struct MenuCardModelTests {
             costScanState: .idle,
             now: Self.now))
         #expect(idle.isCostSkeleton)
-        #expect(idle.costSection?.sessionLine == "No cost data yet")
+        #expect(idle.costSection?.summaryLine == "No cost data yet")
     }
 
     @Test
@@ -527,7 +524,7 @@ struct MenuCardModelTests {
             now: Self.now))
 
         #expect(!model.isCostSkeleton)
-        #expect(model.costSection?.sessionLine == "Today: $0.50 · 10 tokens")
+        #expect(model.costSection?.summaryLine == "Cost  $0.50 today · $5.00 30d")
     }
 
     @Test

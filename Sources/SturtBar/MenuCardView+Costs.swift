@@ -33,64 +33,61 @@ extension UsageMenuCardView {
 
         /// True while the section shows placeholders instead of data (cost == nil).
         let isSkeleton: Bool
-        /// Today-slot text: totals line when data exists, scanning/no-data placeholder otherwise.
-        let sessionLine: String
-        /// Window-totals slot text; " " (reserved blank) in skeleton state.
-        let monthLine: String
+        /// One-line cost summary: "Cost  $4.31 today · $45.12 30d" when data exists, or a
+        /// scanning/no-data placeholder. Always exactly one line (fixed-height contract).
+        let summaryLine: String
         /// Top models by cost across the scanned window (≤ breakdownRowSlots entries).
         let breakdown: [BreakdownRow]
-        /// Constant estimate disclaimer (identical for every state).
-        let hint: String
+
+        /// Rendered model-row count: the actual rows once data is present (0…breakdownRowSlots),
+        /// or the full reserve while skeleton so a FIRST scan's data (always ≤ the reserve) never
+        /// grows the card mid-open. Drives the card height via MenuCardShape, so fewer models ⇒ a
+        /// shorter card.
+        var renderedRowCount: Int {
+            self.isSkeleton ? Self.breakdownRowSlots : self.breakdown.count
+        }
     }
 }
 
 extension UsageMenuCardView.Model {
-    /// nil iff cost usage is disabled — presence is configuration-derived (fixed-height contract).
-    static func costSection(input: Input) -> UsageMenuCardView.CostSection? {
-        // Cost scanning reads ~/.claude logs, so the section rides the Claude provider gate too.
+    /// Claude inline cost. nil iff Claude or cost usage is disabled (configuration-derived —
+    /// fixed-height contract). Reads ~/.claude logs, so it rides the Claude provider gate.
+    static func claudeCostSection(input: Input) -> UsageMenuCardView.CostSection? {
         guard input.claudeProviderEnabled, input.costUsageEnabled else { return nil }
-        guard let snapshot = input.cost else {
+        return self.makeCostSection(snapshot: input.cost, scanState: input.costScanState)
+    }
+
+    /// Codex inline cost. Gated on the Codex provider + the shared cost toggle (NOT Claude), so a
+    /// Codex-only user still sees cost. Reads ~/.codex session logs.
+    static func codexCostSection(input: Input) -> UsageMenuCardView.CostSection? {
+        guard input.codexProviderEnabled, input.costUsageEnabled else { return nil }
+        return self.makeCostSection(snapshot: input.codexCost, scanState: input.codexCostScanState)
+    }
+
+    /// Builds the compact one-line cost summary + top-model breakdown. Provider-agnostic.
+    private static func makeCostSection(
+        snapshot: CostUsageTokenSnapshot?,
+        scanState: CostScanState) -> UsageMenuCardView.CostSection
+    {
+        guard let snapshot else {
             return UsageMenuCardView.CostSection(
                 isSkeleton: true,
-                sessionLine: input.costScanState == .scanning ? "Scanning session logs…" : "No cost data yet",
-                monthLine: " ",
-                breakdown: [],
-                hint: UsageFormatter.costEstimateHint)
+                summaryLine: scanState == .scanning ? "Scanning session logs…" : "No cost data yet",
+                breakdown: [])
         }
 
         let sessionCost = snapshot.sessionCostUSD.map {
             UsageFormatter.currencyString($0, currencyCode: snapshot.currencyCode)
         } ?? "—"
-        let sessionTokens = snapshot.sessionTokens.map { UsageFormatter.tokenCountString($0) }
-        let sessionLine = if let sessionTokens {
-            "Today: \(sessionCost) · \(sessionTokens) tokens"
-        } else {
-            "Today: \(sessionCost)"
-        }
-
         let monthCost = snapshot.last30DaysCostUSD.map {
             UsageFormatter.currencyString($0, currencyCode: snapshot.currencyCode)
         } ?? "—"
-        let fallbackTokens = snapshot.daily.compactMap(\.totalTokens).reduce(0, +)
-        let monthTokensValue = snapshot.last30DaysTokens ?? (fallbackTokens > 0 ? fallbackTokens : nil)
-        let monthTokens = monthTokensValue.map { UsageFormatter.tokenCountString($0) }
-        let windowLabel = snapshot.historyLabel ?? Self.costHistoryWindowLabel(days: snapshot.historyDays)
-        let monthLine = if let monthTokens {
-            "\(windowLabel): \(monthCost) · \(monthTokens) tokens"
-        } else {
-            "\(windowLabel): \(monthCost)"
-        }
+        let summaryLine = "Cost  \(sessionCost) today · \(monthCost) \(snapshot.historyDays)d"
 
         return UsageMenuCardView.CostSection(
             isSkeleton: false,
-            sessionLine: sessionLine,
-            monthLine: monthLine,
-            breakdown: Self.costBreakdownRows(snapshot: snapshot),
-            hint: UsageFormatter.costEstimateHint)
-    }
-
-    static func costHistoryWindowLabel(days: Int) -> String {
-        days == 1 ? "Today" : "Last \(days) days"
+            summaryLine: summaryLine,
+            breakdown: Self.costBreakdownRows(snapshot: snapshot))
     }
 
     /// Aggregates per-model cost/tokens across the scanned window and returns the top rows by
@@ -166,26 +163,23 @@ extension UsageMenuCardView.Model {
     }
 }
 
-// MARK: - Cost section view (slot: header + 2 lines + breakdownRowSlots rows + constant hint)
+// MARK: - Inline cost view (slot: 1 summary line + breakdownRowSlots model rows)
 
+/// Rendered INSIDE each provider's block. Always emits exactly one summary line plus
+/// `breakdownRowSlots` model rows (blank-padded), so a scan completing mid-open only swaps
+/// strings — never the line count (fixed-height contract).
 struct CostSectionContent: View {
     let section: UsageMenuCardView.CostSection
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Cost (estimated)")
-                .font(.body)
-                .fontWeight(.medium)
-            Text(self.section.sessionLine)
+        VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricRowSpacing) {
+            Text(self.section.summaryLine)
                 .font(.footnote)
                 .foregroundStyle(
                     self.section.isSkeleton
                         ? MenuHighlightStyle.secondary(self.isHighlighted)
                         : MenuHighlightStyle.primary(self.isHighlighted))
-                .lineLimit(1)
-            Text(self.section.monthLine)
-                .font(.footnote)
                 .lineLimit(1)
             ForEach(self.section.breakdown) { row in
                 HStack(alignment: .firstTextBaseline) {
@@ -203,21 +197,17 @@ struct CostSectionContent: View {
                     }
                 }
             }
-            // Blank padding keeps the breakdown block at exactly breakdownRowSlots lines.
-            ForEach(
-                0..<max(UsageMenuCardView.CostSection.breakdownRowSlots - self.section.breakdown.count, 0),
-                id: \.self)
-            { _ in
-                Text(" ")
-                    .font(.footnote)
-                    .lineLimit(1)
+            // Skeleton reserves the full breakdown block so a first scan's data (always ≤ the
+            // reserve) never grows the card mid-open. Once data is present the block shrinks to the
+            // actual model count to save vertical space; that row-count change rides MenuCardShape,
+            // so the card re-measures at open (and defers a mid-open change to menuDidClose).
+            if self.section.isSkeleton {
+                ForEach(0..<UsageMenuCardView.CostSection.breakdownRowSlots, id: \.self) { _ in
+                    Text(" ")
+                        .font(.footnote)
+                        .lineLimit(1)
+                }
             }
-            // Constant disclaimer: same string in every state, so its wrapped height is constant
-            // for a given card width.
-            Text(self.section.hint)
-                .font(.footnote)
-                .foregroundStyle(MenuHighlightStyle.secondary(self.isHighlighted))
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

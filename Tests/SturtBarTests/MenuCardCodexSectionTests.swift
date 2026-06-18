@@ -47,7 +47,7 @@ struct MenuCardCodexSectionTests {
         input.codexProviderEnabled = true
         input.codexSnapshot = self.codexSnapshot()
         input.codexLastSuccessAt = Self.now.addingTimeInterval(-120)
-        input.costUsageEnabled = true // must still hide: cost is claude-gated
+        input.costUsageEnabled = true // Codex cost is independent of the Claude gate
         let model = UsageMenuCardView.Model.make(input)
 
         #expect(model.providerTitle == "Codex")
@@ -56,9 +56,10 @@ struct MenuCardCodexSectionTests {
         #expect(model.metrics.map(\.id) == ["codex-primary", "codex-secondary"])
         #expect(model.metrics.map(\.title) == ["Session", "Weekly"])
         #expect(model.metrics.first?.percent == 82) // 18 used → 82 left
-        #expect(model.costSection == nil)
+        #expect(model.costSection != nil) // codex-only: cost rides the Codex gate (skeleton, no data)
+        #expect(model.isCostSkeleton)
         #expect(model.subtitle.text(now: Self.now).hasPrefix("Updated"))
-        #expect(model.sections == [.header, .status, .metrics])
+        #expect(model.sections == [.header, .status, .metrics, .cost])
     }
 
     @Test
@@ -85,7 +86,7 @@ struct MenuCardCodexSectionTests {
     }
 
     @Test
-    func `cost section renders only while claude is enabled`() {
+    func `cost section follows each provider's own gate`() {
         var input = UsageMenuCardView.Model.Input(now: Self.now)
         input.snapshot = self.claudeSnapshot()
         input.cost = makeCostSnapshot(updatedAt: Self.now)
@@ -94,11 +95,102 @@ struct MenuCardCodexSectionTests {
         #expect(withClaude.costSection != nil)
         #expect(withClaude.sections == [.header, .status, .metrics, .cost])
 
+        // Claude off, Codex on: the main block becomes Codex and shows Codex cost (un-gated
+        // from Claude — decision 4).
         input.claudeProviderEnabled = false
         input.codexProviderEnabled = true
         input.codexSnapshot = self.codexSnapshot()
-        let withoutClaude = UsageMenuCardView.Model.make(input)
-        #expect(withoutClaude.costSection == nil)
+        input.codexCost = makeCodexCostSnapshot(updatedAt: Self.now)
+        let codexOnly = UsageMenuCardView.Model.make(input)
+        #expect(codexOnly.costSection != nil)
+        #expect(codexOnly.costSection?.summaryLine.hasPrefix("Cost") == true)
+
+        // Cost off: nothing anywhere.
+        input.costUsageEnabled = false
+        let costOff = UsageMenuCardView.Model.make(input)
+        #expect(costOff.costSection == nil)
+    }
+
+    @Test
+    func `both providers show inline cost in each block with one shared disclaimer`() {
+        var input = UsageMenuCardView.Model.Input(now: Self.now)
+        input.snapshot = self.claudeSnapshot()
+        input.cost = makeCostSnapshot(updatedAt: Self.now)
+        input.codexProviderEnabled = true
+        input.codexSnapshot = self.codexSnapshot()
+        input.codexCost = makeCodexCostSnapshot(updatedAt: Self.now)
+        input.costUsageEnabled = true
+        let model = UsageMenuCardView.Model.make(input)
+
+        #expect(model.costSection != nil) // Claude cost in the main block
+        #expect(model.codexSection?.cost != nil) // Codex cost in the stacked block
+        #expect(model.sections == [.header, .status, .metrics, .codex, .cost])
+    }
+
+    @Test
+    func `codex inline cost row count is part of the shape`() {
+        func make(codexCost: CostUsageTokenSnapshot?, scanState: CostScanState) -> UsageMenuCardView.Model {
+            var input = UsageMenuCardView.Model.Input(now: Self.now)
+            input.snapshot = self.claudeSnapshot()
+            input.codexProviderEnabled = true
+            input.codexSnapshot = self.codexSnapshot()
+            input.codexCost = codexCost
+            input.codexCostScanState = scanState
+            input.costUsageEnabled = true
+            return UsageMenuCardView.Model.make(input)
+        }
+
+        // The skeleton reserves the full breakdown; populated data shrinks to its model count, so
+        // the row count — and thus the shape — differs. The card re-measures at open and defers a
+        // mid-open change to close, preserving the fixed-height contract while saving space.
+        let skeleton = MenuCardShape(model: make(codexCost: nil, scanState: .scanning))
+        let populated = MenuCardShape(model: make(
+            codexCost: makeCodexCostSnapshot(updatedAt: Self.now),
+            scanState: .idle))
+        #expect(skeleton != populated)
+
+        // Toggling cost OFF also changes the shape (the cost section disappears entirely).
+        var noCostInput = UsageMenuCardView.Model.Input(now: Self.now)
+        noCostInput.snapshot = self.claudeSnapshot()
+        noCostInput.codexProviderEnabled = true
+        noCostInput.codexSnapshot = self.codexSnapshot()
+        noCostInput.costUsageEnabled = false
+        let noCost = MenuCardShape(model: UsageMenuCardView.Model.make(noCostInput))
+        #expect(noCost != populated)
+    }
+
+    @Test
+    func `cost section row count shrinks to the model count to save space`() {
+        func model(modelCount: Int) -> UsageMenuCardView.Model {
+            let breakdowns = (0..<modelCount).map { index in
+                CostUsageDailyReport.ModelBreakdown(
+                    modelName: "model-\(index)",
+                    costUSD: Double(modelCount - index),
+                    totalTokens: 100)
+            }
+            let cost = CostUsageTokenSnapshot(
+                sessionTokens: nil,
+                sessionCostUSD: nil,
+                last30DaysTokens: nil,
+                last30DaysCostUSD: 1,
+                daily: [CostUsageDailyReport.Entry(
+                    date: "2026-06-10",
+                    inputTokens: nil,
+                    outputTokens: nil,
+                    totalTokens: nil,
+                    costUSD: 1,
+                    modelsUsed: breakdowns.map(\.modelName),
+                    modelBreakdowns: breakdowns)],
+                updatedAt: Self.now)
+            return UsageMenuCardView.Model.make(.init(snapshot: nil, cost: cost, costUsageEnabled: true, now: Self.now))
+        }
+
+        #expect(model(modelCount: 1).costSection?.renderedRowCount == 1)
+        #expect(model(modelCount: 2).costSection?.renderedRowCount == 2)
+        // Capped at the reserve so the card never overflows.
+        #expect(model(modelCount: 5).costSection?.renderedRowCount == UsageMenuCardView.CostSection.breakdownRowSlots)
+        // Fewer models ⇒ a structurally shorter card (re-measured at open).
+        #expect(MenuCardShape(model: model(modelCount: 1)) != MenuCardShape(model: model(modelCount: 2)))
     }
 
     @Test
