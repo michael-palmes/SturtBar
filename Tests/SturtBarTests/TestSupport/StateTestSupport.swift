@@ -148,6 +148,29 @@ func makeCostSnapshot(
         updatedAt: updatedAt)
 }
 
+/// Codex-flavoured cost snapshot (gpt-5.x models), for the Codex cost lane tests.
+func makeCodexCostSnapshot(
+    sessionCostUSD: Double? = 2.1,
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> CostUsageTokenSnapshot
+{
+    CostUsageTokenSnapshot(
+        sessionTokens: 1500,
+        sessionCostUSD: sessionCostUSD,
+        last30DaysTokens: 60000,
+        last30DaysCostUSD: 18.4,
+        daily: [
+            CostUsageDailyReport.Entry(
+                date: "2026-06-10",
+                inputTokens: 1000,
+                outputTokens: 500,
+                totalTokens: 1500,
+                costUSD: sessionCostUSD,
+                modelsUsed: ["gpt-5.1-codex"],
+                modelBreakdowns: nil),
+        ],
+        updatedAt: updatedAt)
+}
+
 // MARK: - Store factory
 
 @MainActor
@@ -178,6 +201,7 @@ func makeTestStore(
     suiteName: String,
     clock: TestClock = TestClock(),
     scanner: CostScanner? = nil,
+    codexScanner: CostScanner? = nil,
     persistence: StatePersistence? = nil,
     blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = { nil },
     codexFetch: @escaping CodexUsageClient.FetchOperation = { throw CodexUsageError.credentialsMissing },
@@ -198,6 +222,7 @@ func makeTestStore(
         client: client,
         codexClient: codexClient,
         scanner: scanner ?? makeIdleScanner(),
+        codexScanner: codexScanner ?? makeIdleScanner(),
         persistence: persistence,
         now: { clock.now },
         blockStatus: blockStatus)

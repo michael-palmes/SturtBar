@@ -68,6 +68,7 @@ import SturtBarCore
             client: client,
             codexClient: codexClient,
             scanner: CostScanner(),
+            codexScanner: CostScanner(codexFetcher: CodexCostFetcher()),
             persistence: StatePersistence())
         let scheduler = RefreshScheduler(store: store)
 

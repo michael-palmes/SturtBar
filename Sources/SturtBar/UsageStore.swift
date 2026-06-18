@@ -120,6 +120,10 @@ final class UsageStore {
     private(set) var codexAuth: CodexAuthState = .ok
     private(set) var codexHealth: FetchHealth = .ok
     private(set) var codexIsRefreshing = false
+    /// Last Codex cost snapshot (persisted; wiped on Codex provider or cost disable). Independent
+    /// of the Claude `cost` lane, so disabling Claude leaves it intact.
+    private(set) var codexCost: CostUsageTokenSnapshot?
+    private(set) var codexCostScanState: CostScanState = .idle
     /// Set by the menu UI (Phase 3b); published so renderers can react.
     ///
     /// Expected call sequence (Phase 3b):
@@ -194,6 +198,7 @@ final class UsageStore {
     @ObservationIgnored private let client: ClaudeUsageClient
     @ObservationIgnored private let codexClient: CodexUsageClient
     @ObservationIgnored private let scanner: CostScanner
+    @ObservationIgnored private let codexScanner: CostScanner
     @ObservationIgnored private let persistence: StatePersistence?
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let blockStatus: @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus?
@@ -220,6 +225,7 @@ final class UsageStore {
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var costScanTask: Task<Void, Never>?
+    @ObservationIgnored private var codexCostScanTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
     /// Monotonically-incrementing token used by the save-debounce identity guard: the task
     /// captures its own token at creation and compares it before clearing the slot, so a stale
@@ -235,6 +241,7 @@ final class UsageStore {
         client: ClaudeUsageClient,
         codexClient: CodexUsageClient,
         scanner: CostScanner,
+        codexScanner: CostScanner,
         persistence: StatePersistence?,
         now: @escaping @Sendable () -> Date = { Date() },
         blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = {
@@ -248,6 +255,7 @@ final class UsageStore {
         self.client = client
         self.codexClient = codexClient
         self.scanner = scanner
+        self.codexScanner = codexScanner
         self.persistence = persistence
         self.now = now
         self.blockStatus = blockStatus
@@ -278,6 +286,13 @@ final class UsageStore {
             self.codexUsage = codexUsage
             self.codexLastSuccessAt = codexUsage.updatedAt
         }
+        // Codex cost seeds only when both the provider and the cost feature are on, so a snapshot
+        // persisted before a disable never flashes on a later launch.
+        if self.codexCost == nil, let codexCost = state.codexCost,
+           self.settings.codexProviderEnabled, self.settings.costUsageEnabled
+        {
+            self.codexCost = codexCost
+        }
     }
 
     // MARK: - Refresh
@@ -288,6 +303,7 @@ final class UsageStore {
     func refresh(trigger: RefreshTrigger) async {
         if trigger.kicksCostScan {
             self.kickCostScan(bypassGate: trigger == .manual)
+            self.kickCodexCostScan(bypassGate: trigger == .manual)
         }
         async let claude: Void = self.refreshClaude(trigger: trigger)
         async let codex: Void = self.refreshCodex(trigger: trigger)
@@ -587,6 +603,7 @@ final class UsageStore {
 
         case (.codex, true):
             Task { await self.refreshCodex(trigger: .manual) }
+            self.kickCodexCostScan(bypassGate: true)
 
         case (.codex, false):
             self.codexRefreshTask?.cancel()
@@ -600,6 +617,12 @@ final class UsageStore {
             self.codexLastAttemptAt = nil
             self.codexFailureStreak = 0
             self.codexQuotaMachine = QuotaTransitionMachine()
+            // Codex cost is an independent lane; disabling Codex wipes it like the rest.
+            self.codexCostScanTask?.cancel()
+            let codexScanner = self.codexScanner
+            Task { await codexScanner.cancelInFlight() }
+            self.codexCost = nil
+            self.codexCostScanState = .idle
             self.schedulePersist()
         }
     }
@@ -610,17 +633,23 @@ final class UsageStore {
     /// disabled).
     func costSettingsDidChange() {
         guard self.settings.costUsageEnabled else {
-            // Cancel any in-flight scan so its completion arm cannot resurrect the snapshot
+            // Cancel any in-flight scans so their completion arms cannot resurrect a snapshot
             // after we clear it below (cost-disable race).
             self.costScanTask?.cancel()
+            self.codexCostScanTask?.cancel()
             let scanner = self.scanner
+            let codexScanner = self.codexScanner
             Task { await scanner.cancelInFlight() }
+            Task { await codexScanner.cancelInFlight() }
             self.cost = nil
+            self.codexCost = nil
             self.costScanState = .idle
+            self.codexCostScanState = .idle
             self.schedulePersist()
             return
         }
         self.kickCostScan(bypassGate: true)
+        self.kickCodexCostScan(bypassGate: true)
     }
 
     private func kickCostScan(bypassGate: Bool) {
@@ -656,6 +685,36 @@ final class UsageStore {
         }
     }
 
+    /// Codex twin of `kickCostScan`. Reads ~/.codex session logs, so it is gated on the **Codex**
+    /// provider (NOT Claude) plus the shared cost toggle — a Codex-only user still gets cost.
+    private func kickCodexCostScan(bypassGate: Bool) {
+        guard self.settings.codexProviderEnabled else { return }
+        guard self.settings.costUsageEnabled else { return }
+        guard self.codexCostScanTask == nil else { return } // in-flight; the scanner would join anyway
+        self.codexCostScanState = .scanning
+        let historyDays = self.settings.costUsageHistoryDays
+        let scanner = self.codexScanner
+        let now = self.now
+        self.codexCostScanTask = Task(priority: .utility) {
+            defer { self.codexCostScanTask = nil }
+            let result = await scanner.scan(bypassGate: bypassGate, historyDays: historyDays, now: now())
+            switch result {
+            case let .scanned(snapshot):
+                // Disable race: a scan that finishes after the user turns Codex or cost off must
+                // not resurrect the snapshot. Re-check both gates at completion time.
+                guard self.settings.codexProviderEnabled, self.settings.costUsageEnabled else {
+                    self.codexCostScanState = .idle
+                    return
+                }
+                if self.codexCost != snapshot { self.codexCost = snapshot }
+                self.codexCostScanState = .idle
+                self.schedulePersist()
+            case .skipped, .cancelled:
+                self.codexCostScanState = .idle
+            }
+        }
+    }
+
     // MARK: - Persistence (debounce lives here, IO lives in StatePersistence)
 
     private func schedulePersist() {
@@ -683,6 +742,7 @@ final class UsageStore {
             usage: self.usage,
             codexUsage: self.codexUsage,
             cost: self.cost,
+            codexCost: self.codexCost,
             savedAt: self.now())
         await persistence.save(state)
     }
@@ -698,6 +758,7 @@ final class UsageStore {
             usage: self.usage,
             codexUsage: self.codexUsage,
             cost: self.cost,
+            codexCost: self.codexCost,
             savedAt: self.now()))
     }
 
@@ -709,7 +770,10 @@ final class UsageStore {
         self.refreshTask?.cancel()
         self.codexRefreshTask?.cancel()
         self.costScanTask?.cancel()
+        self.codexCostScanTask?.cancel()
         let scanner = self.scanner
+        let codexScanner = self.codexScanner
         Task { await scanner.cancelInFlight() }
+        Task { await codexScanner.cancelInFlight() }
     }
 }

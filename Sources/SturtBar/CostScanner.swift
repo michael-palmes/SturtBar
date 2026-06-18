@@ -61,6 +61,21 @@ actor CostScanner {
         self.minimumGap = minimumGap
     }
 
+    /// Production entry for the Codex lane: wraps a `CodexCostFetcher`. The actor is otherwise
+    /// provider-agnostic — both fetchers expose the same scan + pricing-refresh surface.
+    init(codexFetcher: CodexCostFetcher, minimumGap: TimeInterval = defaultMinimumGapSeconds) {
+        self.scanOperation = { now, bypassScanGate, historyDays throws(CancellationError) in
+            try await codexFetcher.loadTokenSnapshot(
+                now: now,
+                bypassScanGate: bypassScanGate,
+                historyDays: historyDays)
+        }
+        self.refreshPricing = { now in
+            await codexFetcher.refreshPricingCatalogIfNeeded(now: now)
+        }
+        self.minimumGap = minimumGap
+    }
+
     /// Test seam: injects the scan implementation; pricing refresh becomes a no-op unless provided.
     init(
         minimumGap: TimeInterval = defaultMinimumGapSeconds,
