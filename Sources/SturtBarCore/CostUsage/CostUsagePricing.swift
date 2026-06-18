@@ -385,4 +385,290 @@ enum CostUsagePricing {
             + Double(cacheCreation1h) * inputRate * 2
             + Double(max(0, tokens.output)) * outputRate
     }
+
+    // MARK: - Codex
+
+    /// Codex/OpenAI per-token pricing. Ported from CodexBar's `CostUsagePricing` (the table this
+    /// app was trimmed from). The `priority*` fields carry real OpenAI priority-tier rates and are
+    /// retained verbatim for fidelity, but SturtBar prices every turn at the standard rates — it
+    /// never reads the SQLite priority map, so Spark/priority turns are charged as standard.
+    struct CodexPricing {
+        let inputCostPerToken: Double
+        let outputCostPerToken: Double
+        let cacheReadInputCostPerToken: Double?
+        let displayLabel: String?
+
+        let thresholdTokens: Int?
+        let inputCostPerTokenAboveThreshold: Double?
+        let outputCostPerTokenAboveThreshold: Double?
+        let cacheReadInputCostPerTokenAboveThreshold: Double?
+        let priorityInputCostPerToken: Double?
+        let priorityOutputCostPerToken: Double?
+        let priorityCacheReadInputCostPerToken: Double?
+
+        init(
+            inputCostPerToken: Double,
+            outputCostPerToken: Double,
+            cacheReadInputCostPerToken: Double?,
+            displayLabel: String?,
+            thresholdTokens: Int? = nil,
+            inputCostPerTokenAboveThreshold: Double? = nil,
+            outputCostPerTokenAboveThreshold: Double? = nil,
+            cacheReadInputCostPerTokenAboveThreshold: Double? = nil,
+            priorityInputCostPerToken: Double? = nil,
+            priorityOutputCostPerToken: Double? = nil,
+            priorityCacheReadInputCostPerToken: Double? = nil)
+        {
+            self.inputCostPerToken = inputCostPerToken
+            self.outputCostPerToken = outputCostPerToken
+            self.cacheReadInputCostPerToken = cacheReadInputCostPerToken
+            self.displayLabel = displayLabel
+            self.thresholdTokens = thresholdTokens
+            self.inputCostPerTokenAboveThreshold = inputCostPerTokenAboveThreshold
+            self.outputCostPerTokenAboveThreshold = outputCostPerTokenAboveThreshold
+            self.cacheReadInputCostPerTokenAboveThreshold = cacheReadInputCostPerTokenAboveThreshold
+            self.priorityInputCostPerToken = priorityInputCostPerToken
+            self.priorityOutputCostPerToken = priorityOutputCostPerToken
+            self.priorityCacheReadInputCostPerToken = priorityCacheReadInputCostPerToken
+        }
+    }
+
+    private static let codex: [String: CodexPricing] = [
+        "gpt-5": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-codex": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-mini": CodexPricing(
+            inputCostPerToken: 2.5e-7,
+            outputCostPerToken: 2e-6,
+            cacheReadInputCostPerToken: 2.5e-8,
+            displayLabel: nil),
+        "gpt-5-nano": CodexPricing(
+            inputCostPerToken: 5e-8,
+            outputCostPerToken: 4e-7,
+            cacheReadInputCostPerToken: 5e-9,
+            displayLabel: nil),
+        "gpt-5-pro": CodexPricing(
+            inputCostPerToken: 1.5e-5,
+            outputCostPerToken: 1.2e-4,
+            cacheReadInputCostPerToken: nil,
+            displayLabel: nil),
+        "gpt-5.1": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5.1-codex": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5.1-codex-max": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5.1-codex-mini": CodexPricing(
+            inputCostPerToken: 2.5e-7,
+            outputCostPerToken: 2e-6,
+            cacheReadInputCostPerToken: 2.5e-8,
+            displayLabel: nil),
+        "gpt-5.2": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.2-codex": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.2-pro": CodexPricing(
+            inputCostPerToken: 2.1e-5,
+            outputCostPerToken: 1.68e-4,
+            cacheReadInputCostPerToken: nil,
+            displayLabel: nil),
+        "gpt-5.3-codex": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.3-codex-spark": CodexPricing(
+            inputCostPerToken: 0,
+            outputCostPerToken: 0,
+            cacheReadInputCostPerToken: 0,
+            displayLabel: "Research Preview"),
+        "gpt-5.4": CodexPricing(
+            inputCostPerToken: 2.5e-6,
+            outputCostPerToken: 1.5e-5,
+            cacheReadInputCostPerToken: 2.5e-7,
+            displayLabel: nil,
+            thresholdTokens: 272_000,
+            inputCostPerTokenAboveThreshold: 5e-6,
+            outputCostPerTokenAboveThreshold: 2.25e-5,
+            cacheReadInputCostPerTokenAboveThreshold: 5e-7,
+            priorityInputCostPerToken: 5e-6,
+            priorityOutputCostPerToken: 3e-5,
+            priorityCacheReadInputCostPerToken: 5e-7),
+        "gpt-5.4-mini": CodexPricing(
+            inputCostPerToken: 7.5e-7,
+            outputCostPerToken: 4.5e-6,
+            cacheReadInputCostPerToken: 7.5e-8,
+            displayLabel: nil,
+            priorityInputCostPerToken: 1.5e-6,
+            priorityOutputCostPerToken: 9e-6,
+            priorityCacheReadInputCostPerToken: 1.5e-7),
+        "gpt-5.4-nano": CodexPricing(
+            inputCostPerToken: 2e-7,
+            outputCostPerToken: 1.25e-6,
+            cacheReadInputCostPerToken: 2e-8,
+            displayLabel: nil),
+        "gpt-5.4-pro": CodexPricing(
+            inputCostPerToken: 3e-5,
+            outputCostPerToken: 1.8e-4,
+            cacheReadInputCostPerToken: nil,
+            displayLabel: nil),
+        "gpt-5.5": CodexPricing(
+            inputCostPerToken: 5e-6,
+            outputCostPerToken: 3e-5,
+            cacheReadInputCostPerToken: 5e-7,
+            displayLabel: nil,
+            thresholdTokens: 272_000,
+            inputCostPerTokenAboveThreshold: 1e-5,
+            outputCostPerTokenAboveThreshold: 4.5e-5,
+            cacheReadInputCostPerTokenAboveThreshold: 1e-6,
+            priorityInputCostPerToken: 1.25e-5,
+            priorityOutputCostPerToken: 7.5e-5,
+            priorityCacheReadInputCostPerToken: 1.25e-6),
+        "gpt-5.5-pro": CodexPricing(
+            inputCostPerToken: 3e-5,
+            outputCostPerToken: 1.8e-4,
+            cacheReadInputCostPerToken: nil,
+            displayLabel: nil),
+    ]
+
+    /// Precompiled regex for Codex date suffixes (-YYYY-MM-DD style).
+    private static let codexDateSuffixRegex = makeRegex(pattern: #"-\d{4}-\d{2}-\d{2}$"#)
+
+    /// The models.dev provider ID for OpenAI-hosted Codex models.
+    static let codexModelsDevProviderID = "openai"
+
+    static func normalizeCodexModel(_ raw: String) -> String {
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Fast path: already a known key.
+        if self.codex[trimmed] != nil {
+            return trimmed
+        }
+
+        if trimmed.hasPrefix("openai/") {
+            trimmed = String(trimmed.dropFirst("openai/".count))
+        }
+
+        if self.codex[trimmed] != nil {
+            return trimmed
+        }
+
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        if let dateMatch = codexDateSuffixRegex.firstMatch(in: trimmed, range: range) {
+            let matchRange = Range(dateMatch.range, in: trimmed)!
+            let base = String(trimmed[..<matchRange.lowerBound])
+            if self.codex[base] != nil {
+                return base
+            }
+        }
+
+        return trimmed
+    }
+
+    /// Estimated Codex cost in USD. Lookup order mirrors `claudeCostUSD`:
+    ///  1. models.dev catalog (injected) — covers models added after this binary shipped, with the
+    ///     built-in long-context threshold layered on top.
+    ///  2. Built-in table fallback — offline safety net, pinned by tests.
+    /// Priority pricing is intentionally not applied (SturtBar reads no priority metadata).
+    static func codexCostUSD(
+        model: String,
+        inputTokens: Int,
+        cachedInputTokens: Int,
+        outputTokens: Int,
+        modelsDevCatalog: ModelsDevCatalog? = nil) -> Double?
+    {
+        let key = self.normalizeCodexModel(model)
+
+        // 1. models.dev catalog lookup — keep the built-in threshold so long-context tiers still apply.
+        if let lookup = self.modelsDevLookup(
+            providerID: self.codexModelsDevProviderID,
+            model: model,
+            catalog: modelsDevCatalog)
+        {
+            return self.codexCostUSD(
+                pricing: lookup.pricing,
+                thresholdTokens: self.codex[key]?.thresholdTokens,
+                inputTokens: inputTokens,
+                cachedInputTokens: cachedInputTokens,
+                outputTokens: outputTokens)
+        }
+
+        // 2. Built-in table fallback.
+        guard let pricing = self.codex[key] else { return nil }
+        return self.codexCostUSD(
+            pricing: pricing,
+            inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
+            outputTokens: outputTokens)
+    }
+
+    private static func codexCostUSD(
+        pricing: CodexPricing,
+        inputTokens: Int,
+        cachedInputTokens: Int,
+        outputTokens: Int) -> Double
+    {
+        let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
+        let nonCached = max(0, inputTokens - cached)
+        let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
+
+        let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
+        let inputRate = usesLongContextRates
+            ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken
+            : pricing.inputCostPerToken
+        let cachedInputRate = usesLongContextRates
+            ? pricing.cacheReadInputCostPerTokenAboveThreshold ?? cachedRate
+            : cachedRate
+        let outputRate = usesLongContextRates
+            ? pricing.outputCostPerTokenAboveThreshold ?? pricing.outputCostPerToken
+            : pricing.outputCostPerToken
+
+        return (Double(nonCached) * inputRate)
+            + (Double(cached) * cachedInputRate)
+            + (Double(max(0, outputTokens)) * outputRate)
+    }
+
+    private static func codexCostUSD(
+        pricing: ModelsDevPricingInfo,
+        thresholdTokens: Int? = nil,
+        inputTokens: Int,
+        cachedInputTokens: Int,
+        outputTokens: Int) -> Double
+    {
+        self.codexCostUSD(
+            pricing: CodexPricing(
+                inputCostPerToken: pricing.inputCostPerToken,
+                outputCostPerToken: pricing.outputCostPerToken,
+                cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken,
+                displayLabel: nil,
+                thresholdTokens: thresholdTokens ?? pricing.thresholdTokens,
+                inputCostPerTokenAboveThreshold: pricing.inputCostPerTokenAboveThreshold,
+                outputCostPerTokenAboveThreshold: pricing.outputCostPerTokenAboveThreshold,
+                cacheReadInputCostPerTokenAboveThreshold: pricing.cacheReadInputCostPerTokenAboveThreshold),
+            inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
+            outputTokens: outputTokens)
+    }
 }
