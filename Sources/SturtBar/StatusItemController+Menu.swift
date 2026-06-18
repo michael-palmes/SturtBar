@@ -127,17 +127,22 @@ extension StatusItemController {
         return menu
     }
 
-    /// The single "estimated" disclaimer line shown above Refresh when cost is on for any provider.
-    /// A native disabled item (one line) — the full caveat lives in Settings → Cost.
+    /// The single "estimated" disclaimer line shown above Refresh when cost is on for any provider
+    /// (the full caveat lives in Settings → Cost). Hosted as a FIXED-WIDTH custom view at the card
+    /// width, not a native text item: a native item inherits the menu's image-column inset (forced
+    /// by the system About/Quit icons) plus margins, which lays this one long line out ~21pt wider
+    /// than the 320pt cards. NSMenu then sizes to that widest item, padding every card short on the
+    /// right. A view pinned to the card width keeps the menu (and the bars) flush.
     private static func makeDisclaimerItem() -> NSMenuItem {
         let item = NSMenuItem()
         item.isEnabled = false
-        item.attributedTitle = NSAttributedString(
-            string: "Cost is estimated from local logs at API rates.",
-            attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ])
+        let width = UsageMenuCardLayout.defaultWidth
+        let hosting = MenuHostingView(rootView: CostDisclaimerMenuView())
+        hosting.sizingOptions = .preferredContentSize
+        hosting.frame = NSRect(
+            origin: .zero,
+            size: NSSize(width: width, height: Self.idealHeight(for: CostDisclaimerMenuView(), width: width)))
+        item.view = hosting
         return item
     }
 
@@ -361,5 +366,21 @@ extension StatusItemController {
 
     @objc private func showAboutWindow() {
         self.windows?.showAbout()
+    }
+}
+
+// MARK: - Cost disclaimer view
+
+/// One-line cost disclaimer, hosted at the card width so it can never drive the menu wider than the
+/// cards (see `makeDisclaimerItem`). The text lays out at ~239pt, well within the 284pt content box,
+/// so it stays on one line; the leading inset matches the cards' horizontal padding.
+private struct CostDisclaimerMenuView: View {
+    var body: some View {
+        Text("Cost is estimated from local logs at API rates.")
+            .font(.system(size: NSFont.smallSystemFontSize))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, UsageMenuCardLayout.horizontalPadding)
+            .padding(.vertical, 3)
+            .frame(width: UsageMenuCardLayout.defaultWidth, alignment: .leading)
     }
 }

@@ -58,7 +58,9 @@ struct MenuStructureTests {
         #expect(menu.items[4].title == "Codex Cost History")
         #expect(menu.items[5] === controller.placeholderCardSlot?.item)
         #expect(menu.items[6] === controller.disclaimerItem)
-        #expect(menu.items[6].attributedTitle?.string.contains("estimated") == true)
+        // Hosted at the card width (not a native text item) so it never drives the menu wider than
+        // the cards — a native item's image-column inset would pad every card short on the right.
+        #expect(menu.items[6].view?.frame.width == UsageMenuCardLayout.defaultWidth)
         #expect(menu.items[7].isSeparatorItem)
         #expect(menu.items[8].title == "Refresh Now")
         #expect(menu.items[8].keyEquivalent == "r")
@@ -81,6 +83,19 @@ struct MenuStructureTests {
         #else
         #expect(menu.items.count == 13)
         #endif
+    }
+
+    @Test
+    func `the cost disclaimer keeps the menu no wider than the cards`() throws {
+        let (controller, ts) = self.makeController(suiteName: "sturtbar-menu-width")
+        ts.settings.codexProviderEnabled = true // both providers + cost (default) ⇒ disclaimer shown
+        controller.startWithMenuForTesting()
+        let menu = try #require(controller.menu)
+        // NSMenu sizes to its widest visible item. The disclaimer is the one long line of text; as a
+        // fixed-width hosted view it must not push the menu past the cards, so every card's bars span
+        // the full menu width instead of sitting short on the right.
+        #expect(controller.disclaimerItem?.isHidden == false)
+        #expect(menu.size.width == UsageMenuCardLayout.defaultWidth)
     }
 
     // MARK: - Visibility
