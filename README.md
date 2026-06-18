@@ -26,7 +26,7 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
 
 SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does. It reads them; it never changes them.
 
-Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads). Nothing is uploaded.
+Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads): the token counts only, never your prompts or replies. Nothing is uploaded.
 
 Refresh runs on a hybrid schedule: whenever you open the menu, plus a background interval you choose (manual, 1, 2, 5, 15, or 30 minutes; 5 is the default). Cost scans run on demand.
 
@@ -34,7 +34,7 @@ Refresh runs on a hybrid schedule: whenever you open the menu, plus a background
 
 If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
 
-**Codex (opt-in):** enable the Codex provider in Settings and SturtBar reads the sign-in the codex CLI already keeps at `~/.codex/auth.json` (read-only: SturtBar never writes that file, never refreshes Codex tokens, and never parses the identity token) and calls the same ChatGPT usage endpoint the CLI uses. If the token has expired, SturtBar simply says so and waits for you to run `codex`; it never touches `auth.openai.com`. Disable the provider and its lane goes fully dark again: no reads, no requests, and the cached snapshot is wiped.
+**Codex (opt-in):** enable the Codex provider in Settings and SturtBar reads the sign-in the codex CLI already keeps at `~/.codex/auth.json` (read-only: SturtBar never writes that file, never refreshes Codex tokens, and never parses the identity token) and calls the same ChatGPT usage endpoint the CLI uses. If you also turn on local cost tracking, it reads the token counts in your `~/.codex` session logs (`sessions` and `archived_sessions`, or the `CODEX_HOME` location if you have set one) to estimate spend locally, exactly as it does for Claude Code: the tallies only, never your prompts or replies, and nothing is uploaded. If the token has expired, SturtBar simply says so and waits for you to run `codex`; it never touches `auth.openai.com`. Disable the provider and its lane goes fully dark again: no reads, no requests, and the cached snapshot is wiped.
 
 ## Privacy
 
@@ -43,15 +43,18 @@ If SturtBar keeps asking you to re-authenticate after you've already logged back
 What it reads:
 
 - Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
-- Session logs under `~/.claude/projects`, scanned locally for spend estimates. Nothing is uploaded.
+- Session logs under `~/.claude/projects`, scanned locally for spend estimates. It reads the token counts these logs record, not the prompts or replies in them. Nothing is uploaded.
+- Codex's sign-in, read-only: `~/.codex/auth.json`, or the `CODEX_HOME` location if you have set one. Its contents are read only while the Codex provider is enabled. SturtBar never writes it, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`.
+- Codex session logs, read locally for spend estimates only while the Codex provider and cost tracking are both on: scanned under `~/.codex` (`sessions` and `archived_sessions`, or the `CODEX_HOME` location if set), reading the token counts only, not your prompts or replies. Nothing is uploaded.
 
 Every network call it makes:
 
 - `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
 - `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
+- `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
 
-What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores, and secrets are redacted from its logs.
+What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores or to anything under `~/.codex`, and secrets are redacted from its logs.
 
 ## Performance
 
