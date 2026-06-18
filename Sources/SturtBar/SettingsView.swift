@@ -15,6 +15,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
+    /// Opens the About window (wired by WindowsController); nil in previews.
+    var onShowAbout: (() -> Void)?
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
     /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
     @State private var codexAuthFileDetected: Bool?
@@ -32,6 +34,8 @@ struct SettingsView: View {
             self.costSection
             Divider()
             self.notificationsSection
+            Divider()
+            self.resourcesSection
         }
         .frame(width: 460, alignment: .leading)
         .padding(20)
@@ -154,8 +158,9 @@ struct SettingsView: View {
         SettingsSection(title: "Cost") {
             PreferenceToggleRow(
                 title: "Track local token cost",
-                subtitle: "Estimates spend locally from Claude Code session logs and shows it in the menu. "
-                    + "Scans run on demand, not in the background.",
+                subtitle: "Estimates spend per provider from your local CLI session logs "
+                    + "(Claude Code's ~/.claude and Codex's ~/.codex) and shows it in the menu. "
+                    + "Read-only, on demand, never in the background.",
                 isOn: self.$settings.costUsageEnabled)
 
             if self.settings.costUsageEnabled {
@@ -184,6 +189,33 @@ struct SettingsView: View {
             if self.settings.quotaWarningNotificationsEnabled {
                 QuotaWarningSettingsView(settings: self.settings)
             }
+        }
+    }
+
+    // MARK: - Resources
+
+    /// Provider dashboards, status pages, and About — moved here to keep the menu focused.
+    private var resourcesSection: some View {
+        SettingsSection(title: "Resources") {
+            if self.settings.claudeProviderEnabled {
+                self.linkRow("Open Claude Console", urlString: ClaudeLinks.dashboardURL)
+                self.linkRow("Claude Status Page", urlString: ClaudeLinks.statusPageURL)
+            }
+            if self.settings.codexProviderEnabled {
+                self.linkRow("Open Codex Usage", urlString: CodexLinks.usageDashboardURL)
+                self.linkRow("OpenAI Status Page", urlString: CodexLinks.statusPageURL)
+            }
+            Button("About SturtBar…") { self.onShowAbout?() }
+                .buttonStyle(.link)
+                .font(.body)
+        }
+    }
+
+    @ViewBuilder
+    private func linkRow(_ title: String, urlString: String) -> some View {
+        if let url = URL(string: urlString) {
+            Link(title, destination: url)
+                .font(.body)
         }
     }
 }

@@ -29,7 +29,7 @@ final class WindowsController {
         // The reused window never triggers .onAppear again after the first show, so stale
         // checkbox state would persist for the lifetime of the process without this.
         if let hosting = window.contentViewController as? NSHostingController<SettingsView> {
-            hosting.rootView = SettingsView(settings: self.settings)
+            hosting.rootView = SettingsView(settings: self.settings, onShowAbout: { [weak self] in self?.showAbout() })
         }
         self.present(window)
     }
@@ -48,7 +48,9 @@ final class WindowsController {
     }
 
     private func makeSettingsWindow() -> NSWindow {
-        let hosting = NSHostingController(rootView: SettingsView(settings: self.settings))
+        let hosting = NSHostingController(rootView: SettingsView(
+            settings: self.settings,
+            onShowAbout: { [weak self] in self?.showAbout() }))
         hosting.sizingOptions = .preferredContentSize
         return self.makeWindow(contentViewController: hosting, title: "SturtBar Settings")
     }
