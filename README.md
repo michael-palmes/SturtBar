@@ -16,6 +16,11 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
 
 > Note: SturtBar is an independent project. It is not affiliated with, endorsed by, or built by Anthropic. It reads the usage data Claude Code already stores on your Mac.
 
+<p align="center">
+  <img src="docs/assets/sturtbar-screenshot.png" width="600" alt="The Logbook open in the menu bar: session and weekly windows, daily routines, and spend for the period">
+</p>
+
+
 ## What it shows
 
 - **The Lamp** (the menu bar glyph): a two-bar meter. The tall bar is the session window, the short bar is the week. Each fills from the bottom as usage rises.
