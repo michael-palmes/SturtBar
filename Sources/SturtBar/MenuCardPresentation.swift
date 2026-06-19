@@ -38,12 +38,24 @@ struct MenuCardShape: Equatable {
     let metricCount: Int
     let hasExtraUsage: Bool
     let extraUsageHasBar: Bool
+    /// Codex block structure (decision 9): presence rides `sections`, but the ROW COUNT inside
+    /// the section is data-shape-derived exactly like `metricCount`.
+    let codexMetricCount: Int
+    /// Rendered cost model-row counts (main block + stacked Codex block). Data-derived like
+    /// `metricCount`: fewer models ⇒ fewer rows ⇒ a shorter card. A change rides the shape, so the
+    /// hosting view re-measures at open and defers a mid-open change to menuDidClose. The skeleton
+    /// reserves the full breakdown, so a first scan's data (≤ the reserve) never clips.
+    let costRowCount: Int
+    let codexCostRowCount: Int
 
     init(model: UsageMenuCardView.Model) {
         self.sections = model.sections
         self.metricCount = model.metrics.count
         self.hasExtraUsage = model.extraUsage != nil
         self.extraUsageHasBar = model.extraUsage?.percentUsed != nil
+        self.codexMetricCount = model.codexSection?.metrics.count ?? 0
+        self.costRowCount = model.costSection?.renderedRowCount ?? 0
+        self.codexCostRowCount = model.codexSection?.cost?.renderedRowCount ?? 0
     }
 }
 
@@ -54,7 +66,7 @@ extension UsageMenuCardView.Model {
     /// a dependency when the call happens inside `withObservationTracking` — that is the entire
     /// re-make gating mechanism (`StatusItemController.armCardPresentation`).
     @MainActor
-    static func derive(store: UsageStore, settings: SettingsStore, now: Date) -> UsageMenuCardView.Model {
+    static func makeInput(store: UsageStore, settings: SettingsStore, now: Date) -> Input {
         var input = UsageMenuCardView.Model.Input(now: now)
         input.snapshot = store.usage
         input.cost = store.cost
@@ -63,13 +75,57 @@ extension UsageMenuCardView.Model {
         input.isRefreshing = store.isRefreshing
         input.isStale = store.isStale
         input.lastSuccessAt = store.lastSuccessAt
+        input.claudeProviderEnabled = settings.claudeProviderEnabled
+        input.codexProviderEnabled = settings.codexProviderEnabled
+        input.codexSnapshot = store.codexUsage
+        input.codexAuth = store.codexAuth
+        input.codexHealth = store.codexHealth
+        input.codexIsRefreshing = store.codexIsRefreshing
+        input.codexIsStale = store.codexIsStale
+        input.codexLastSuccessAt = store.codexLastSuccessAt
+        input.codexCost = store.codexCost
+        input.codexCostScanState = store.codexCostScanState
         input.costUsageEnabled = settings.costUsageEnabled
         input.costScanState = store.costScanState
         input.resetTimesShowAbsolute = settings.resetTimesShowAbsolute
         input.usageBarsShowUsed = settings.usageBarsShowUsed
         input.quotaWarningThresholds = Self.cardQuotaThresholds(settings: settings)
-        // No workdays setting in the rebuild yet; the marker math stays ported + tested.
-        input.workDaysPerWeek = nil
+        // 5-day Mon-Fri pacing reshapes the weekly pace marker and lights the workday ticks.
+        input.workDaysPerWeek = settings.weeklyWorkWeekPacingEnabled ? 5 : nil
+        return input
+    }
+
+    @MainActor
+    static func derive(store: UsageStore, settings: SettingsStore, now: Date) -> UsageMenuCardView.Model {
+        make(self.makeInput(store: store, settings: settings, now: now))
+    }
+
+    /// Single-provider Claude card model — forces the claude-only branch regardless of the codex
+    /// toggle, since each provider now renders its own card item (the card's visibility, not the
+    /// model, tracks the enabled state).
+    @MainActor
+    static func deriveClaude(store: UsageStore, settings: SettingsStore, now: Date) -> UsageMenuCardView.Model {
+        var input = Self.makeInput(store: store, settings: settings, now: now)
+        input.claudeProviderEnabled = true
+        input.codexProviderEnabled = false
+        return Self.make(input)
+    }
+
+    /// Single-provider Codex card model — forces the codex-only branch.
+    @MainActor
+    static func deriveCodex(store: UsageStore, settings: SettingsStore, now: Date) -> UsageMenuCardView.Model {
+        var input = Self.makeInput(store: store, settings: settings, now: now)
+        input.claudeProviderEnabled = false
+        input.codexProviderEnabled = true
+        return Self.make(input)
+    }
+
+    /// The "no providers enabled" placeholder card (data-independent).
+    @MainActor
+    static func derivePlaceholder(now: Date) -> UsageMenuCardView.Model {
+        var input = UsageMenuCardView.Model.Input(now: now)
+        input.claudeProviderEnabled = false
+        input.codexProviderEnabled = false
         return Self.make(input)
     }
 

@@ -1,23 +1,35 @@
 import Foundation
 
-enum CostUsageCacheIO {
-    /// Artifact version for the Claude cache format.
-    private static let artifactVersion: Int = 4
+/// Which provider's cost cache to read/write. Each provider gets its own cache
+/// file so their per-file/day maps never collide.
+enum CostUsageCacheProvider {
+    case claude
+    case codex
 
+    /// Per-provider cache filename (carries its own artifact version).
+    var fileName: String {
+        switch self {
+        case .claude: "claude-v4.json"
+        case .codex: "codex-v1.json"
+        }
+    }
+}
+
+enum CostUsageCacheIO {
     private static func defaultCacheRoot() -> URL {
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return root.appendingPathComponent("SturtBar", isDirectory: true)
     }
 
-    static func cacheFileURL(cacheRoot: URL? = nil) -> URL {
+    static func cacheFileURL(cacheRoot: URL? = nil, provider: CostUsageCacheProvider = .claude) -> URL {
         let root = cacheRoot ?? self.defaultCacheRoot()
         return root
             .appendingPathComponent("cost-usage", isDirectory: true)
-            .appendingPathComponent("claude-v\(self.artifactVersion).json", isDirectory: false)
+            .appendingPathComponent(provider.fileName, isDirectory: false)
     }
 
-    static func load(cacheRoot: URL? = nil) -> CostUsageCache {
-        let url = self.cacheFileURL(cacheRoot: cacheRoot)
+    static func load(cacheRoot: URL? = nil, provider: CostUsageCacheProvider = .claude) -> CostUsageCache {
+        let url = self.cacheFileURL(cacheRoot: cacheRoot, provider: provider)
         if let decoded = self.loadCache(at: url) { return decoded }
         return CostUsageCache()
     }
@@ -30,8 +42,8 @@ enum CostUsageCacheIO {
         return decoded
     }
 
-    static func save(cache: CostUsageCache, cacheRoot: URL? = nil) {
-        let url = self.cacheFileURL(cacheRoot: cacheRoot)
+    static func save(cache: CostUsageCache, cacheRoot: URL? = nil, provider: CostUsageCacheProvider = .claude) {
+        let url = self.cacheFileURL(cacheRoot: cacheRoot, provider: provider)
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 

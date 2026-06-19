@@ -5,7 +5,7 @@
 //   1  "Cost History" → lazy chart submenu (present iff settings.costUsageEnabled; Swift Charts
 //      first-frame cost is confined to the submenu's first menuWillOpen)
 //   —  separator
-//      Refresh Now ⌘R · Open Claude Console · Claude Status Page · Settings… ⌘, · About SturtBar
+//      Refresh Now ⌘R · Settings… ⌘, · About SturtBar
 //   —  separator
 //      Quit SturtBar ⌘Q
 //   —  separator + debug items (DEBUG builds only)
@@ -23,9 +23,6 @@ import SturtBarCore
 import SwiftUI
 
 extension StatusItemController {
-    /// Index the chart item occupies when present (right after the card).
-    static let chartItemIndex = 1
-
     // MARK: - Menu construction
 
     /// Builds the full menu, including the persistent card hosting view. Called once per
@@ -36,35 +33,43 @@ extension StatusItemController {
         menu.autoenablesItems = false
         menu.delegate = self
 
-        // Item 0: the usage card. ENABLED so AppKit routes mouse events into the hosted view
-        // (whose consume-loop keeps the menu open on clicks — disabled view items dismiss
-        // without the view ever seeing the click; legacy parity). No action and no custom
-        // highlight drawing: NSMenu draws no system highlight for custom-view items, so the
-        // hosted SwiftUI tree renders with `\.menuItemHighlighted == false` throughout
-        // (static panel; see MenuCardPresentation.swift).
-        let model = UsageMenuCardView.Model.derive(store: self.store, settings: self.settings, now: Date())
-        self.lastCardModel = model
-        self.lastCardShape = MenuCardShape(model: model)
-        let hosting = MenuCardItemHostingView(rootView: UsageMenuCardView(model: model))
-        // .preferredContentSize keeps intrinsicContentSize synced to the card's ideal size; the
-        // explicit frame below pins the initial measurement (fixed width — the cost hint wraps,
-        // so a drifting width would shift heights).
-        hosting.sizingOptions = .preferredContentSize
-        self.cardHostingView = hosting
-        self.remeasureCard()
+        let now = Date()
+        // Per-provider usage cards, each immediately followed by that provider's Cost History
+        // submenu, then the no-providers placeholder and a single estimate disclaimer. All built
+        // once; visibility toggles with the enabled set (applyMenuVisibility) so the menu structure
+        // never mutates. Cards are ENABLED so AppKit routes mouse events into the hosted view's
+        // click-consume loop (disabled view items dismiss without the view seeing the click).
+        let claudeCard = ProviderCardSlot(model: UsageMenuCardView.Model.deriveClaude(
+            store: self.store, settings: self.settings, now: now))
+        self.claudeCardSlot = claudeCard
+        menu.addItem(claudeCard.item)
 
-        let cardItem = NSMenuItem()
-        cardItem.title = "" // NSMenuItem() defaults to "NSMenuItem"; the view carries the content
-        cardItem.view = hosting
-        cardItem.isEnabled = true // see above: enabled ⇒ events reach the view's consume-loop
-        self.cardItem = cardItem
-        menu.addItem(cardItem)
+        let claudeChart = self.makeChartItem(title: "Claude Cost History")
+        self.chartItem = claudeChart
+        menu.addItem(claudeChart)
 
-        if self.settings.costUsageEnabled {
-            let chartItem = self.makeChartItem()
-            self.chartItem = chartItem
-            menu.addItem(chartItem)
-        }
+        // Divider between the two provider sections — shown only when both are enabled.
+        let providerDivider = NSMenuItem.separator()
+        self.providerDividerItem = providerDivider
+        menu.addItem(providerDivider)
+
+        let codexCard = ProviderCardSlot(model: UsageMenuCardView.Model.deriveCodex(
+            store: self.store, settings: self.settings, now: now))
+        self.codexCardSlot = codexCard
+        menu.addItem(codexCard.item)
+
+        let codexChart = self.makeChartItem(title: "Codex Cost History")
+        self.codexChartItem = codexChart
+        menu.addItem(codexChart)
+
+        let placeholderCard = ProviderCardSlot(
+            model: UsageMenuCardView.Model.derivePlaceholder(now: now))
+        self.placeholderCardSlot = placeholderCard
+        menu.addItem(placeholderCard.item)
+
+        let disclaimer = Self.makeDisclaimerItem()
+        self.disclaimerItem = disclaimer
+        menu.addItem(disclaimer)
 
         menu.addItem(.separator())
 
@@ -74,21 +79,10 @@ extension StatusItemController {
             keyEquivalent: "r")
         refresh.keyEquivalentModifierMask = .command
         refresh.target = self
+        refresh.image = NSImage(
+            systemSymbolName: "arrow.clockwise",
+            accessibilityDescription: "Refresh")
         menu.addItem(refresh)
-
-        let console = NSMenuItem(
-            title: "Open Claude Console",
-            action: #selector(self.openClaudeConsole),
-            keyEquivalent: "")
-        console.target = self
-        menu.addItem(console)
-
-        let statusPage = NSMenuItem(
-            title: "Claude Status Page",
-            action: #selector(self.openClaudeStatusPage),
-            keyEquivalent: "")
-        statusPage.target = self
-        menu.addItem(statusPage)
 
         let settingsItem = NSMenuItem(
             title: "Settings…",
@@ -96,14 +90,17 @@ extension StatusItemController {
             keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
+        settingsItem.image = NSImage(
+            systemSymbolName: "gearshape",
+            accessibilityDescription: "Settings")
         menu.addItem(settingsItem)
 
-        let about = NSMenuItem(
+        let aboutItem = NSMenuItem(
             title: "About SturtBar",
             action: #selector(self.showAboutWindow),
             keyEquivalent: "")
-        about.target = self
-        menu.addItem(about)
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(.separator())
 
@@ -132,11 +129,31 @@ extension StatusItemController {
         menu.addItem(fetchUsage)
         #endif
 
+        self.applyMenuVisibility()
         return menu
     }
 
-    private func makeChartItem() -> NSMenuItem {
-        let submenu = NSMenu(title: "Cost History")
+    /// The single "estimated" disclaimer line shown above Refresh when cost is on for any provider
+    /// (the full caveat lives in Settings → Cost). Hosted as a FIXED-WIDTH custom view at the card
+    /// width, not a native text item: a native item inherits the menu's image-column inset (forced
+    /// by the system About/Quit icons) plus margins, which lays this one long line out ~21pt wider
+    /// than the 320pt cards. NSMenu then sizes to that widest item, padding every card short on the
+    /// right. A view pinned to the card width keeps the menu (and the bars) flush.
+    private static func makeDisclaimerItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        item.isEnabled = false
+        let width = UsageMenuCardLayout.defaultWidth
+        let hosting = MenuHostingView(rootView: CostDisclaimerMenuView())
+        hosting.sizingOptions = .preferredContentSize
+        hosting.frame = NSRect(
+            origin: .zero,
+            size: NSSize(width: width, height: Self.idealHeight(for: CostDisclaimerMenuView(), width: width)))
+        item.view = hosting
+        return item
+    }
+
+    private func makeChartItem(title: String) -> NSMenuItem {
+        let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
         submenu.delegate = self
         // Single placeholder item; hydrated with the chart hosting view on submenu open.
@@ -144,7 +161,7 @@ extension StatusItemController {
         content.isEnabled = false
         submenu.addItem(content)
 
-        let item = NSMenuItem(title: "Cost History", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = true
         item.submenu = submenu
         return item
@@ -152,69 +169,39 @@ extension StatusItemController {
 
     // MARK: - Card model pipeline (re-make gating)
 
-    /// One-shot Observation arm around `Model.derive`: any store/settings mutation the model
-    /// depends on re-derives it exactly once (same coalescing pattern as the icon loop). Also
-    /// reconciles chart-item presence, since `derive` reads `settings.costUsageEnabled`.
+    /// One-shot Observation arm: any store/settings mutation the per-provider models depend on
+    /// re-derives them exactly once (same coalescing pattern as the icon loop) and reconciles
+    /// item visibility (which reads the provider/cost toggles). Each `ProviderCardSlot` owns its
+    /// Equatable re-make gate + deferred re-measure.
     func armCardPresentation() {
         guard self.isStarted, self.menu != nil else { return }
-        let model = withObservationTracking {
-            UsageMenuCardView.Model.derive(store: self.store, settings: self.settings, now: Date())
+        let now = Date()
+        let models = withObservationTracking {
+            (
+                claude: UsageMenuCardView.Model.deriveClaude(store: self.store, settings: self.settings, now: now),
+                codex: UsageMenuCardView.Model.deriveCodex(store: self.store, settings: self.settings, now: now))
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.armCardPresentation()
             }
         }
-        self.applyCardModel(model)
-        self.updateChartItemPresence()
+        self.claudeCardSlot?.apply(models.claude, menuIsOpen: self.menuIsOpen)
+        self.codexCardSlot?.apply(models.codex, menuIsOpen: self.menuIsOpen)
+        self.reconcileMenuVisibility()
     }
 
     /// Non-arming re-derive for the wall-clock staleness flip (no observable mutation occurs;
     /// the live arm from `armCardPresentation` remains valid).
     func refreshCardPresentationForStalenessFlip() {
         guard self.menu != nil else { return }
-        self.applyCardModel(
-            UsageMenuCardView.Model.derive(store: self.store, settings: self.settings, now: Date()))
-        self.updateChartItemPresence()
-    }
-
-    /// Equatable-gated rootView swap + shape-fingerprint re-measure scheduling.
-    func applyCardModel(_ model: UsageMenuCardView.Model) {
-        guard model != self.lastCardModel else { return }
-        self.lastCardModel = model
-        let shape = MenuCardShape(model: model)
-        let shapeChanged = shape != self.lastCardShape
-        self.lastCardShape = shape
-
-        guard let hosting = self.cardHostingView else { return }
-        hosting.rootView = UsageMenuCardView(model: model)
-        Self.log.debug(
-            "Card model applied",
-            metadata: ["shapeChanged": "\(shapeChanged)", "menuOpen": "\(self.menuIsOpen)"])
-        #if DEBUG
-        self.onCardModelApplied?(model)
-        #endif
-
-        if shapeChanged {
-            if self.menuIsOpen {
-                // NSMenu measures custom views at open; defer to menuDidClose.
-                self.pendingCardRemeasure = true
-            } else {
-                self.remeasureCard()
-            }
-        }
-    }
-
-    /// Measures the card at its fixed width and pins the hosting view frame. The +1 descender
-    /// safety mirrors legacy menu-card measurement.
-    func remeasureCard() {
-        guard let hosting = self.cardHostingView, let model = self.lastCardModel else { return }
-        let width = UsageMenuCardLayout.defaultWidth
-        let height = Self.idealHeight(for: UsageMenuCardView(model: model), width: width)
-        hosting.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
-        #if DEBUG
-        self.cardRemeasureCount += 1
-        #endif
-        Self.log.debug("Card re-measured", metadata: ["height": "\(height)"])
+        let now = Date()
+        self.claudeCardSlot?.apply(
+            UsageMenuCardView.Model.deriveClaude(store: self.store, settings: self.settings, now: now),
+            menuIsOpen: self.menuIsOpen)
+        self.codexCardSlot?.apply(
+            UsageMenuCardView.Model.deriveCodex(store: self.store, settings: self.settings, now: now),
+            menuIsOpen: self.menuIsOpen)
+        self.reconcileMenuVisibility()
     }
 
     /// Sizing pass via a throwaway NSHostingController: `NSHostingView.fittingSize` /
@@ -227,27 +214,43 @@ extension StatusItemController {
         return max(1, ceil(measured.height) + 1)
     }
 
-    // MARK: - Chart item presence (cost toggle)
+    // MARK: - Menu item visibility (provider + cost toggles)
 
-    /// Inserts/removes the "Cost History" item to track `settings.costUsageEnabled`. Menu
-    /// structure changes are closed-menu operations — while open they defer to menuDidClose.
-    func updateChartItemPresence() {
-        guard let menu = self.menu else { return }
-        let wantsChart = self.settings.costUsageEnabled
-        guard wantsChart != (self.chartItem != nil) else { return }
+    /// Desired hidden-state for each toggle-driven item, given the enabled set. Each provider's
+    /// card + Cost History track that provider; the placeholder shows only when neither is on; the
+    /// disclaimer shows when cost is on for any enabled provider.
+    private func desiredItemVisibility() -> [(item: NSMenuItem?, hidden: Bool)] {
+        let claude = self.settings.claudeProviderEnabled
+        let codex = self.settings.codexProviderEnabled
+        let cost = self.settings.costUsageEnabled
+        return [
+            (self.claudeCardSlot?.item, !claude),
+            (self.chartItem, !(claude && cost)),
+            (self.providerDividerItem, !(claude && codex)),
+            (self.codexCardSlot?.item, !codex),
+            (self.codexChartItem, !(codex && cost)),
+            (self.placeholderCardSlot?.item, claude || codex),
+            (self.disclaimerItem, !(cost && (claude || codex))),
+        ]
+    }
+
+    func applyMenuVisibility() {
+        for entry in self.desiredItemVisibility() {
+            entry.item?.isHidden = entry.hidden
+        }
+    }
+
+    /// Reconciles item visibility with the enabled set; deferred to menuDidClose while the menu is
+    /// open (NSMenu can't restructure a visible menu). No-op when nothing changed.
+    func reconcileMenuVisibility() {
+        guard self.menu != nil else { return }
+        let changed = self.desiredItemVisibility().contains { $0.item?.isHidden != $0.hidden }
+        guard changed else { return }
         if self.menuIsOpen {
-            self.pendingChartPresenceUpdate = true
+            self.pendingMenuVisibilityUpdate = true
             return
         }
-        if wantsChart {
-            let item = self.makeChartItem()
-            self.chartItem = item
-            menu.insertItem(item, at: Self.chartItemIndex)
-        } else if let item = self.chartItem {
-            menu.removeItem(item)
-            self.chartItem = nil
-            self.chartHostingView = nil // release Swift Charts resources with the item
-        }
+        self.applyMenuVisibility()
     }
 
     // MARK: - Chart submenu hydration (lazy)
@@ -256,17 +259,24 @@ extension StatusItemController {
     /// Swift Charts first-frame cost here — never on the root menu open path.
     func hydrateChartSubmenu(_ submenu: NSMenu) {
         guard let item = submenu.items.first else { return }
+        // Route by which provider's submenu opened (decision 7: separate chart per provider).
+        let isCodex = self.codexChartItem?.submenu === submenu
+        let snapshot = isCodex ? self.store.codexCost : self.store.cost
         let width = UsageMenuCardLayout.defaultWidth
-        if let snapshot = self.store.cost, !snapshot.daily.isEmpty {
+        if let snapshot, !snapshot.daily.isEmpty {
             let chart = CostHistoryChartMenuView(snapshot: snapshot, width: width)
             let hosting: MenuHostingView<CostHistoryChartMenuView>
-            if let existing = self.chartHostingView {
+            if let existing = isCodex ? self.codexChartHostingView : self.chartHostingView {
                 existing.rootView = chart
                 hosting = existing
             } else {
                 let created = MenuHostingView(rootView: chart)
                 created.sizingOptions = .preferredContentSize
-                self.chartHostingView = created
+                if isCodex {
+                    self.codexChartHostingView = created
+                } else {
+                    self.chartHostingView = created
+                }
                 hosting = created
             }
             let height = Self.idealHeight(for: chart, width: width)
@@ -293,6 +303,10 @@ extension StatusItemController {
                 self.rootMenuWillOpen()
             } else if let chartSubmenu = self.chartItem?.submenu, ObjectIdentifier(chartSubmenu) == menuID {
                 self.hydrateChartSubmenu(chartSubmenu)
+            } else if let codexChartSubmenu = self.codexChartItem?.submenu,
+                      ObjectIdentifier(codexChartSubmenu) == menuID
+            {
+                self.hydrateChartSubmenu(codexChartSubmenu)
             }
         }
     }
@@ -312,11 +326,17 @@ extension StatusItemController {
         // Store contract order: isMenuOpen = true BEFORE refresh(trigger: .menuOpen), so any
         // observer reading isMenuOpen inside a refresh-triggered redraw already sees true.
         self.store.isMenuOpen = true
-        // Build the model once per open with a fresh `now` (pace strings bake from it). This is
-        // pure compute; `menuIsOpen` is still false, so a shape change re-measures immediately —
-        // we are before display, which is still a "closed menu" for NSMenu measurement purposes.
-        self.applyCardModel(
-            UsageMenuCardView.Model.derive(store: self.store, settings: self.settings, now: Date()))
+        // Re-derive each provider card once per open with a fresh `now` (pace strings bake from
+        // it). Pure compute; `menuIsOpen` is still false, so a shape change re-measures immediately
+        // — we are before display, which is still a "closed menu" for NSMenu measurement purposes.
+        let now = Date()
+        self.claudeCardSlot?.apply(
+            UsageMenuCardView.Model.deriveClaude(store: self.store, settings: self.settings, now: now),
+            menuIsOpen: false)
+        self.codexCardSlot?.apply(
+            UsageMenuCardView.Model.deriveCodex(store: self.store, settings: self.settings, now: now),
+            menuIsOpen: false)
+        self.reconcileMenuVisibility()
         self.menuIsOpen = true
         let store = self.store
         Task { await store.refresh(trigger: .menuOpen) }
@@ -325,13 +345,12 @@ extension StatusItemController {
     private func rootMenuDidClose() {
         self.menuIsOpen = false
         self.store.isMenuOpen = false
-        if self.pendingCardRemeasure {
-            self.pendingCardRemeasure = false
-            self.remeasureCard()
-        }
-        if self.pendingChartPresenceUpdate {
-            self.pendingChartPresenceUpdate = false
-            self.updateChartItemPresence()
+        self.claudeCardSlot?.remeasureIfPending()
+        self.codexCardSlot?.remeasureIfPending()
+        self.placeholderCardSlot?.remeasureIfPending()
+        if self.pendingMenuVisibilityUpdate {
+            self.pendingMenuVisibilityUpdate = false
+            self.applyMenuVisibility()
         }
         if let state = self.menuOpenSignpostState {
             Signposts.menu.endInterval("menuOpen", state)
@@ -347,14 +366,6 @@ extension StatusItemController {
         Task { await store.refresh(trigger: .manual) }
     }
 
-    @objc private func openClaudeConsole() {
-        self.open(urlString: ClaudeLinks.dashboardURL)
-    }
-
-    @objc private func openClaudeStatusPage() {
-        self.open(urlString: ClaudeLinks.statusPageURL)
-    }
-
     @objc private func showSettingsWindow() {
         self.windows?.showSettings()
     }
@@ -362,9 +373,20 @@ extension StatusItemController {
     @objc private func showAboutWindow() {
         self.windows?.showAbout()
     }
+}
 
-    private func open(urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        NSWorkspace.shared.open(url)
+// MARK: - Cost disclaimer view
+
+/// One-line cost disclaimer, hosted at the card width so it can never drive the menu wider than the
+/// cards (see `makeDisclaimerItem`). The text lays out at ~239pt, well within the 284pt content box,
+/// so it stays on one line; the leading inset matches the cards' horizontal padding.
+private struct CostDisclaimerMenuView: View {
+    var body: some View {
+        Text("Cost is estimated from local logs at API rates.")
+            .font(.system(size: NSFont.smallSystemFontSize))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, UsageMenuCardLayout.horizontalPadding)
+            .padding(.vertical, 3)
+            .frame(width: UsageMenuCardLayout.defaultWidth, alignment: .leading)
     }
 }

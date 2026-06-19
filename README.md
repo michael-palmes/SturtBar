@@ -10,6 +10,8 @@
 
 SturtBar is a small, calm macOS menu bar app that keeps watch over your Claude Code usage: how much of the current session window is left, how much of the week, when each one resets, and what you have spent. Usage limits are the rocks. Your remaining quota is your sea room. SturtBar keeps the light burning so you always know how much passage you have left.
 
+If you also sail with OpenAI's Codex CLI, SturtBar can keep watch over that coast too. It is strictly **opt-in**: off by default, with both providers stacked in one view when enabled together.
+
 It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangaroo Island: South Australia's first lighthouse, first lit on 16 January 1852, watching over Backstairs Passage so ships did not run aground. The light's namesake, as Colonial Secretary, raised the money from shipping interests to build the very light that warned their ships off the rocks. The funder paid for the warning. SturtBar is that light, re-manned by software.
 
 > Note: SturtBar is an independent project. It is not affiliated with, endorsed by, or built by Anthropic. It reads the usage data Claude Code already stores on your Mac.
@@ -24,13 +26,15 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
 
 SturtBar reads the credentials Claude Code already keeps on your Mac. It looks first at `~/.claude/.credentials.json`, then falls back to the `Claude Code-credentials` item in your login keychain. It uses those credentials to call the usage API, exactly as Claude Code does. It reads them; it never changes them.
 
-Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads). Nothing is uploaded.
+Spend is read locally by scanning the session logs under `~/.claude/projects` (the same JSONL `ccusage` reads): the token counts only, never your prompts or replies. Nothing is uploaded.
 
 Refresh runs on a hybrid schedule: whenever you open the menu, plus a background interval you choose (manual, 1, 2, 5, 15, or 30 minutes; 5 is the default). Cost scans run on demand.
 
 **On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
 
-If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude *desktop app* doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
+If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
+
+**Codex (opt-in):** enable the Codex provider in Settings and SturtBar reads the sign-in the codex CLI already keeps at `~/.codex/auth.json` (read-only: SturtBar never writes that file, never refreshes Codex tokens, and never parses the identity token) and calls the same ChatGPT usage endpoint the CLI uses. If you also turn on local cost tracking, it reads the token counts in your `~/.codex` session logs (`sessions` and `archived_sessions`, or the `CODEX_HOME` location if you have set one) to estimate spend locally, exactly as it does for Claude Code: the tallies only, never your prompts or replies, and nothing is uploaded. If the token has expired, SturtBar simply says so and waits for you to run `codex`; it never touches `auth.openai.com`. Disable the provider and its lane goes fully dark again: no reads, no requests, and the cached snapshot is wiped.
 
 ## Privacy
 
@@ -39,15 +43,18 @@ If SturtBar keeps asking you to re-authenticate after you've already logged back
 What it reads:
 
 - Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
-- Session logs under `~/.claude/projects`, scanned locally for spend estimates. Nothing is uploaded.
+- Session logs under `~/.claude/projects`, scanned locally for spend estimates. It reads the token counts these logs record, not the prompts or replies in them. Nothing is uploaded.
+- Codex's sign-in, read-only: `~/.codex/auth.json`, or the `CODEX_HOME` location if you have set one. Its contents are read only while the Codex provider is enabled. SturtBar never writes it, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`.
+- Codex session logs, read locally for spend estimates only while the Codex provider and cost tracking are both on: scanned under `~/.codex` (`sessions` and `archived_sessions`, or the `CODEX_HOME` location if set), reading the token counts only, not your prompts or replies. Nothing is uploaded.
 
 Every network call it makes:
 
 - `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
 - `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
+- `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
 
-What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores, and secrets are redacted from its logs.
+What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores or to anything under `~/.codex`, and secrets are redacted from its logs.
 
 ## Performance
 
@@ -78,6 +85,7 @@ Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers wil
 - An Apple Silicon (M-series) Mac
 - macOS 26 or later
 - Claude Code installed and signed in (run `claude` once so the credentials exist)
+- Optional, for the opt-in Codex provider: the codex CLI signed in via ChatGPT (run `codex` once; platform API-key accounts have no usage limits to show)
 
 ## Install
 
@@ -100,7 +108,7 @@ make lint       # SwiftFormat + SwiftLint
 
 ## Credits
 
-The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, more privacy focused take on it: one provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
+The idea was sparked by [CodexBar](https://github.com/steipete/CodexBar) by Peter Steinberger. SturtBar is a lighter, more privacy focused take on it: two provider instead of many, zero third-party dependencies, and no traffic beyond the calls it discloses. Thanks for the spark.
 
 ## License
 

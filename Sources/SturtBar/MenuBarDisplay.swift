@@ -98,7 +98,7 @@ enum MenuBarDisplayText {
 
 enum MenuBarMetricWindowResolver {
     /// The window whose percentage the menu bar text shows (legacy `automatic` lane for Claude).
-    static func percentWindow(snapshot: ClaudeUsageSnapshot?) -> RateWindow? {
+    static func percentWindow(snapshot: ProviderUsageSnapshot?) -> RateWindow? {
         snapshot?.primary
     }
 
@@ -106,7 +106,7 @@ enum MenuBarMetricWindowResolver {
     /// Claude behavior); `showUsed` flips the percent between consumption and remaining.
     static func displayText(
         mode: MenuBarDisplayMode,
-        snapshot: ClaudeUsageSnapshot?,
+        snapshot: ProviderUsageSnapshot?,
         showUsed: Bool = false,
         now: Date = .init()) -> String?
     {

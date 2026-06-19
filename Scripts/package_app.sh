@@ -131,6 +131,12 @@ else
   echo "WARN: $ICON_SOURCE missing — run Scripts/make_icon.sh (packaging without icon)" >&2
 fi
 
+# Optional provider logo glyphs (Resources/ProviderIcons/<provider>.png); the app degrades to
+# text-only headers when absent, so this copy is best-effort.
+if [[ -d "$ROOT/Resources/ProviderIcons" ]]; then
+  cp -R "$ROOT/Resources/ProviderIcons" "$STAGE/Contents/Resources/ProviderIcons"
+fi
+
 BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 cat > "$STAGE/Contents/Info.plist" <<PLIST

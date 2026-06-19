@@ -364,7 +364,7 @@ struct ClaudeOAuthUsageMappingTests {
             rateLimitTier: "claude_pro")
 
         let encoded = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(ClaudeUsageSnapshot.self, from: encoded)
+        let decoded = try JSONDecoder().decode(ProviderUsageSnapshot.self, from: encoded)
         #expect(decoded == snapshot)
     }
 }

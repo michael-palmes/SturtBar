@@ -118,7 +118,7 @@ final class MenuDebugDriver {
 
     /// (c) Posts leftMouseDown/Up at the center of the hosted card inside the open menu window.
     private func postClickOnCard() {
-        guard let cardView = self.controller.cardHostingView, let window = cardView.window else {
+        guard let cardView = self.controller.claudeCardSlot?.hostingView, let window = cardView.window else {
             Self.log.error("AUTOMENU card click: card view is not in a window")
             return
         }

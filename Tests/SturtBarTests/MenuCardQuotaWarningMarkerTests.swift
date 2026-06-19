@@ -25,7 +25,7 @@ struct MenuCardQuotaWarningMarkerTests {
     @Test
     func `omits quota warning markers for disabled windows`() {
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        let snapshot = ClaudeUsageSnapshot(
+        let snapshot = ProviderUsageSnapshot(
             primary: RateWindow(usedPercent: 20, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
             secondary: RateWindow(usedPercent: 40, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
             opus: nil,

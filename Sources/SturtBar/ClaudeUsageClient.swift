@@ -30,10 +30,10 @@ import SturtBarCore
 actor ClaudeUsageClient {
     typealias FetchOperation = @Sendable (
         _ interaction: Interaction,
-        _ phase: RefreshPhase) async throws -> ClaudeUsageSnapshot
+        _ phase: RefreshPhase) async throws -> ProviderUsageSnapshot
 
     private struct InFlight {
-        let task: Task<ClaudeUsageSnapshot, any Error>
+        let task: Task<ProviderUsageSnapshot, any Error>
         let interaction: Interaction
     }
 
@@ -57,7 +57,7 @@ actor ClaudeUsageClient {
     /// See the join-or-upgrade policy in the header comment.
     func fetch(
         interaction: Interaction,
-        phase: RefreshPhase = .regular) async throws -> ClaudeUsageSnapshot
+        phase: RefreshPhase = .regular) async throws -> ProviderUsageSnapshot
     {
         while let current = self.inFlight {
             let joinedInteraction = current.interaction
@@ -80,9 +80,15 @@ actor ClaudeUsageClient {
         return try await self.run(interaction: interaction, phase: phase)
     }
 
+    /// Aborts the in-flight fetch, if any (provider-disable path). The slot self-clears when the
+    /// cancelled task finishes.
+    func cancelInFlight() {
+        self.inFlight?.task.cancel()
+    }
+
     private func run(
         interaction: Interaction,
-        phase: RefreshPhase) async throws -> ClaudeUsageSnapshot
+        phase: RefreshPhase) async throws -> ProviderUsageSnapshot
     {
         let operation = self.fetchOperation
         // The task clears `inFlight` from INSIDE its closure (actor-isolated, runs as part of the

@@ -27,14 +27,14 @@ struct MenuCardModelTests {
 
     private func snapshot(
         primary: RateWindow,
-        primaryWindowKind: ClaudeUsageSnapshot.PrimaryWindowKind = .usage,
+        primaryWindowKind: ProviderUsageSnapshot.PrimaryWindowKind = .usage,
         secondary: RateWindow? = nil,
         opus: RateWindow? = nil,
         extraRateWindows: [NamedRateWindow] = [],
         providerCost: ProviderCostSnapshot? = nil,
-        loginMethod: String? = "Claude Max") -> ClaudeUsageSnapshot
+        loginMethod: String? = "Claude Max") -> ProviderUsageSnapshot
     {
-        ClaudeUsageSnapshot(
+        ProviderUsageSnapshot(
             primary: primary,
             primaryWindowKind: primaryWindowKind,
             secondary: secondary,
@@ -461,7 +461,7 @@ struct MenuCardModelTests {
     // MARK: - Cost section
 
     @Test
-    func `cost section includes last30 days tokens and constant hint`() throws {
+    func `cost section shows a one-line cost summary`() throws {
         let now = Self.now
         let cost = CostUsageTokenSnapshot(
             sessionTokens: 123,
@@ -480,10 +480,7 @@ struct MenuCardModelTests {
 
         #expect(!section.isSkeleton)
         #expect(!model.isCostSkeleton)
-        #expect(section.sessionLine == "Today: $1.23 · 123 tokens")
-        #expect(section.monthLine.contains("456"))
-        #expect(section.monthLine.contains("tokens"))
-        #expect(section.hint == UsageFormatter.costEstimateHint)
+        #expect(section.summaryLine == "Cost  $1.23 today · $78.90 30d")
     }
 
     @Test
@@ -496,7 +493,7 @@ struct MenuCardModelTests {
             now: Self.now))
         let scanningSection = try #require(scanning.costSection)
         #expect(scanning.isCostSkeleton)
-        #expect(scanningSection.sessionLine == "Scanning session logs…")
+        #expect(scanningSection.summaryLine == "Scanning session logs…")
         #expect(scanningSection.breakdown.isEmpty)
 
         let idle = UsageMenuCardView.Model.make(.init(
@@ -506,7 +503,7 @@ struct MenuCardModelTests {
             costScanState: .idle,
             now: Self.now))
         #expect(idle.isCostSkeleton)
-        #expect(idle.costSection?.sessionLine == "No cost data yet")
+        #expect(idle.costSection?.summaryLine == "No cost data yet")
     }
 
     @Test
@@ -527,7 +524,7 @@ struct MenuCardModelTests {
             now: Self.now))
 
         #expect(!model.isCostSkeleton)
-        #expect(model.costSection?.sessionLine == "Today: $0.50 · 10 tokens")
+        #expect(model.costSection?.summaryLine == "Cost  $0.50 today · $5.00 30d")
     }
 
     @Test
@@ -692,5 +689,85 @@ struct MenuCardModelTests {
         #expect(weeklyMetric?.detailLeftText == nil)
         #expect(weeklyMetric?.detailRightText == nil)
         #expect(weeklyMetric?.pacePercent == nil)
+    }
+
+    // MARK: - Work-week (Mon-Fri) pacing
+
+    @Test
+    func `work-week pacing reshapes the weekly pace tip`() throws {
+        let now = Self.now
+        // Window start now-3d, reset now+4d (7-day window): three calendar days elapsed. The 5-day
+        // expected is 20/40/60% (depending on how many were weekdays), never the flat-7-day 42.857%.
+        let weekly = self.window(used: 80, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600))
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: weekly)
+
+        let model = UsageMenuCardView.Model.make(.init(snapshot: snapshot, workDaysPerWeek: 5, now: now))
+        let weeklyMetric = try #require(model.metrics.first { $0.id == "secondary" })
+
+        // The tip must match a 5-day computation through the same local calendar the card uses.
+        let pace = try #require(UsagePace.weekly(window: weekly, now: now, workWeek: WorkWeek()))
+        let expectedTip: Double? = pace.stage == .onTrack ? nil : ((100 - pace.expectedUsedPercent) * 10).rounded() / 10
+        #expect(weeklyMetric.pacePercent == expectedTip)
+    }
+
+    @Test
+    func `work-week pacing gives the Sonnet row a tip and workday ticks`() throws {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)),
+            opus: self.window(used: 50, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.weekly: [25]],
+            workDaysPerWeek: 5,
+            now: now))
+        let sonnet = try #require(model.metrics.first { $0.id == "tertiary" })
+
+        #expect(sonnet.title == "Sonnet")
+        // The weekly warning threshold merged with the four workday ticks.
+        #expect(sonnet.warningMarkerPercents == [20.0, 25.0, 40.0, 60.0, 80.0])
+        // The Sonnet row gains a pace tip it never had before the migration.
+        #expect(sonnet.pacePercent != nil)
+    }
+
+    @Test
+    func `Sonnet row stays plain without work-week pacing`() throws {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)),
+            opus: self.window(used: 50, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)))
+
+        // workDaysPerWeek defaults to nil (setting off): the Sonnet row is exactly as before.
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.weekly: [25]],
+            now: now))
+        let sonnet = try #require(model.metrics.first { $0.id == "tertiary" })
+
+        #expect(sonnet.title == "Sonnet")
+        #expect(sonnet.warningMarkerPercents == [25.0]) // no workday ticks
+        #expect(sonnet.pacePercent == nil) // no pace tip
+    }
+
+    @MainActor
+    @Test
+    func `makeInput maps the work-week setting to workDaysPerWeek`() {
+        let test = makeTestStore(suiteName: "sturtbar-workweek-makeinput") { _, _ in
+            throw CancellationError() // never invoked: makeInput only reads current store state
+        }
+        let now = Self.now
+
+        test.settings.weeklyWorkWeekPacingEnabled = false
+        #expect(UsageMenuCardView.Model.makeInput(
+            store: test.store, settings: test.settings, now: now).workDaysPerWeek == nil)
+
+        test.settings.weeklyWorkWeekPacingEnabled = true
+        #expect(UsageMenuCardView.Model.makeInput(
+            store: test.store, settings: test.settings, now: now).workDaysPerWeek == 5)
     }
 }

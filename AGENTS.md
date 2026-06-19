@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar app that tracks Claude Code usage today, with zero third-party dependencies.
+Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar app that tracks Claude Code usage (and, strictly opt-in, OpenAI Codex usage), with zero third-party dependencies.
 
 ## Key principles
 
@@ -19,6 +19,8 @@ Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar a
 Apply when a change touches credentials, network, file access or logging:
 
 - Credentials are read-only: never write to Claude Code's credential stores. Rotated OAuth tokens persist only to SturtBar's own keychain cache (`com.michaelpalmes.sturtbar.cache`).
+- **Never write under `~/.codex` and never refresh Codex tokens.** The Codex lane is a strictly read-only consumer of `~/.codex/auth.json`; a 401 surfaces as "sign in via the codex CLI" — SturtBar never calls `auth.openai.com` and never parses the `id_token` JWT.
+- **A disabled provider is inert.** The provider toggles are hard privacy gates: no network, no file reads, no background work, and disabling wipes the provider's persisted snapshot. The only sanctioned pre-opt-in filesystem touch is the Settings-open `authFileExists` stat().
 - Least-privilege paths: read only the files and keychain items the feature needs.
 - Redact secrets (tokens, emails, bearer credentials) before logging.
 - A new network destination ships with its disclosure in the same commit, or not at all.

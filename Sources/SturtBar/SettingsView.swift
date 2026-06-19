@@ -16,9 +16,13 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
+    /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
+    @State private var codexAuthFileDetected: Bool?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            self.providersSection
+            Divider()
             self.generalSection
             Divider()
             self.menuBarSection
@@ -31,7 +35,36 @@ struct SettingsView: View {
         }
         .frame(width: 460, alignment: .leading)
         .padding(20)
-        .onAppear { self.launchAtLogin = LaunchAtLoginManager.isEnabled }
+        .onAppear {
+            self.launchAtLogin = LaunchAtLoginManager.isEnabled
+            // Decision 7: one stat() per Settings open — never reads file contents, never runs
+            // at launch. WindowsController recreates the root view each show, so this re-probes.
+            self.codexAuthFileDetected = CodexCredentialsReader.authFileExists()
+        }
+    }
+
+    // MARK: - Providers
+
+    private var providersSection: some View {
+        SettingsSection(title: "Providers") {
+            PreferenceToggleRow(
+                title: "Claude",
+                subtitle: "Track Claude usage (api.anthropic.com, plus local Claude Code logs for cost).",
+                iconProvider: .claude,
+                isOn: self.$settings.claudeProviderEnabled)
+
+            PreferenceToggleRow(
+                title: "Codex",
+                subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
+                iconProvider: .codex,
+                isOn: self.$settings.codexProviderEnabled)
+
+            if self.codexAuthFileDetected == false {
+                Text("codex CLI not detected (no ~/.codex/auth.json)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - General
@@ -52,7 +85,7 @@ struct SettingsView: View {
 
             LabeledPickerRow(
                 title: "Refresh usage",
-                subtitle: "How often SturtBar fetches Claude usage.")
+                subtitle: "How often SturtBar fetches usage from enabled providers.")
             {
                 Picker("Refresh usage", selection: self.$settings.refreshFrequency) {
                     ForEach(RefreshFrequency.allCases) { option in
@@ -82,6 +115,20 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            // Meaningless with a single provider — the winner is always that provider.
+            if self.settings.enabledProviders.count >= 2 {
+                LabeledPickerRow(
+                    title: "Menu bar shows",
+                    subtitle: "Which provider drives the icon and its text.")
+                {
+                    Picker("Menu bar shows", selection: self.$settings.menuBarProviderSource) {
+                        ForEach(MenuBarProviderSource.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -98,6 +145,11 @@ struct SettingsView: View {
                 title: "Show usage as used",
                 subtitle: "Progress bars fill as you consume quota (instead of showing remaining).",
                 isOn: self.$settings.usageBarsShowUsed)
+
+            PreferenceToggleRow(
+                title: "5-day work week (Mon-Fri)",
+                subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
+                isOn: self.$settings.weeklyWorkWeekPacingEnabled)
         }
     }
 
@@ -107,8 +159,9 @@ struct SettingsView: View {
         SettingsSection(title: "Cost") {
             PreferenceToggleRow(
                 title: "Track local token cost",
-                subtitle: "Estimates spend locally from Claude Code session logs and shows it in the menu. "
-                    + "Scans run on demand, not in the background.",
+                subtitle: "Estimates spend per provider from your local CLI session logs "
+                    + "(Claude Code's ~/.claude and Codex's ~/.codex) and shows it in the menu. "
+                    + "Read-only, on demand, never in the background.",
                 isOn: self.$settings.costUsageEnabled)
 
             if self.settings.costUsageEnabled {
@@ -171,13 +224,21 @@ struct SettingsSection<Content: View>: View {
 struct PreferenceToggleRow: View {
     let title: String
     let subtitle: String?
+    /// Optional provider glyph between the checkbox and the title (renders nothing while the
+    /// icon asset is absent).
+    var iconProvider: UsageProviderKind?
     @Binding var isOn: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(isOn: self.$isOn) {
-                Text(self.title)
-                    .font(.body)
+                HStack(spacing: 6) {
+                    if let iconProvider = self.iconProvider {
+                        ProviderIconView(provider: iconProvider)
+                    }
+                    Text(self.title)
+                        .font(.body)
+                }
             }
             .toggleStyle(.checkbox)
 
@@ -213,7 +274,10 @@ struct LabeledPickerRow<PickerContent: View>: View {
             self.picker()
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(maxWidth: 180)
+                // Trailing alignment: the frame caps the picker's width, and without it a
+                // narrow picker would float centred inside the 180pt box — ragged right edges
+                // across rows ("5 min" / "Hidden" vs "Auto (most used)").
+                .frame(maxWidth: 180, alignment: .trailing)
         }
     }
 }

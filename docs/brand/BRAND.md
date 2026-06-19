@@ -251,7 +251,10 @@ Marketing surfaces only (README, landing page, About box). It means exactly what
 
 - SturtBar reads Claude Code's credentials read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
 - If an expired token must be refreshed, the rotated token persists only to SturtBar's own keychain item, `com.michaelpalmes.sturtbar.cache` (the key safe). Claude Code's stores are never touched.
-- Session logs under `~/.claude/projects` are scanned locally for spend estimates. Nothing is uploaded.
+- Session logs under `~/.claude/projects` are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded.
+- Codex is opt-in and inert until enabled. While the Codex provider is on, SturtBar reads its sign-in read-only from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`): it never writes the file, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`. The only filesystem touch before opt-in is a single existence check (stat) on that path while the Settings window is open, to drive the "codex CLI not detected" hint; it reads no contents.
+- While the Codex provider and local cost tracking are both on, Codex session logs under `~/.codex` (`sessions` and `archived_sessions`, or `$CODEX_HOME`) are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded. SturtBar never writes anything under `~/.codex`.
+- Disabling a provider stops all of its reads and requests and wipes its cached snapshot.
 - Logs are redacted before they are written: emails, tokens, and bearer credentials are masked.
 - No telemetry, no analytics, no accounts, no tracking of any kind.
 
@@ -263,9 +266,10 @@ The complete list of network destinations. Anything not on this list does not ha
 |---|---|
 | `api.anthropic.com/api/oauth/usage` | Reads your usage numbers, authenticated with the OAuth token, on each refresh |
 | `platform.claude.com/v1/oauth/token` | Refreshes the OAuth token, only when a stored token has expired |
+| `chatgpt.com/backend-api/wham/usage` | Reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled |
 | `models.dev/api.json` | Fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled |
 
-Links that open in the user's browser (the Claude Console, the status page) are not app traffic and stay off this list.
+Links that open in your browser (the provider consoles and status pages) are not app traffic and stay off this list.
 
 ### 6.4 Prompt policy
 
@@ -345,9 +349,9 @@ Sources: State Library of South Australia, Trove (NLA), National Archives lighth
 
 The privacy claims are typeset as one of the printed artefacts: a 19th-century notice in the style of the Notices to Mariners plates, set on its own paper stock beside the download links. Three printed rules:
 
-- **What the light reads.** Claude Code's credentials, read-only; session logs, scanned locally.
-- **What signals it sends.** The three destinations from 6.3, with their triggers.
-- **What it never does.** No telemetry, no analytics, no accounts; never writes to Claude Code's stores.
+- **What the light reads.** Claude Code's credentials, read-only; session logs, scanned locally. With the Codex provider enabled, its sign-in and session logs as well, read-only.
+- **What signals it sends.** The destinations listed in 6.3, with their triggers.
+- **What it never does.** No telemetry, no analytics, no accounts; never writes to Claude Code's stores or under `~/.codex`.
 
 The headline may be the sanctioned tagline ("The Keeper watches the water, not you."). The list items are plain language and must match section 6 in substance. The artefact follows the same treatment and rights rules as the rest of this section. The genre makes plain disclosure feel native; it never decorates it into vagueness.
 

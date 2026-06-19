@@ -2,12 +2,9 @@ import Foundation
 
 // MARK: - Links
 
-/// Claude provider links and display metadata (inlined from the legacy provider descriptor).
+/// Claude provider display metadata (inlined from the legacy provider descriptor).
 public enum ClaudeLinks {
     public static let displayName = "Claude"
-    public static let dashboardURL = "https://console.anthropic.com/settings/billing"
-    public static let subscriptionDashboardURL = "https://claude.ai/settings/usage"
-    public static let statusPageURL = "https://status.claude.com/"
 }
 
 // MARK: - Errors
@@ -128,7 +125,7 @@ public struct ClaudeUsageService: Sendable {
     ///     itself still works without passing the parameter.
     public func fetchUsage(
         interaction: Interaction,
-        phase: RefreshPhase = .regular) async throws -> ClaudeUsageSnapshot
+        phase: RefreshPhase = .regular) async throws -> ProviderUsageSnapshot
     {
         try await InteractionContext.$current.withValue(interaction) {
             if phase != .regular {
@@ -200,7 +197,7 @@ public struct ClaudeUsageService: Sendable {
     private struct OAuthExecutor {
         let service: ClaudeUsageService
 
-        func load(allowUnauthorizedRetry: Bool) async throws -> ClaudeUsageSnapshot {
+        func load(allowUnauthorizedRetry: Bool) async throws -> ProviderUsageSnapshot {
             do {
                 let promptPolicy = ClaudeUsageService.currentClaudeOAuthInteractivePromptPolicy()
                 let hasCache = self.resolveHasCache()
@@ -354,7 +351,7 @@ public struct ClaudeUsageService: Sendable {
     private static func mapOAuthUsage(
         _ usage: OAuthUsageResponse,
         credentials: ClaudeOAuthCredentials,
-        now: Date = Date()) throws -> ClaudeUsageSnapshot
+        now: Date = Date()) throws -> ProviderUsageSnapshot
     {
         func makeWindow(_ window: OAuthUsageWindow?, windowMinutes: Int?) -> RateWindow? {
             guard let window,
@@ -386,7 +383,7 @@ public struct ClaudeUsageService: Sendable {
 
         guard let primary else {
             if let spendLimit = Self.oauthSpendLimitWindow(from: providerCost, extraUsage: usage.extraUsage) {
-                return ClaudeUsageSnapshot(
+                return ProviderUsageSnapshot(
                     primary: spendLimit,
                     primaryWindowKind: .spendLimit,
                     secondary: nil,
@@ -405,7 +402,7 @@ public struct ClaudeUsageService: Sendable {
             windowMinutes: Self.weeklyWindowMinutes)
         let extraRateWindows = Self.oauthExtraRateWindows(from: usage)
 
-        return ClaudeUsageSnapshot(
+        return ProviderUsageSnapshot(
             primary: primary,
             secondary: weekly,
             opus: modelSpecific,
@@ -507,7 +504,7 @@ extension ClaudeUsageService {
         _ data: Data,
         rateLimitTier: String? = nil,
         subscriptionType: String? = nil,
-        now: Date = Date()) throws -> ClaudeUsageSnapshot
+        now: Date = Date()) throws -> ProviderUsageSnapshot
     {
         let usage = try ClaudeOAuthUsageFetcher.decodeUsageResponse(data)
         let creds = ClaudeOAuthCredentials(

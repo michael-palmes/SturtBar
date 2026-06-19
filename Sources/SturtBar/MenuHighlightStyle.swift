@@ -41,8 +41,17 @@ enum MenuHighlightStyle {
     }
 }
 
-/// Single-provider branding (legacy `ProviderDescriptorRegistry.descriptor(for: .claude).branding`).
-enum ClaudeBranding {
+/// Per-provider branding (replaces the legacy registry colour lookup at n=2).
+enum ProviderBranding {
     /// Claude terracotta — legacy ProviderColor(204, 124, 94).
-    static let color = Color(red: 204 / 255, green: 124 / 255, blue: 94 / 255)
+    static let claude = Color(red: 204 / 255, green: 124 / 255, blue: 94 / 255)
+    /// Codex indigo — #3E46F6 (product call; deliberately not OpenAI's brand palette).
+    static let codex = Color(red: 0x3E / 255, green: 0x46 / 255, blue: 0xF6 / 255)
+
+    static func tint(_ provider: UsageProviderKind) -> Color {
+        switch provider {
+        case .claude: self.claude
+        case .codex: self.codex
+        }
+    }
 }

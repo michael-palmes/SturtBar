@@ -13,9 +13,33 @@ import SturtBarCore
 
 struct StatePersistence {
     struct State: Codable, Equatable {
-        var usage: ClaudeUsageSnapshot?
+        /// Claude snapshot. The JSON key stays `usage` (pre-codex schema) so existing users'
+        /// state files keep decoding; renaming the property would break that for zero gain.
+        var usage: ProviderUsageSnapshot?
+        /// Codex snapshot; absent in pre-1.1 files (decodes nil) and ignored by older app
+        /// versions reading newer files.
+        var codexUsage: ProviderUsageSnapshot?
         var cost: CostUsageTokenSnapshot?
+        /// Codex cost snapshot; absent in pre-codex-cost files (decodes nil) and ignored by older
+        /// app versions reading newer files.
+        var codexCost: CostUsageTokenSnapshot?
         var savedAt: Date
+
+        /// Explicit init so legacy `State(usage:cost:savedAt:)` call sites stay valid; Codable
+        /// synthesis is unaffected.
+        init(
+            usage: ProviderUsageSnapshot?,
+            codexUsage: ProviderUsageSnapshot? = nil,
+            cost: CostUsageTokenSnapshot?,
+            codexCost: CostUsageTokenSnapshot? = nil,
+            savedAt: Date)
+        {
+            self.usage = usage
+            self.codexUsage = codexUsage
+            self.cost = cost
+            self.codexCost = codexCost
+            self.savedAt = savedAt
+        }
     }
 
     private static let log = SturtBarLog.logger("state-persistence")

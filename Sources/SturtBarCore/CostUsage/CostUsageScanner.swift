@@ -14,6 +14,9 @@ enum CostUsageScanner {
     /// most recent `claudeScanWindowMaxDays` days ending at `until`.
     static let claudeScanWindowMaxDays = 30
 
+    /// Performance bound for the Codex session scan (mirrors `claudeScanWindowMaxDays`).
+    static let codexScanWindowMaxDays = 30
+
     enum ClaudeLogProviderFilter {
         case all
         case vertexAIOnly
@@ -22,6 +25,9 @@ enum CostUsageScanner {
 
     struct Options {
         var claudeProjectsRoots: [URL]?
+        /// Override roots for the Codex session scan (`sessions` + `archived_sessions`).
+        /// nil resolves to `CODEX_HOME`/`~/.codex`.
+        var codexSessionsRoots: [URL]?
         var cacheRoot: URL?
         var refreshMinIntervalSeconds: TimeInterval = 60
         /// Force a full rescan, ignoring per-file cache and incremental offsets.
@@ -29,10 +35,12 @@ enum CostUsageScanner {
 
         init(
             claudeProjectsRoots: [URL]? = nil,
+            codexSessionsRoots: [URL]? = nil,
             cacheRoot: URL? = nil,
             forceRescan: Bool = false)
         {
             self.claudeProjectsRoots = claudeProjectsRoots
+            self.codexSessionsRoots = codexSessionsRoots
             self.cacheRoot = cacheRoot
             self.forceRescan = forceRescan
         }
@@ -106,6 +114,30 @@ enum CostUsageScanner {
         try checkCancellation?()
 
         return try self.loadClaudeDaily(
+            range: range,
+            now: now,
+            options: options,
+            checkCancellation: checkCancellation)
+    }
+
+    /// Loads the Codex daily cost report by scanning local session logs.
+    /// Clamps the requested window to the most recent `codexScanWindowMaxDays` days.
+    static func loadCodexDailyReport(
+        since: Date,
+        until: Date,
+        now: Date = Date(),
+        options: Options = Options(),
+        checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
+    {
+        let windowFloor = Calendar.current.date(
+            byAdding: .day,
+            value: -(self.codexScanWindowMaxDays - 1),
+            to: until) ?? since
+        let clampedSince = max(since, windowFloor)
+        let range = CostUsageDayRange(since: clampedSince, until: until)
+        try checkCancellation?()
+
+        return try self.loadCodexDaily(
             range: range,
             now: now,
             options: options,

@@ -2,10 +2,8 @@ import Foundation
 import Testing
 @testable import SturtBarCore
 
-/// Ported from CodexBar's CostUsagePricingTests (Claude cases only; codex
-/// tables/functions dropped with the Codex trim).
-/// Phase 2b: models.dev branch is now active; tests that exercise the catalog
-/// injection path are enabled.
+/// Ported from CodexBar's CostUsagePricingTests. Covers Claude and Codex cost
+/// cases; the models.dev catalog-injection path is exercised for both providers.
 struct CostUsagePricingTests {
     @Test
     func `normalizes claude opus41 dated variants`() {
@@ -312,6 +310,108 @@ struct CostUsagePricingTests {
             outputTokens: 5,
             modelsDevCatalog: catalog)
         #expect(cost == nil)
+    }
+
+    // MARK: - Codex
+
+    @Test
+    func `normalizes codex model openai prefix and dated suffix`() {
+        #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5.1-codex-2025-01-01") == "gpt-5.1-codex")
+        #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5.1-codex") == "gpt-5.1-codex")
+    }
+
+    @Test
+    func `codex cost prices gpt51 codex from built-in table`() {
+        // No catalog injected — exercises the built-in fallback table.
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.1-codex",
+            inputTokens: 1000,
+            cachedInputTokens: 200,
+            outputTokens: 500)
+        // cached clamps to input; non-cached input at input rate, cached at cache-read rate.
+        let expected = (800.0 * 1.25e-6) + (200.0 * 1.25e-7) + (500.0 * 1e-5)
+        #expect(cost == expected)
+    }
+
+    @Test
+    func `codex cost clamps cached tokens to input`() {
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.1-codex",
+            inputTokens: 100,
+            cachedInputTokens: 500,
+            outputTokens: 0)
+        // cached = min(500, 100) = 100 ⇒ non-cached = 0.
+        let expected = 100.0 * 1.25e-7
+        #expect(cost == expected)
+    }
+
+    @Test
+    func `codex cost applies above-threshold rates for gpt55 long context`() {
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.5",
+            inputTokens: 300_000,
+            cachedInputTokens: 0,
+            outputTokens: 10000)
+        // 300k input > 272k threshold ⇒ above-threshold input/output rates.
+        let expected = (300_000.0 * 1e-5) + (10000.0 * 4.5e-5)
+        #expect(cost == expected)
+    }
+
+    @Test
+    func `codex cost uses standard rates below gpt55 threshold`() {
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.5",
+            inputTokens: 100_000,
+            cachedInputTokens: 0,
+            outputTokens: 10000)
+        let expected = (100_000.0 * 5e-6) + (10000.0 * 3e-5)
+        #expect(cost == expected)
+    }
+
+    @Test
+    func `codex cost is zero for spark research preview`() {
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.3-codex-spark",
+            inputTokens: 1000,
+            cachedInputTokens: 100,
+            outputTokens: 500)
+        #expect(cost == 0.0)
+    }
+
+    @Test
+    func `codex cost returns nil for unknown models`() {
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-nonexistent",
+            inputTokens: 100,
+            cachedInputTokens: 0,
+            outputTokens: 40)
+        #expect(cost == nil)
+    }
+
+    @Test
+    func `codex cost prefers injected models dev catalog`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "openai": {
+            "id": "openai",
+            "models": {
+              "gpt-5.1-codex": {
+                "id": "gpt-5.1-codex",
+                "cost": { "input": 2, "output": 12, "cache_read": 0.2 }
+              }
+            }
+          }
+        }
+        """)
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.1-codex",
+            inputTokens: 1000,
+            cachedInputTokens: 200,
+            outputTokens: 500,
+            modelsDevCatalog: catalog)
+        // Catalog ($/M tokens) overrides the built-in table: input 2e-6, output 1.2e-5, cache_read 2e-7.
+        let expected = (800.0 * 2e-6) + (200.0 * 2e-7) + (500.0 * 1.2e-5)
+        #expect(cost == expected)
     }
 
     // MARK: - Helpers

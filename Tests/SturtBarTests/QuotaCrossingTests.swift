@@ -364,8 +364,12 @@ struct UsageStoreQuotaCrossingTests {
         let ts = makeTestStore(suiteName: "sturtbar-tests-quota-callback") { _, _ in try script.next() }
         ts.settings.quotaWarningNotificationsEnabled = true
 
+        var providers: [UsageProviderKind] = []
         var crossings: [QuotaCrossing] = []
-        ts.store.onQuotaThresholdCrossing = { crossings.append($0) }
+        ts.store.onQuotaThresholdCrossing = { provider, crossing in
+            providers.append(provider)
+            crossings.append(crossing)
+        }
 
         await ts.store.refresh(trigger: .manual)
         await ts.store.refresh(trigger: .manual)
@@ -373,6 +377,41 @@ struct UsageStoreQuotaCrossingTests {
 
         // Per-snapshot event order: depletion machine first, then warnings.
         #expect(crossings == [
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40),
+            .sessionDepleted,
+            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0),
+        ])
+        #expect(providers == [.claude, .claude, .claude])
+    }
+
+    @Test
+    func `codex crossings are tagged codex and tracked by a separate machine`() async {
+        let codexScript = FetchScript([
+            .success(makeCodexSnapshot(primaryUsedPercent: 40, secondaryUsedPercent: nil)),
+            .success(makeCodexSnapshot(primaryUsedPercent: 60, secondaryUsedPercent: nil)),
+            .success(makeCodexSnapshot(primaryUsedPercent: 100, secondaryUsedPercent: nil)),
+        ])
+        let ts = makeTestStore(
+            suiteName: "sturtbar-tests-quota-codex",
+            codexFetch: { try await codexScript.next() },
+            fetch: { _, _ in
+                // Claude stays flat at 10% — its machine must emit nothing while codex crosses.
+                makeUsageSnapshot(primaryUsedPercent: 10)
+            })
+        ts.settings.codexProviderEnabled = true
+        ts.settings.quotaWarningNotificationsEnabled = true
+
+        var events: [(UsageProviderKind, QuotaCrossing)] = []
+        ts.store.onQuotaThresholdCrossing = { events.append(($0, $1)) }
+
+        await ts.store.refresh(trigger: .manual)
+        await ts.store.refresh(trigger: .manual)
+        await ts.store.refresh(trigger: .manual)
+
+        // Same sequence the Claude machine produces for 40→60→100 — but tagged codex, proving
+        // the lanes run separate machines off the shared threshold configuration.
+        #expect(events.map(\.0) == [.codex, .codex, .codex])
+        #expect(events.map(\.1) == [
             .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40),
             .sessionDepleted,
             .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0),
@@ -387,7 +426,7 @@ struct UsageStoreQuotaCrossingTests {
         ts.settings.quotaWarningNotificationsEnabled = true
 
         var crossings: [QuotaCrossing] = []
-        ts.store.onQuotaThresholdCrossing = { crossings.append($0) }
+        ts.store.onQuotaThresholdCrossing = { _, crossing in crossings.append(crossing) }
         await ts.store.refresh(trigger: .manual)
         #expect(crossings.isEmpty)
     }

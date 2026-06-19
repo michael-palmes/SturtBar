@@ -59,6 +59,7 @@ struct RecordedFetch: Equatable {
 actor CallRecorder {
     private(set) var fetches: [RecordedFetch] = []
     private(set) var scans: [(bypassGate: Bool, historyDays: Int)] = []
+    private(set) var codexFetchCount = 0
 
     func recordFetch(interaction: Interaction, phase: RefreshPhase) {
         self.fetches.append(RecordedFetch(interaction: interaction, phase: phase))
@@ -66,6 +67,10 @@ actor CallRecorder {
 
     func recordScan(bypassGate: Bool, historyDays: Int) {
         self.scans.append((bypassGate, historyDays))
+    }
+
+    func recordCodexFetch() {
+        self.codexFetchCount += 1
     }
 
     var fetchCount: Int {
@@ -82,11 +87,11 @@ actor CallRecorder {
 func makeUsageSnapshot(
     primaryUsedPercent: Double = 25,
     primaryWindowMinutes: Int? = 5 * 60,
-    primaryWindowKind: ClaudeUsageSnapshot.PrimaryWindowKind = .usage,
+    primaryWindowKind: ProviderUsageSnapshot.PrimaryWindowKind = .usage,
     secondaryUsedPercent: Double? = nil,
-    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> ClaudeUsageSnapshot
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> ProviderUsageSnapshot
 {
-    ClaudeUsageSnapshot(
+    ProviderUsageSnapshot(
         primary: RateWindow(
             usedPercent: primaryUsedPercent,
             windowMinutes: primaryWindowMinutes,
@@ -99,6 +104,26 @@ func makeUsageSnapshot(
         opus: nil,
         updatedAt: updatedAt,
         loginMethod: "Claude Pro")
+}
+
+/// Codex-shaped snapshot: 5h primary + weekly secondary, plan badge, nothing Claude-specific.
+func makeCodexSnapshot(
+    primaryUsedPercent: Double = 18,
+    secondaryUsedPercent: Double? = 43,
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> ProviderUsageSnapshot
+{
+    ProviderUsageSnapshot(
+        primary: RateWindow(
+            usedPercent: primaryUsedPercent,
+            windowMinutes: 5 * 60,
+            resetsAt: nil,
+            resetDescription: nil),
+        secondary: secondaryUsedPercent.map {
+            RateWindow(usedPercent: $0, windowMinutes: 7 * 24 * 60, resetsAt: nil, resetDescription: nil)
+        },
+        opus: nil,
+        updatedAt: updatedAt,
+        loginMethod: "Pro")
 }
 
 func makeCostSnapshot(
@@ -118,6 +143,29 @@ func makeCostSnapshot(
                 totalTokens: 1000,
                 costUSD: sessionCostUSD,
                 modelsUsed: ["claude-fable-5"],
+                modelBreakdowns: nil),
+        ],
+        updatedAt: updatedAt)
+}
+
+/// Codex-flavoured cost snapshot (gpt-5.x models), for the Codex cost lane tests.
+func makeCodexCostSnapshot(
+    sessionCostUSD: Double? = 2.1,
+    updatedAt: Date = Date(timeIntervalSince1970: 1_000_000_000)) -> CostUsageTokenSnapshot
+{
+    CostUsageTokenSnapshot(
+        sessionTokens: 1500,
+        sessionCostUSD: sessionCostUSD,
+        last30DaysTokens: 60000,
+        last30DaysCostUSD: 18.4,
+        daily: [
+            CostUsageDailyReport.Entry(
+                date: "2026-06-10",
+                inputTokens: 1000,
+                outputTokens: 500,
+                totalTokens: 1500,
+                costUSD: sessionCostUSD,
+                modelsUsed: ["gpt-5.1-codex"],
                 modelBreakdowns: nil),
         ],
         updatedAt: updatedAt)
@@ -146,13 +194,17 @@ struct TestStore {
 }
 
 /// Builds a UsageStore with a scripted fetch result, an injectable clock, and no persistence.
+/// The codex lane defaults to "not signed in" — irrelevant for Claude-only tests because the
+/// provider is disabled by default and the store must never call a disabled provider's client.
 @MainActor
 func makeTestStore(
     suiteName: String,
     clock: TestClock = TestClock(),
     scanner: CostScanner? = nil,
+    codexScanner: CostScanner? = nil,
     persistence: StatePersistence? = nil,
     blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = { nil },
+    codexFetch: @escaping CodexUsageClient.FetchOperation = { throw CodexUsageError.credentialsMissing },
     fetch: @escaping ClaudeUsageClient.FetchOperation) -> TestStore
 {
     let settings = makeTestSettings(suiteName: suiteName)
@@ -161,10 +213,16 @@ func makeTestStore(
         await recorder.recordFetch(interaction: interaction, phase: phase)
         return try await fetch(interaction, phase)
     })
+    let codexClient = CodexUsageClient(fetchOperation: {
+        await recorder.recordCodexFetch()
+        return try await codexFetch()
+    })
     let store = UsageStore(
         settings: settings,
         client: client,
+        codexClient: codexClient,
         scanner: scanner ?? makeIdleScanner(),
+        codexScanner: codexScanner ?? makeIdleScanner(),
         persistence: persistence,
         now: { clock.now },
         blockStatus: blockStatus)

@@ -2,8 +2,16 @@
 
 All notable changes to SturtBar are recorded here.
 
-## Unreleased
+## 1.1.0
 
+- New opt-in Codex provider: track OpenAI Codex (ChatGPT) usage alongside Claude. Off by default: until you turn it on in Settings → Providers, SturtBar makes no calls to OpenAI and never reads `~/.codex`. When enabled it reads `~/.codex/auth.json` read-only (never writes it, never refreshes Codex tokens) and shows the 5-hour and weekly windows with the plan badge.
+- Providers are now individually toggleable, Claude included (on by default). A disabled provider is fully inert: no network, no file reads, and its cached snapshot is wiped. With both off, the card says so plainly.
+- With two providers enabled the popover stacks both sections in one card, and the menu bar follows whichever provider is most constrained (highest session usage) with a one-letter prefix ("C 45%", "X 81%"). A new "Menu bar shows" setting can pin it to one provider. Single-provider displays are unchanged.
+- Cost tracking now spans both providers. With "Track local token cost" on, SturtBar estimates Codex spend from `~/.codex` (read-only, on demand, never in the background) the same way it does Claude from `~/.claude`, with an inline cost line in each provider's card section and a separate cost history chart per provider.
+- New "5-day work week (Mon-Fri)" pacing option, off by default: the weekly gauge paces quota across Monday to Friday and treats weekends as zero usage, so the pace marker tracks a working week rather than a calendar one.
+- Notices to Mariners now name the coast: notification bodies open with the provider ("Claude: session spent…"), and per-provider notices no longer replace each other. One housekeeping note: the first notice after this upgrade may stack with one left over from an older version.
+- Provider links in the menu (console/usage and status pages) follow the enabled set.
+- The Refresh and Settings menu items now carry SF Symbol glyphs, matching the system About and Quit icons on macOS 26.
 - Apple Silicon only, now enforced in the tooling: the packaging scripts always build arm64 (the `--universal` Intel opt-in is removed) and the README requirements name an Apple Silicon Mac.
 - Agent guidance rewritten around key principles (privacy, security and performance first, least access, every network destination disclosed), with commit style rules and a CLAUDE.md symlink so Claude Code reads the same instructions.
 - Performance made explicit: the brand guide gains the keeper's economy (lean by construction, measured before claimed), the README gains a Performance section with measured footprint figures and the method behind each, the Credits line drops the unmeasured "faster", and unmeasured performance numbers are now a hard brand boundary.

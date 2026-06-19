@@ -132,8 +132,8 @@ public enum UsageFormatter {
     }
 
     public static let costEstimateHint =
-        "Estimated from local Claude logs at API rates; token totals include cache read/write tokens " +
-        "and may differ from Claude Code /status."
+        "Estimated from local logs at API rates; token totals include cached tokens and may differ " +
+        "from each tool's reported usage."
 
     // MARK: - Counts
 

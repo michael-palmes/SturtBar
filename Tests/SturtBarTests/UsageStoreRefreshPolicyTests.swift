@@ -11,15 +11,15 @@ import Testing
 
 /// Sequential fetch results; the last entry repeats once the script is exhausted.
 final class FetchScript: Sendable {
-    private let mutex: Mutex<[Result<ClaudeUsageSnapshot, ClaudeUsageError>]>
+    private let mutex: Mutex<[Result<ProviderUsageSnapshot, ClaudeUsageError>]>
 
-    init(_ results: [Result<ClaudeUsageSnapshot, ClaudeUsageError>]) {
+    init(_ results: [Result<ProviderUsageSnapshot, ClaudeUsageError>]) {
         precondition(!results.isEmpty)
         self.mutex = Mutex(results)
     }
 
-    func next() throws -> ClaudeUsageSnapshot {
-        let result = self.mutex.withLock { script -> Result<ClaudeUsageSnapshot, ClaudeUsageError> in
+    func next() throws -> ProviderUsageSnapshot {
+        let result = self.mutex.withLock { script -> Result<ProviderUsageSnapshot, ClaudeUsageError> in
             script.count > 1 ? script.removeFirst() : script[0]
         }
         return try result.get()

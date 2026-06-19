@@ -59,21 +59,68 @@ struct IconState: Equatable {
 
     @MainActor
     static func derive(store: UsageStore, settings: SettingsStore, now: Date = .init()) -> IconState {
-        let usage = store.usage
+        // Read EVERY input unconditionally before branching: each read registers as an
+        // observation dependency, so a change to either lane (or any toggle) re-derives even
+        // when the current winner doesn't display it.
+        let claudeEnabled = settings.claudeProviderEnabled
+        let codexEnabled = settings.codexProviderEnabled
+        let source = settings.menuBarProviderSource
         let showUsed = settings.usageBarsShowUsed
-        let fill = IconRemainingResolver.resolvedRemaining(snapshot: usage, showUsed: showUsed)
-        let auth = store.auth
+        let mode = settings.menuBarDisplayMode
+        let claudeUsage = store.usage
+        let codexUsage = store.codexUsage
+        let claudeAuth = store.auth
+        let codexAuth = store.codexAuth
+        let claudeStale = store.isStale
+        let codexStale = store.codexIsStale
+
+        let winner = MenuBarProviderResolver.winner(
+            source: source,
+            claudeEnabled: claudeEnabled,
+            claude: claudeUsage,
+            codexEnabled: codexEnabled,
+            codex: codexUsage)
+        let multiProvider = claudeEnabled && codexEnabled
+
+        // The winning lane supplies the snapshot AND the dim-state inputs; both-off is the
+        // neutral empty icon (decision 6).
+        let snapshot: ProviderUsageSnapshot?
+        let isStale: Bool
+        let needsAuth: Bool
+        let credentialsMissing: Bool
+        switch winner {
+        case .claude:
+            snapshot = claudeUsage
+            isStale = claudeStale
+            needsAuth = claudeAuth.isNeedsReauth
+            credentialsMissing = claudeAuth == .credentialsMissing
+        case .codex:
+            snapshot = codexUsage
+            isStale = codexStale
+            needsAuth = codexAuth == .signInRequired || codexAuth == .apiKeyOnlyUnsupported
+            credentialsMissing = codexAuth == .credentialsMissing
+        case nil:
+            snapshot = nil
+            isStale = false
+            needsAuth = false
+            credentialsMissing = false
+        }
+
+        let fill = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, showUsed: showUsed)
+        let baseText = MenuBarMetricWindowResolver.displayText(
+            mode: mode,
+            snapshot: snapshot,
+            showUsed: showUsed,
+            now: now)
         return IconState(
             primaryBucket: fill.primary.map(Self.bucket),
             secondaryBucket: fill.secondary.map(Self.bucket),
-            isStale: store.isStale,
-            needsAuth: auth.isNeedsReauth,
-            credentialsMissing: auth == .credentialsMissing,
-            displayText: MenuBarMetricWindowResolver.displayText(
-                mode: settings.menuBarDisplayMode,
-                snapshot: usage,
-                showUsed: showUsed,
-                now: now))
+            isStale: isStale,
+            needsAuth: needsAuth,
+            credentialsMissing: credentialsMissing,
+            displayText: winner.flatMap {
+                MenuBarProviderResolver.prefixed(baseText, provider: $0, multiProvider: multiProvider)
+            })
     }
 
     /// Whole-point quantization, clamped to 0...100.
@@ -118,29 +165,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// The status item's root menu. Built once; items mutate in place (chart presence).
     var menu: NSMenu?
-    /// Item 0: the hosted usage card (enabled so AppKit routes mouse events into the view; no
-    /// action/target so NSMenu never highlights it).
-    var cardItem: NSMenuItem?
-    /// The single persistent hosting view behind `cardItem` (created once, re-rooted on change).
-    var cardHostingView: MenuCardItemHostingView<UsageMenuCardView>?
-    /// "Cost History" item with the lazy chart submenu; nil while cost usage is disabled.
+    /// Per-provider usage cards, each followed by its Cost History submenu, plus the no-providers
+    /// placeholder. Built once; visibility toggles with the enabled set (no insert/remove churn).
+    var claudeCardSlot: ProviderCardSlot?
+    var codexCardSlot: ProviderCardSlot?
+    var placeholderCardSlot: ProviderCardSlot?
+    /// "Claude Cost History" item with the lazy chart submenu (under the Claude card).
     var chartItem: NSMenuItem?
-    /// Lazily-created chart hosting view; released when the chart item is removed.
+    /// Lazily-created Claude chart hosting view.
     var chartHostingView: MenuHostingView<CostHistoryChartMenuView>?
-    /// Last applied card model — the Equatable re-make gate.
-    var lastCardModel: UsageMenuCardView.Model?
-    /// Shape of `lastCardModel`; changes trigger a re-measure (deferred while the menu is open).
-    var lastCardShape: MenuCardShape?
+    /// "Codex Cost History" item + its lazy chart hosting view (under the Codex card).
+    var codexChartItem: NSMenuItem?
+    var codexChartHostingView: MenuHostingView<CostHistoryChartMenuView>?
+    /// Single "estimated" cost disclaimer line, shown above Refresh when cost is on for any provider.
+    var disclaimerItem: NSMenuItem?
+    /// Separator between the Claude and Codex sections, shown only when BOTH providers are enabled.
+    var providerDividerItem: NSMenuItem?
     /// Local (non-observable) mirror of "the root menu is open" for defer decisions. The store's
     /// `isMenuOpen` stays the published contract; reading it in the card pipeline would register
     /// it as an observation dependency and re-derive the model twice per menu interaction.
     var menuIsOpen = false
-    /// Shape changed while the menu was open; re-measure on close (NSMenu can't resize a visible
-    /// custom item).
-    var pendingCardRemeasure = false
-    /// costUsageEnabled flipped while the menu was open; rebuild the chart item on close (menu
-    /// structure changes are closed-menu operations).
-    var pendingChartPresenceUpdate = false
+    /// Provider/cost toggled while the menu was open; apply item visibility on close (NSMenu can't
+    /// restructure a visible menu).
+    var pendingMenuVisibilityUpdate = false
     /// Open-interval signpost state ("menu" category).
     var menuOpenSignpostState: OSSignpostIntervalState?
 
@@ -149,10 +196,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     let debugUsageClient: ClaudeUsageClient?
     /// Test hook: observes every applied state without needing a real status item button.
     var onIconApplied: ((IconState) -> Void)?
-    /// Test hook: fires whenever a re-made model actually replaces the card's rootView.
-    var onCardModelApplied: ((UsageMenuCardView.Model) -> Void)?
-    /// Test counter: number of card re-measures (build + shape changes).
-    var cardRemeasureCount = 0
     /// Seam for testing: replace with an instant-release closure to avoid real sleeps.
     /// Receives the sleep duration and throws CancellationError when the task is cancelled.
     var deadlineSleep: (Duration) async throws -> Void = { duration in
