@@ -79,6 +79,9 @@ extension StatusItemController {
             keyEquivalent: "r")
         refresh.keyEquivalentModifierMask = .command
         refresh.target = self
+        refresh.image = NSImage(
+            systemSymbolName: "arrow.clockwise",
+            accessibilityDescription: "Refresh")
         menu.addItem(refresh)
 
         let settingsItem = NSMenuItem(
@@ -87,6 +90,9 @@ extension StatusItemController {
             keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
+        settingsItem.image = NSImage(
+            systemSymbolName: "gearshape",
+            accessibilityDescription: "Settings")
         menu.addItem(settingsItem)
 
         let aboutItem = NSMenuItem(
