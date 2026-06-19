@@ -690,4 +690,84 @@ struct MenuCardModelTests {
         #expect(weeklyMetric?.detailRightText == nil)
         #expect(weeklyMetric?.pacePercent == nil)
     }
+
+    // MARK: - Work-week (Mon-Fri) pacing
+
+    @Test
+    func `work-week pacing reshapes the weekly pace tip`() throws {
+        let now = Self.now
+        // Window start now-3d, reset now+4d (7-day window): three calendar days elapsed. The 5-day
+        // expected is 20/40/60% (depending on how many were weekdays), never the flat-7-day 42.857%.
+        let weekly = self.window(used: 80, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600))
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: weekly)
+
+        let model = UsageMenuCardView.Model.make(.init(snapshot: snapshot, workDaysPerWeek: 5, now: now))
+        let weeklyMetric = try #require(model.metrics.first { $0.id == "secondary" })
+
+        // The tip must match a 5-day computation through the same local calendar the card uses.
+        let pace = try #require(UsagePace.weekly(window: weekly, now: now, workWeek: WorkWeek()))
+        let expectedTip: Double? = pace.stage == .onTrack ? nil : ((100 - pace.expectedUsedPercent) * 10).rounded() / 10
+        #expect(weeklyMetric.pacePercent == expectedTip)
+    }
+
+    @Test
+    func `work-week pacing gives the Sonnet row a tip and workday ticks`() throws {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)),
+            opus: self.window(used: 50, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)))
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.weekly: [25]],
+            workDaysPerWeek: 5,
+            now: now))
+        let sonnet = try #require(model.metrics.first { $0.id == "tertiary" })
+
+        #expect(sonnet.title == "Sonnet")
+        // The weekly warning threshold merged with the four workday ticks.
+        #expect(sonnet.warningMarkerPercents == [20.0, 25.0, 40.0, 60.0, 80.0])
+        // The Sonnet row gains a pace tip it never had before the migration.
+        #expect(sonnet.pacePercent != nil)
+    }
+
+    @Test
+    func `Sonnet row stays plain without work-week pacing`() throws {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 5, minutes: 300, resetsAt: now.addingTimeInterval(3600)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)),
+            opus: self.window(used: 50, minutes: 10080, resetsAt: now.addingTimeInterval(4 * 24 * 3600)))
+
+        // workDaysPerWeek defaults to nil (setting off): the Sonnet row is exactly as before.
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.weekly: [25]],
+            now: now))
+        let sonnet = try #require(model.metrics.first { $0.id == "tertiary" })
+
+        #expect(sonnet.title == "Sonnet")
+        #expect(sonnet.warningMarkerPercents == [25.0]) // no workday ticks
+        #expect(sonnet.pacePercent == nil) // no pace tip
+    }
+
+    @MainActor
+    @Test
+    func `makeInput maps the work-week setting to workDaysPerWeek`() {
+        let test = makeTestStore(suiteName: "sturtbar-workweek-makeinput") { _, _ in
+            throw CancellationError() // never invoked: makeInput only reads current store state
+        }
+        let now = Self.now
+
+        test.settings.weeklyWorkWeekPacingEnabled = false
+        #expect(UsageMenuCardView.Model.makeInput(
+            store: test.store, settings: test.settings, now: now).workDaysPerWeek == nil)
+
+        test.settings.weeklyWorkWeekPacingEnabled = true
+        #expect(UsageMenuCardView.Model.makeInput(
+            store: test.store, settings: test.settings, now: now).workDaysPerWeek == 5)
+    }
 }

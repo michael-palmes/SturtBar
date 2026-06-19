@@ -762,17 +762,23 @@ extension UsageMenuCardView.Model {
         }
 
         if let opus = snapshot.opus {
-            // Legacy labels the model-specific weekly window "Sonnet" (claude opusLabel) and
-            // applies the weekly thresholds without workday markers.
-            metrics.append(Metric(
-                id: "tertiary",
-                title: MetricTitles.sonnet,
-                percent: Self.displayPercent(opus, input: input),
-                reset: Self.resetInfo(opus, input: input),
-                warningMarkerPercents: Self.warningMarkerPercents(
-                    thresholds: input.quotaWarningThresholds[.weekly],
-                    showUsed: input.usageBarsShowUsed),
-                isUsed: input.usageBarsShowUsed))
+            // The model-specific weekly window is labelled "Sonnet" (claude opusLabel). With 5-day
+            // pacing on it routes through the shared weekly row to gain a paced tip and the workday
+            // ticks; off, it keeps the legacy plain bar (weekly thresholds, no tip).
+            if input.workDaysPerWeek != nil {
+                metrics.append(Self.weeklyMetric(
+                    window: opus, input: input, id: "tertiary", title: MetricTitles.sonnet))
+            } else {
+                metrics.append(Metric(
+                    id: "tertiary",
+                    title: MetricTitles.sonnet,
+                    percent: Self.displayPercent(opus, input: input),
+                    reset: Self.resetInfo(opus, input: input),
+                    warningMarkerPercents: Self.warningMarkerPercents(
+                        thresholds: input.quotaWarningThresholds[.weekly],
+                        showUsed: input.usageBarsShowUsed),
+                    isUsed: input.usageBarsShowUsed))
+            }
         }
 
         for namedWindow in snapshot.extraRateWindows {
@@ -812,9 +818,17 @@ extension UsageMenuCardView.Model {
     /// Standard weekly row, shared between providers. Guard matches legacy: no pace text/tip
     /// when the window is fully exhausted (0% left), so a completely used weekly quota shows a
     /// plain empty bar without deficit labels.
-    private static func weeklyMetric(window: RateWindow, input: Input, id: String) -> Metric {
+    private static func weeklyMetric(
+        window: RateWindow,
+        input: Input,
+        id: String,
+        title: String = MetricTitles.weekly) -> Metric
+    {
+        // 5-day Mon-Fri pacing (decision: setting-gated) reshapes the expected-pace marker over a
+        // working week; nil leaves the flat 7-day pacing untouched. Local-zone calendar by design.
+        let workWeek: WorkWeek? = input.workDaysPerWeek != nil ? WorkWeek() : nil
         let pace: UsagePace? = window.remainingPercent > 0
-            ? UsagePace.weekly(window: window, now: input.now, defaultWindowMinutes: 10080)
+            ? UsagePace.weekly(window: window, now: input.now, defaultWindowMinutes: 10080, workWeek: workWeek)
             .flatMap { $0.expectedUsedPercent >= 3 ? $0 : nil }
             : nil
         let paceDetail = Self.weeklyPaceDetail(
@@ -824,7 +838,7 @@ extension UsageMenuCardView.Model {
             showUsed: input.usageBarsShowUsed)
         return Metric(
             id: id,
-            title: MetricTitles.weekly,
+            title: title,
             percent: Self.displayPercent(window, input: input),
             reset: Self.resetInfo(window, input: input),
             detailLeftText: paceDetail?.leftLabel,

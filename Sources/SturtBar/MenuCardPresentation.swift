@@ -90,8 +90,8 @@ extension UsageMenuCardView.Model {
         input.resetTimesShowAbsolute = settings.resetTimesShowAbsolute
         input.usageBarsShowUsed = settings.usageBarsShowUsed
         input.quotaWarningThresholds = Self.cardQuotaThresholds(settings: settings)
-        // No workdays setting in the rebuild yet; the marker math stays ported + tested.
-        input.workDaysPerWeek = nil
+        // 5-day Mon-Fri pacing reshapes the weekly pace marker and lights the workday ticks.
+        input.workDaysPerWeek = settings.weeklyWorkWeekPacingEnabled ? 5 : nil
         return input
     }
 
