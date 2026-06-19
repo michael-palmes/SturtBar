@@ -84,6 +84,7 @@ final class SettingsStore {
         static let menuBarDisplayMode = "sturtbar.menuBarDisplayMode"
         static let resetTimesShowAbsolute = "sturtbar.resetTimesShowAbsolute"
         static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
+        static let weeklyWorkWeekPacingEnabled = "sturtbar.weeklyWorkWeekPacingEnabled"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -261,6 +262,13 @@ final class SettingsStore {
         didSet { self.defaults.set(self.usageBarsShowUsed, forKey: Keys.usageBarsShowUsed) }
     }
 
+    /// Pace the weekly window over a Monday-to-Friday working week (5 days) instead of 7 calendar
+    /// days, treating weekends as zero usage. Only reshapes the pace marker and its run-out
+    /// projection; the real limit and percentages are untouched.
+    var weeklyWorkWeekPacingEnabled: Bool {
+        didSet { self.defaults.set(self.weeklyWorkWeekPacingEnabled, forKey: Keys.weeklyWorkWeekPacingEnabled) }
+    }
+
     // MARK: Init
 
     init(userDefaults: UserDefaults = .standard) {
@@ -306,6 +314,8 @@ final class SettingsStore {
             .flatMap(MenuBarDisplayMode.init(rawValue:)) ?? .default
         self.resetTimesShowAbsolute = userDefaults.object(forKey: Keys.resetTimesShowAbsolute) as? Bool ?? false
         self.usageBarsShowUsed = userDefaults.object(forKey: Keys.usageBarsShowUsed) as? Bool ?? false
+        self.weeklyWorkWeekPacingEnabled =
+            userDefaults.object(forKey: Keys.weeklyWorkWeekPacingEnabled) as? Bool ?? false
     }
 
     private static func clampedHistoryDays(_ raw: Int) -> Int {

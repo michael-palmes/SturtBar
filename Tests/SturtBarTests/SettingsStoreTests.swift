@@ -52,6 +52,7 @@ struct SettingsStoreTests {
         #expect(settings.menuBarDisplayMode == .hidden)
         #expect(!settings.resetTimesShowAbsolute) // countdown by default
         #expect(!settings.usageBarsShowUsed) // remaining by default
+        #expect(!settings.weeklyWorkWeekPacingEnabled) // 7-day pacing by default
     }
 
     @Test
@@ -60,10 +61,12 @@ struct SettingsStoreTests {
         let settings = self.makeSettings(suite)
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
+        settings.weeklyWorkWeekPacingEnabled = true
 
         let reloaded = try SettingsStore(userDefaults: #require(UserDefaults(suiteName: suite)))
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
+        #expect(reloaded.weeklyWorkWeekPacingEnabled)
         UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
 
@@ -156,6 +159,7 @@ struct SettingsStoreTests {
         settings.menuBarDisplayMode = .both
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
+        settings.weeklyWorkWeekPacingEnabled = true
         settings.costUsageEnabled = false
         settings.costUsageHistoryDays = 14
         settings.sessionQuotaNotificationsEnabled = false
@@ -170,6 +174,7 @@ struct SettingsStoreTests {
         #expect(reloaded.menuBarDisplayMode == .both)
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
+        #expect(reloaded.weeklyWorkWeekPacingEnabled)
         #expect(!reloaded.costUsageEnabled)
         #expect(reloaded.costUsageHistoryDays == 14)
         #expect(!reloaded.sessionQuotaNotificationsEnabled)

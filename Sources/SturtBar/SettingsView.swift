@@ -145,6 +145,11 @@ struct SettingsView: View {
                 title: "Show usage as used",
                 subtitle: "Progress bars fill as you consume quota (instead of showing remaining).",
                 isOn: self.$settings.usageBarsShowUsed)
+
+            PreferenceToggleRow(
+                title: "5-day work week (Mon-Fri)",
+                subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
+                isOn: self.$settings.weeklyWorkWeekPacingEnabled)
         }
     }
 
