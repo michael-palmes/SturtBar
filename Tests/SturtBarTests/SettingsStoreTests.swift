@@ -53,6 +53,7 @@ struct SettingsStoreTests {
         #expect(!settings.resetTimesShowAbsolute) // countdown by default
         #expect(!settings.usageBarsShowUsed) // remaining by default
         #expect(!settings.weeklyWorkWeekPacingEnabled) // 7-day pacing by default
+        #expect(settings.showModelWeeklyLimits) // model weekly rows on by default
     }
 
     @Test
@@ -62,11 +63,13 @@ struct SettingsStoreTests {
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
         settings.weeklyWorkWeekPacingEnabled = true
+        settings.showModelWeeklyLimits = false
 
         let reloaded = try SettingsStore(userDefaults: #require(UserDefaults(suiteName: suite)))
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
         #expect(reloaded.weeklyWorkWeekPacingEnabled)
+        #expect(!reloaded.showModelWeeklyLimits)
         UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
 
@@ -160,6 +163,7 @@ struct SettingsStoreTests {
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
         settings.weeklyWorkWeekPacingEnabled = true
+        settings.showModelWeeklyLimits = false
         settings.costUsageEnabled = false
         settings.costUsageHistoryDays = 14
         settings.sessionQuotaNotificationsEnabled = false
@@ -175,6 +179,7 @@ struct SettingsStoreTests {
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
         #expect(reloaded.weeklyWorkWeekPacingEnabled)
+        #expect(!reloaded.showModelWeeklyLimits)
         #expect(!reloaded.costUsageEnabled)
         #expect(reloaded.costUsageHistoryDays == 14)
         #expect(!reloaded.sessionQuotaNotificationsEnabled)

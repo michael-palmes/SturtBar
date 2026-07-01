@@ -104,6 +104,8 @@ public struct ProviderUsageSnapshot: Codable, Equatable, Sendable {
     public let secondary: RateWindow?
     public let opus: RateWindow?
     public let extraRateWindows: [NamedRateWindow]
+    /// Model-scoped weekly limits from the OAuth `limits` array (e.g. "Fable"), one per model.
+    public let modelWeeklyWindows: [NamedRateWindow]
     public let providerCost: ProviderCostSnapshot?
     public let updatedAt: Date
     public let loginMethod: String?
@@ -114,6 +116,7 @@ public struct ProviderUsageSnapshot: Codable, Equatable, Sendable {
         secondary: RateWindow?,
         opus: RateWindow?,
         extraRateWindows: [NamedRateWindow] = [],
+        modelWeeklyWindows: [NamedRateWindow] = [],
         providerCost: ProviderCostSnapshot? = nil,
         updatedAt: Date,
         loginMethod: String?)
@@ -123,8 +126,36 @@ public struct ProviderUsageSnapshot: Codable, Equatable, Sendable {
         self.secondary = secondary
         self.opus = opus
         self.extraRateWindows = extraRateWindows
+        self.modelWeeklyWindows = modelWeeklyWindows
         self.providerCost = providerCost
         self.updatedAt = updatedAt
         self.loginMethod = loginMethod
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case primary
+        case primaryWindowKind
+        case secondary
+        case opus
+        case extraRateWindows
+        case modelWeeklyWindows
+        case providerCost
+        case updatedAt
+        case loginMethod
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.primary = try container.decode(RateWindow.self, forKey: .primary)
+        self.primaryWindowKind = try container.decode(PrimaryWindowKind.self, forKey: .primaryWindowKind)
+        self.secondary = try container.decodeIfPresent(RateWindow.self, forKey: .secondary)
+        self.opus = try container.decodeIfPresent(RateWindow.self, forKey: .opus)
+        self.extraRateWindows = try container.decode([NamedRateWindow].self, forKey: .extraRateWindows)
+        // Snapshots persisted before this field existed decode to an empty list.
+        self.modelWeeklyWindows = try container
+            .decodeIfPresent([NamedRateWindow].self, forKey: .modelWeeklyWindows) ?? []
+        self.providerCost = try container.decodeIfPresent(ProviderCostSnapshot.self, forKey: .providerCost)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.loginMethod = try container.decodeIfPresent(String.self, forKey: .loginMethod)
     }
 }

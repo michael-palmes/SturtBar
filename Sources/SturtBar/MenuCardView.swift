@@ -579,6 +579,9 @@ extension UsageMenuCardView.Model {
         /// Display settings: reset lines as absolute clock vs countdown; meters fill by used vs left.
         var resetTimesShowAbsolute = false
         var usageBarsShowUsed = false
+        /// Display-time filter for the model-scoped weekly rows (such as Fable); the data keeps
+        /// flowing while hidden so the toggle is instant.
+        var showModelWeeklyLimits = true
         var now: Date
     }
 
@@ -778,6 +781,29 @@ extension UsageMenuCardView.Model {
                         thresholds: input.quotaWarningThresholds[.weekly],
                         showUsed: input.usageBarsShowUsed),
                     isUsed: input.usageBarsShowUsed))
+            }
+        }
+
+        if input.showModelWeeklyLimits {
+            // Model-scoped weekly rows (such as Fable) get the same treatment as the tertiary slot.
+            for namedWindow in snapshot.modelWeeklyWindows {
+                if input.workDaysPerWeek != nil {
+                    metrics.append(Self.weeklyMetric(
+                        window: namedWindow.window,
+                        input: input,
+                        id: namedWindow.id,
+                        title: namedWindow.title))
+                } else {
+                    metrics.append(Metric(
+                        id: namedWindow.id,
+                        title: namedWindow.title,
+                        percent: Self.displayPercent(namedWindow.window, input: input),
+                        reset: Self.resetInfo(namedWindow.window, input: input),
+                        warningMarkerPercents: Self.warningMarkerPercents(
+                            thresholds: input.quotaWarningThresholds[.weekly],
+                            showUsed: input.usageBarsShowUsed),
+                        isUsed: input.usageBarsShowUsed))
+                }
             }
         }
 

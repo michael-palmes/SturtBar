@@ -138,6 +138,7 @@ struct OAuthUsageResponse: Decodable {
     let sevenDayRoutines: OAuthUsageWindow?
     let sevenDayRoutinesSourceKey: String?
     let extraUsage: OAuthExtraUsage?
+    let limits: [OAuthScopedLimit]?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: DynamicCodingKey.self)
@@ -158,6 +159,7 @@ struct OAuthUsageResponse: Decodable {
         self.sevenDayRoutines = routines.window
         self.sevenDayRoutinesSourceKey = routines.sourceKey
         self.extraUsage = Self.decodeValue(in: container, keys: ["extra_usage"])
+        self.limits = Self.decodeValue(in: container, keys: ["limits"])
     }
 
     private static func decodeWindow(
@@ -220,6 +222,43 @@ struct OAuthUsageWindow: Decodable {
     enum CodingKeys: String, CodingKey {
         case utilization
         case resetsAt = "resets_at"
+    }
+}
+
+/// One entry of the `limits` array. Every field decodes tolerantly so a shape drift in one
+/// field never drops the whole array; unknown kinds are kept here and filtered at mapping.
+struct OAuthScopedLimit: Decodable {
+    let kind: String?
+    let percent: Double?
+    let resetsAt: String?
+    let modelDisplayName: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case percent
+        case resetsAt = "resets_at"
+        case scope
+    }
+
+    private struct Scope: Decodable {
+        let model: ScopeModel?
+    }
+
+    private struct ScopeModel: Decodable {
+        let displayName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case displayName = "display_name"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try? container.decodeIfPresent(String.self, forKey: .kind)
+        self.percent = try? container.decodeIfPresent(Double.self, forKey: .percent)
+        self.resetsAt = try? container.decodeIfPresent(String.self, forKey: .resetsAt)
+        let scope = try? container.decodeIfPresent(Scope.self, forKey: .scope)
+        self.modelDisplayName = scope?.model?.displayName
     }
 }
 
