@@ -85,6 +85,7 @@ final class SettingsStore {
         static let resetTimesShowAbsolute = "sturtbar.resetTimesShowAbsolute"
         static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
         static let weeklyWorkWeekPacingEnabled = "sturtbar.weeklyWorkWeekPacingEnabled"
+        static let showModelWeeklyLimits = "sturtbar.showModelWeeklyLimits"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -269,6 +270,12 @@ final class SettingsStore {
         didSet { self.defaults.set(self.weeklyWorkWeekPacingEnabled, forKey: Keys.weeklyWorkWeekPacingEnabled) }
     }
 
+    /// Popover rows for model-scoped weekly limits (such as Fable). Display-time filter only:
+    /// the data is still fetched, mapped and persisted while hidden, so the toggle is instant.
+    var showModelWeeklyLimits: Bool {
+        didSet { self.defaults.set(self.showModelWeeklyLimits, forKey: Keys.showModelWeeklyLimits) }
+    }
+
     // MARK: Init
 
     init(userDefaults: UserDefaults = .standard) {
@@ -316,6 +323,8 @@ final class SettingsStore {
         self.usageBarsShowUsed = userDefaults.object(forKey: Keys.usageBarsShowUsed) as? Bool ?? false
         self.weeklyWorkWeekPacingEnabled =
             userDefaults.object(forKey: Keys.weeklyWorkWeekPacingEnabled) as? Bool ?? false
+        self.showModelWeeklyLimits =
+            userDefaults.object(forKey: Keys.showModelWeeklyLimits) as? Bool ?? true
     }
 
     private static func clampedHistoryDays(_ raw: Int) -> Int {

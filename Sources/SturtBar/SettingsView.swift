@@ -150,6 +150,11 @@ struct SettingsView: View {
                 title: "5-day work week (Mon-Fri)",
                 subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
                 isOn: self.$settings.weeklyWorkWeekPacingEnabled)
+
+            PreferenceToggleRow(
+                title: "Show model weekly limits",
+                subtitle: "Adds a row for model-specific weekly limits, such as Fable.",
+                isOn: self.$settings.showModelWeeklyLimits)
         }
     }
 

@@ -31,6 +31,7 @@ struct MenuCardModelTests {
         secondary: RateWindow? = nil,
         opus: RateWindow? = nil,
         extraRateWindows: [NamedRateWindow] = [],
+        modelWeeklyWindows: [NamedRateWindow] = [],
         providerCost: ProviderCostSnapshot? = nil,
         loginMethod: String? = "Claude Max") -> ProviderUsageSnapshot
     {
@@ -40,6 +41,7 @@ struct MenuCardModelTests {
             secondary: secondary,
             opus: opus,
             extraRateWindows: extraRateWindows,
+            modelWeeklyWindows: modelWeeklyWindows,
             providerCost: providerCost,
             updatedAt: Self.now,
             loginMethod: loginMethod)
@@ -112,6 +114,55 @@ struct MenuCardModelTests {
         #expect(absolute?.contains(":") == true) // an absolute clock time
         #expect(absolute?.contains("in ") == false)
         #expect(absolute != countdown)
+    }
+
+    @Test
+    func `model weekly rows render after the tertiary slot and before extras`() {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 22, minutes: 300, resetsAt: now.addingTimeInterval(3000)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+            opus: self.window(used: 10, minutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+            extraRateWindows: [NamedRateWindow(
+                id: "claude-routines",
+                title: "Daily Routines",
+                window: self.window(used: 5, minutes: 10080))],
+            modelWeeklyWindows: [NamedRateWindow(
+                id: "model-weekly-fable",
+                title: "Fable",
+                window: self.window(used: 30, minutes: 10080, resetsAt: now.addingTimeInterval(7200)))])
+
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: snapshot,
+            quotaWarningThresholds: [.weekly: [25]],
+            now: now))
+
+        #expect(model.metrics.map(\.id)
+            == ["primary", "secondary", "tertiary", "model-weekly-fable", "claude-routines"])
+        let fable = model.metrics[3]
+        #expect(fable.title == "Fable")
+        #expect(fable.percent == 70)
+        #expect(fable.warningMarkerPercents == [25])
+        #expect(fable.resetText(now: now)?.isEmpty == false)
+    }
+
+    @Test
+    func `showModelWeeklyLimits off filters the model weekly rows at display time`() {
+        let now = Self.now
+        let snapshot = self.snapshot(
+            primary: self.window(used: 22, minutes: 300, resetsAt: now.addingTimeInterval(3000)),
+            secondary: self.window(used: 40, minutes: 10080, resetsAt: now.addingTimeInterval(3600)),
+            modelWeeklyWindows: [NamedRateWindow(
+                id: "model-weekly-fable",
+                title: "Fable",
+                window: self.window(used: 30, minutes: 10080, resetsAt: now.addingTimeInterval(7200)))])
+
+        var input = UsageMenuCardView.Model.Input(now: now)
+        input.snapshot = snapshot
+        input.showModelWeeklyLimits = false
+
+        let model = UsageMenuCardView.Model.make(input)
+        #expect(model.metrics.map(\.id) == ["primary", "secondary"])
     }
 
     @Test

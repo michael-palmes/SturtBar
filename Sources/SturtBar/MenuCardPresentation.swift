@@ -89,6 +89,7 @@ extension UsageMenuCardView.Model {
         input.costScanState = store.costScanState
         input.resetTimesShowAbsolute = settings.resetTimesShowAbsolute
         input.usageBarsShowUsed = settings.usageBarsShowUsed
+        input.showModelWeeklyLimits = settings.showModelWeeklyLimits
         input.quotaWarningThresholds = Self.cardQuotaThresholds(settings: settings)
         // 5-day Mon-Fri pacing reshapes the weekly pace marker and lights the workday ticks.
         input.workDaysPerWeek = settings.weeklyWorkWeekPacingEnabled ? 5 : nil

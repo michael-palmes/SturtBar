@@ -381,6 +381,8 @@ public struct ClaudeUsageService: Sendable {
             treatAsSpendLimit: treatAsSpendLimit,
             now: now)
 
+        let modelWeeklyWindows = Self.oauthModelWeeklyWindows(from: usage)
+
         guard let primary else {
             if let spendLimit = Self.oauthSpendLimitWindow(from: providerCost, extraUsage: usage.extraUsage) {
                 return ProviderUsageSnapshot(
@@ -389,6 +391,7 @@ public struct ClaudeUsageService: Sendable {
                     secondary: nil,
                     opus: nil,
                     extraRateWindows: Self.oauthExtraRateWindows(from: usage),
+                    modelWeeklyWindows: modelWeeklyWindows,
                     providerCost: providerCost,
                     updatedAt: now,
                     loginMethod: loginMethod)
@@ -397,9 +400,14 @@ public struct ClaudeUsageService: Sendable {
         }
 
         let weekly = makeWindow(usage.sevenDay, windowMinutes: Self.weeklyWindowMinutes)
-        let modelSpecific = makeWindow(
+        var modelSpecific = makeWindow(
             usage.sevenDaySonnet ?? usage.sevenDayOpus,
             windowMinutes: Self.weeklyWindowMinutes)
+        // A scoped row for the same model supersedes the legacy keyed slot; drop the duplicate.
+        let legacyModelName = usage.sevenDaySonnet != nil ? "Sonnet" : "Opus"
+        if modelWeeklyWindows.contains(where: { $0.title.caseInsensitiveCompare(legacyModelName) == .orderedSame }) {
+            modelSpecific = nil
+        }
         let extraRateWindows = Self.oauthExtraRateWindows(from: usage)
 
         return ProviderUsageSnapshot(
@@ -407,6 +415,7 @@ public struct ClaudeUsageService: Sendable {
             secondary: weekly,
             opus: modelSpecific,
             extraRateWindows: extraRateWindows,
+            modelWeeklyWindows: modelWeeklyWindows,
             providerCost: providerCost,
             updatedAt: now,
             loginMethod: loginMethod)
@@ -487,6 +496,28 @@ public struct ClaudeUsageService: Sendable {
                     windowMinutes: Self.weeklyWindowMinutes,
                     resetsAt: resetDate,
                     resetDescription: resetDescription))
+        }
+    }
+
+    /// One window per `weekly_scoped` entry in the `limits` array, titled from the API display
+    /// name. Other kinds (session, weekly_all, unknown) are ignored; the legacy keyed buckets
+    /// stay the source for those. Entries without a display name are skipped.
+    private static func oauthModelWeeklyWindows(from usage: OAuthUsageResponse) -> [NamedRateWindow] {
+        guard let limits = usage.limits else { return [] }
+        return limits.compactMap { limit in
+            guard limit.kind == "weekly_scoped",
+                  let title = limit.modelDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty
+            else { return nil }
+            let resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(limit.resetsAt)
+            return NamedRateWindow(
+                id: "model-weekly-" + title.lowercased().replacingOccurrences(of: " ", with: "-"),
+                title: title,
+                window: RateWindow(
+                    usedPercent: limit.percent ?? 0,
+                    windowMinutes: Self.weeklyWindowMinutes,
+                    resetsAt: resetDate,
+                    resetDescription: resetDate.map(Self.formatResetDate)))
         }
     }
 
