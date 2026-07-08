@@ -128,9 +128,10 @@ System moments:
 
 Trust moments (the claims are literal; see section 6):
 
-- Keychain pre-prompt (the macOS keychain dialog itself cannot be customised; this is the explainer alert shown first): "SturtBar will ask macOS Keychain for the Claude Code OAuth token so it can fetch your Claude usage. It reads the token; it never changes it. Click OK to continue."
-- Auth error (popover status line, plain and actionable, always names the credential source): "Re-authenticate in Claude Code: {detail}"
-- Keychain permission stuck (the action comes first; the menu card truncates long detail): "Open the SturtBar menu, press ⌘R, then allow Keychain access. Claude Code's sign-in changed and SturtBar can't read it yet."
+- Keychain pre-prompt (the macOS keychain dialog itself cannot be customised; this is the consent explainer shown first, with Continue and Not now buttons; Not now skips the OS dialog entirely and is never punished): "Claude Code stores its sign-in token in the macOS Keychain. SturtBar is about to ask macOS for read access to that item so it can fetch your Claude usage and limits. If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant ongoing read access, or Deny to refuse. If Claude Code signs in again later, macOS will ask again. SturtBar only reads the token and uses it with Anthropic's API to fetch usage and refresh the token. It keeps its own refreshed copy in SturtBar's own Keychain item. It never changes Claude Code's sign-in and never sends the token anywhere else."
+- Auth error (popover status line, plain and clickable; opens the default terminal running `claude /login`; the error detail lives in the tooltip): "Sign in to Claude Code"
+- Empty state, Claude enabled but never signed in (same click action): "No light on this coast yet. Sign in to connect."
+- Keychain permission stuck (clickable; shows the consent explainer first, and while prompts are off the Continue button also turns them on, then retries the fetch with user-initiated rights): "Allow Keychain access to reconnect"
 - About box privacy line (themed surface, literal claim): "The Keeper watches the water, not you. No telemetry, no analytics; your keys stay in the keychain and are never altered."
 - About box footer (literal, tiny): "No. 17 · MIT License · Zero third-party dependencies"
 
@@ -254,6 +255,7 @@ Marketing surfaces only (README, landing page, About box). It means exactly what
 - Session logs under `~/.claude/projects` are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded.
 - Codex is opt-in and inert until enabled. While the Codex provider is on, SturtBar reads its sign-in read-only from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`): it never writes the file, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`. The only filesystem touch before opt-in is a single existence check (stat) on that path while the Settings window is open, to drive the "codex CLI not detected" hint; it reads no contents.
 - While the Codex provider and local cost tracking are both on, Codex session logs under `~/.codex` (`sessions` and `archived_sessions`, or `$CODEX_HOME`) are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded. SturtBar never writes anything under `~/.codex`.
+- Re-authentication belongs to the CLI. The card's sign-in line writes a small helper script under `~/Library/Application Support/SturtBar` and opens it in the user's default terminal; the terminal runs `claude /login`. SturtBar itself never runs the claude CLI and never touches its credential stores.
 - Disabling a provider stops all of its reads and requests and wipes its cached snapshot.
 - Logs are redacted before they are written: emails, tokens, and bearer credentials are masked.
 - No telemetry, no analytics, no accounts, no tracking of any kind.
@@ -273,7 +275,7 @@ Links that open in your browser (the provider consoles and status pages) are not
 
 ### 6.4 Prompt policy
 
-Keychain prompts appear on user action (opening the menu, pressing ⌘R), plus at most one prompt during the first launch after install. Routine background refreshes never prompt.
+Keychain prompts are opt-in and off by default: SturtBar never shows a Keychain prompt unless you allow it, either with the "Ask for Keychain access when needed" setting or by choosing Continue when the menu's reconnect line offers access. With prompts allowed, they appear on user action (opening the menu, pressing ⌘R), plus at most one prompt during the first launch after install. Routine background refreshes never prompt.
 
 ### 6.5 The keeper's economy
 

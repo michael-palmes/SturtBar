@@ -17,8 +17,10 @@ order; most people are done after step 3.
 
 ### 1. Capture the exact error
 
-Open the SturtBar menu and click the red status line; it copies the full, untruncated
-message to your clipboard. Keep it handy; if you end up filing an issue, paste it there.
+Open the SturtBar menu and hover over the red status line; the tooltip shows the full,
+untruncated message. Keep it handy; if you end up filing an issue, copy it there. (Clicking
+the line acts on the problem rather than copying: it opens the sign-in terminal or offers
+Keychain access, depending on the message.)
 
 ### 2. Confirm Claude Code itself is signed in
 
@@ -27,14 +29,17 @@ in. If it asks, log in and let it finish.
 
 ### 3. Grant SturtBar keychain access (fixes most cases)
 
-With the SturtBar menu open, press **⌘R** (Refresh Now). If macOS asks
+In the SturtBar menu, click the **"Allow Keychain access to reconnect"** line and choose
+**Continue** (this also turns on "Ask for Keychain access when needed" in Settings if it
+was off; Keychain prompts are opt-in and off by default). When macOS asks
 *"SturtBar wants to access Claude Code-credentials"*, click **Always Allow**.
-SturtBar reads that item; it never changes it.
+SturtBar reads that item; it never changes it. With prompts already enabled, pressing
+**⌘R** (Refresh Now) does the same thing.
 
 Re-logging into Claude Code resets this permission, so you may be asked again even if you
-allowed it before. Clicking *Deny* re-breaks it. Routine background refreshes never show
-this prompt; it can appear only when you open the menu, press ⌘R, or once during the
-first launch after install.
+allowed it before. SturtBar never shows a Keychain prompt on its own: one can appear only
+after you allow prompts, and then only when you open the menu, press ⌘R, or once during
+the first launch after install. Routine background refreshes never prompt.
 
 ### 4. Check for a stale credentials file
 

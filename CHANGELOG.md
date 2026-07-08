@@ -2,6 +2,14 @@
 
 All notable changes to SturtBar are recorded here.
 
+## Unreleased
+
+- Keychain prompts are now opt-in and off by default, for new and existing installs alike: SturtBar never shows a macOS Keychain prompt unless you allow it. A new "Ask for Keychain access when needed" checkbox under the Claude provider in Settings controls it, and the card's "Allow Keychain access to reconnect" line offers a one-click opt-in (Continue enables the setting and retries; Not now changes nothing). Silent reads that macOS already permits keep working either way, so most setups notice no difference; the startup first-run prompt and background credential syncs now happen only after you opt in.
+- When SturtBar can see that a Claude Code sign-in exists in the keychain but cannot read it, the card now offers the Keychain remedy instead of wrongly suggesting a fresh sign-in, and the tooltip says whether the cause is prompts being off or the item's permission resetting.
+- One-click recovery when the Claude session expires: the card's status line becomes the action. "Sign in to Claude Code" opens your default terminal running `claude /login` via a small helper script under `~/Library/Application Support/SturtBar` (SturtBar itself never runs the claude CLI); "Allow Keychain access to reconnect" retries with the consent explainer. Error details moved to tooltips.
+- The keychain explainer is now a real consent dialog: it explains what is about to happen and what the token is used for, with Continue and Not now buttons. Not now skips the OS dialog entirely and is never punished.
+- The menu bar icon now carries a small exclamation badge when Claude needs attention you can act on (sign in again, or grant Keychain access), distinct from the plain dimming that means stale data.
+
 ## 1.1.0
 
 - New opt-in Codex provider: track OpenAI Codex (ChatGPT) usage alongside Claude. Off by default: until you turn it on in Settings → Providers, SturtBar makes no calls to OpenAI and never reads `~/.codex`. When enabled it reads `~/.codex/auth.json` read-only (never writes it, never refreshes Codex tokens) and shows the 5-hour and weekly windows with the plan badge.
