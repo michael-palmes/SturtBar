@@ -54,6 +54,8 @@ struct IconState: Equatable {
     var isStale: Bool
     var needsAuth: Bool
     var credentialsMissing: Bool
+    /// Dims without badging (Codex API-key-only): badging a permanent state would nag forever.
+    var unsupported: Bool = false
     /// Text next to the icon (nil = icon only).
     var displayText: String?
 
@@ -88,22 +90,26 @@ struct IconState: Equatable {
         let isStale: Bool
         let needsAuth: Bool
         let credentialsMissing: Bool
+        let unsupported: Bool
         switch winner {
         case .claude:
             snapshot = claudeUsage
             isStale = claudeStale
             needsAuth = claudeAuth.isNeedsReauth
             credentialsMissing = claudeAuth == .credentialsMissing
+            unsupported = false
         case .codex:
             snapshot = codexUsage
             isStale = codexStale
-            needsAuth = codexAuth == .signInRequired || codexAuth == .apiKeyOnlyUnsupported
+            needsAuth = codexAuth == .signInRequired
             credentialsMissing = codexAuth == .credentialsMissing
+            unsupported = codexAuth == .apiKeyOnlyUnsupported
         case nil:
             snapshot = nil
             isStale = false
             needsAuth = false
             credentialsMissing = false
+            unsupported = false
         }
 
         let fill = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, showUsed: showUsed)
@@ -118,6 +124,7 @@ struct IconState: Equatable {
             isStale: isStale,
             needsAuth: needsAuth,
             credentialsMissing: credentialsMissing,
+            unsupported: unsupported,
             displayText: winner.flatMap {
                 MenuBarProviderResolver.prefixed(baseText, provider: $0, multiProvider: multiProvider)
             })
@@ -128,13 +135,13 @@ struct IconState: Equatable {
         Int(min(100, max(0, percent)).rounded())
     }
 
-    /// Renderer inputs: auth problems fold into the dimmed presentation alongside staleness,
-    /// keeping the image cache key minimal.
+    /// Every attention state dims; only the fixable auth states also badge.
     var rendererKey: IconRenderer.Key {
         IconRenderer.Key(
             primaryBucket: self.primaryBucket,
             secondaryBucket: self.secondaryBucket,
-            dimmed: self.isStale || self.needsAuth || self.credentialsMissing)
+            dimmed: self.isStale || self.needsAuth || self.credentialsMissing || self.unsupported,
+            authBadge: self.needsAuth || self.credentialsMissing)
     }
 }
 
