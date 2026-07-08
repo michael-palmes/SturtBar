@@ -39,8 +39,13 @@ extension StatusItemController {
         // once; visibility toggles with the enabled set (applyMenuVisibility) so the menu structure
         // never mutates. Cards are ENABLED so AppKit routes mouse events into the hosted view's
         // click-consume loop (disabled view items dismiss without the view seeing the click).
-        let claudeCard = ProviderCardSlot(model: UsageMenuCardView.Model.deriveClaude(
-            store: self.store, settings: self.settings, now: now))
+        let onStatusAction: (UsageMenuCardView.Model.StatusLine.Action) -> Void = { [weak self] action in
+            self?.handleCardStatusAction(action)
+        }
+        let claudeCard = ProviderCardSlot(
+            model: UsageMenuCardView.Model.deriveClaude(
+                store: self.store, settings: self.settings, now: now),
+            onStatusAction: onStatusAction)
         self.claudeCardSlot = claudeCard
         menu.addItem(claudeCard.item)
 
@@ -53,8 +58,10 @@ extension StatusItemController {
         self.providerDividerItem = providerDivider
         menu.addItem(providerDivider)
 
-        let codexCard = ProviderCardSlot(model: UsageMenuCardView.Model.deriveCodex(
-            store: self.store, settings: self.settings, now: now))
+        let codexCard = ProviderCardSlot(
+            model: UsageMenuCardView.Model.deriveCodex(
+                store: self.store, settings: self.settings, now: now),
+            onStatusAction: onStatusAction)
         self.codexCardSlot = codexCard
         menu.addItem(codexCard.item)
 
@@ -360,6 +367,26 @@ extension StatusItemController {
     }
 
     // MARK: - Actions
+
+    /// Routes clicks on the cards' actionable status lines; the overlay has already dismissed the menu.
+    func handleCardStatusAction(_ action: UsageMenuCardView.Model.StatusLine.Action) {
+        switch action {
+        case .claudeSignIn:
+            self.signInLauncher.launch(.claude)
+        case .claudeKeychainRetry:
+            if self.settings.claudeKeychainPromptsEnabled {
+                // Same as ⌘R: user-initiated rights clear the cooldown and let the consent prompt appear.
+                let store = self.store
+                Task { await store.refresh(trigger: .manual) }
+            } else {
+                // Opt-in (prompts off): Continue enables the setting, whose callback refreshes. Register consent first
+                // so the pre-alert does not repeat.
+                guard self.keychainOptInPresenter() == .proceed else { return }
+                KeychainPromptCoordinator.registerRecentConsent()
+                self.settings.claudeKeychainPromptsEnabled = true
+            }
+        }
+    }
 
     @objc private func refreshNowFromMenu() {
         let store = self.store

@@ -153,6 +153,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     let settings: SettingsStore
     /// Settings/About window owner; menu actions route here. nil in icon-only tests.
     let windows: WindowsController?
+    /// Opens the default terminal running a provider sign-in command (card status-line action).
+    let signInLauncher: TerminalLoginLauncher
+    /// Presents the Keychain opt-in consent for the reconnect line; injectable since NSAlert cannot run headless.
+    let keychainOptInPresenter: @MainActor () -> KeychainPromptDecision
     private let statusBar: NSStatusBar
     private(set) var statusItem: NSStatusItem?
     private var lastRendered: IconState?
@@ -212,12 +216,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         store: UsageStore,
         settings: SettingsStore,
         windows: WindowsController? = nil,
+        signInLauncher: TerminalLoginLauncher = TerminalLoginLauncher(),
+        keychainOptInPresenter: @escaping @MainActor () -> KeychainPromptDecision =
+            { KeychainPromptCoordinator.presentClaudeKeychainOptIn() },
         debugUsageClient: ClaudeUsageClient? = nil,
         statusBar: NSStatusBar = .system)
     {
         self.store = store
         self.settings = settings
         self.windows = windows
+        self.signInLauncher = signInLauncher
+        self.keychainOptInPresenter = keychainOptInPresenter
         self.statusBar = statusBar
         #if DEBUG
         self.debugUsageClient = debugUsageClient
