@@ -53,6 +53,15 @@ struct SettingsView: View {
                 iconProvider: .claude,
                 isOn: self.$settings.claudeProviderEnabled)
 
+            if self.settings.claudeProviderEnabled {
+                PreferenceToggleRow(
+                    title: "Ask for Keychain access when needed",
+                    subtitle: "Keychain prompts are needed to read Claude Code's sign-in; leaving this "
+                        + "off can leave Claude usage blank until you allow access.",
+                    isOn: self.$settings.claudeKeychainPromptsEnabled)
+                    .padding(.leading, 20)
+            }
+
             PreferenceToggleRow(
                 title: "Codex",
                 subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",

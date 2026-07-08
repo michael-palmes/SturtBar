@@ -20,34 +20,40 @@ public struct KeychainPromptContext: Sendable {
     }
 }
 
+/// The user's decision at the pre-prompt explainer shown before an OS keychain dialog.
+public enum KeychainPromptDecision: Sendable, Equatable {
+    case proceed
+    case notNow
+}
+
 public enum KeychainPromptHandler {
     final class HandlerStore: @unchecked Sendable {
-        let handler: @Sendable (KeychainPromptContext) -> Void
+        let handler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision
 
-        init(handler: @escaping @Sendable (KeychainPromptContext) -> Void) {
+        init(handler: @escaping @Sendable (KeychainPromptContext) -> KeychainPromptDecision) {
             self.handler = handler
         }
     }
 
     @TaskLocal private static var taskHandlerStore: HandlerStore?
-    private static let handlerMutex = Mutex<(@Sendable (KeychainPromptContext) -> Void)?>(nil)
+    private static let handlerMutex = Mutex<(@Sendable (KeychainPromptContext) -> KeychainPromptDecision)?>(nil)
 
-    public static var handler: (@Sendable (KeychainPromptContext) -> Void)? {
+    public static var handler: (@Sendable (KeychainPromptContext) -> KeychainPromptDecision)? {
         get { handlerMutex.withLock { $0 } }
         set { handlerMutex.withLock { $0 = newValue } }
     }
 
-    public static func notify(_ context: KeychainPromptContext) {
+    /// Asks the installed handler to explain the upcoming dialog and return the decision; no handler means proceed.
+    public static func requestApproval(_ context: KeychainPromptContext) -> KeychainPromptDecision {
         if let taskHandlerStore {
-            taskHandlerStore.handler(context)
-            return
+            return taskHandlerStore.handler(context)
         }
-        self.handlerMutex.withLock { $0 }?(context)
+        return self.handlerMutex.withLock { $0 }?(context) ?? .proceed
     }
 
     #if DEBUG
     static func withHandlerForTesting<T>(
-        _ handler: (@Sendable (KeychainPromptContext) -> Void)?,
+        _ handler: (@Sendable (KeychainPromptContext) -> KeychainPromptDecision)?,
         operation: () throws -> T) rethrows -> T
     {
         try self.$taskHandlerStore.withValue(handler.map(HandlerStore.init(handler:))) {
@@ -56,7 +62,7 @@ public enum KeychainPromptHandler {
     }
 
     static func withHandlerForTesting<T>(
-        _ handler: (@Sendable (KeychainPromptContext) -> Void)?,
+        _ handler: (@Sendable (KeychainPromptContext) -> KeychainPromptDecision)?,
         operation: () async throws -> T) async rethrows -> T
     {
         try await self.$taskHandlerStore.withValue(handler.map(HandlerStore.init(handler:))) {
