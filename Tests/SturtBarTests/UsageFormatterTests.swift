@@ -34,6 +34,20 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.usageLine(remaining: -5, used: 105, showUsed: true) == "100% used")
     }
 
+    @Test
+    func `every positive sub one percent value renders as less than one percent`() {
+        // Below 0.5 used to round down to 0%; 0.5 to 1 used to round up to 1%.
+        #expect(UsageFormatter.percentText(0.4) == "<1%")
+        #expect(UsageFormatter.percentText(0.6) == "<1%")
+        #expect(UsageFormatter.percentText(0.99) == "<1%")
+        // True zero, exact one, and the cap are preserved.
+        #expect(UsageFormatter.percentText(0) == "0%")
+        #expect(UsageFormatter.percentText(1) == "1%")
+        #expect(UsageFormatter.percentText(105) == "100%")
+        #expect(UsageFormatter.usageLine(remaining: 0.4, used: 99.6, showUsed: false) == "<1% left")
+        #expect(UsageFormatter.usageLine(remaining: 99.6, used: 0.4, showUsed: true) == "<1% used")
+    }
+
     // MARK: - Updated-ago
 
     @Test

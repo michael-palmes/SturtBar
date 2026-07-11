@@ -139,7 +139,9 @@ struct UsageMenuCardView: View {
             }
 
             var percentLabel: String {
-                self.isPlaceholder ? "—" : String(format: "%.0f%% %@", self.percent, self.isUsed ? "used" : "left")
+                self.isPlaceholder
+                    ? "—"
+                    : "\(UsageFormatter.percentText(self.percent)) \(self.isUsed ? "used" : "left")"
             }
 
             func resetText(now: Date) -> String? {
