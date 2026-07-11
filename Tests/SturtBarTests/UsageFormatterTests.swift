@@ -94,8 +94,19 @@ struct UsageFormatterTests {
     @Test
     func `reset countdown days and hours`() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval((26 * 3600) + 10)
+        let reset = now.addingTimeInterval((26 * 3600) + (1 * 60))
         #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d 2h")
+    }
+
+    @Test
+    func `reset countdown days and minutes without whole hours`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        // 2 days 45 minutes used to drop the minutes entirely ("in 2d").
+        let reset = now.addingTimeInterval((48 * 3600) + (45 * 60))
+        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 2d 45m")
+        // Exact whole days stay terse.
+        let exact = now.addingTimeInterval(5 * 24 * 3600)
+        #expect(UsageFormatter.resetCountdownDescription(from: exact, now: now) == "in 5d")
     }
 
     @Test
