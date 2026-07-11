@@ -232,6 +232,9 @@ final class UsageStore {
     @ObservationIgnored private var codexRefreshTask: Task<Void, Never>?
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var postSignInRecheckTask: Task<Void, Never>?
+    /// Post-sign-in recheck cadence; injectable for tests.
+    @ObservationIgnored var postSignInRecheckDelays: [TimeInterval] = [20, 60, 180]
     @ObservationIgnored private var costScanTask: Task<Void, Never>?
     @ObservationIgnored private var codexCostScanTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
@@ -304,6 +307,21 @@ final class UsageStore {
     }
 
     // MARK: - Refresh
+
+    /// Bounded refresh burst after sign-in; rechecks since SturtBar can't watch the terminal login.
+    func beginPostSignInRecheck() {
+        self.postSignInRecheckTask?.cancel()
+        let delays = self.postSignInRecheckDelays
+        self.postSignInRecheckTask = Task { [weak self] in
+            for delay in delays {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { return }
+                guard self.settings.claudeProviderEnabled else { return }
+                if self.auth == .ok { return }
+                await self.refresh(trigger: .manual)
+            }
+        }
+    }
 
     /// Fans out to every ENABLED provider lane. The lanes run as concurrent child tasks: each
     /// suspends at its own client await, so a hung Codex fetch never delays Claude data (and
@@ -592,6 +610,7 @@ final class UsageStore {
 
         case (.claude, false):
             self.refreshTask?.cancel()
+            self.postSignInRecheckTask?.cancel()
             let client = self.client
             Task { await client.cancelInFlight() }
             self.usage = nil

@@ -372,7 +372,10 @@ extension StatusItemController {
     func handleCardStatusAction(_ action: UsageMenuCardView.Model.StatusLine.Action) {
         switch action {
         case .claudeSignIn:
-            self.signInLauncher.launch(.claude)
+            if self.signInLauncher.launch(.claude) {
+                // Login completes in the terminal; recheck so the card and badge clear on their own.
+                self.store.beginPostSignInRecheck()
+            }
         case .claudeKeychainRetry:
             if self.settings.claudeKeychainPromptsEnabled {
                 // Same as ⌘R: user-initiated rights clear the cooldown and let the consent prompt appear.
