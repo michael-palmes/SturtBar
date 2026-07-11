@@ -53,6 +53,25 @@ struct MenuBarDisplayTests {
         #expect(MenuBarDisplayText.paceText(pace: nil) == nil)
     }
 
+    @Test
+    func `pace text drops the sign when the rounded delta is zero`() {
+        // A sub-half-percent delta rounds to 0; "+0%"/"-0%" is a nonsensical signed zero.
+        let slightlyAhead = UsagePace.historical(
+            expectedUsedPercent: 40,
+            actualUsedPercent: 40.3,
+            etaSeconds: nil,
+            willLastToReset: true,
+            runOutProbability: nil)
+        let slightlyBehind = UsagePace.historical(
+            expectedUsedPercent: 40,
+            actualUsedPercent: 39.7,
+            etaSeconds: nil,
+            willLastToReset: true,
+            runOutProbability: nil)
+        #expect(MenuBarDisplayText.paceText(pace: slightlyAhead) == "0%")
+        #expect(MenuBarDisplayText.paceText(pace: slightlyBehind) == "0%")
+    }
+
     // MARK: - displayText modes
 
     @Test
