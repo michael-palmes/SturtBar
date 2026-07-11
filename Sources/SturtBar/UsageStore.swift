@@ -88,11 +88,13 @@ enum RefreshTrigger: String {
     case menuOpen
     case manual
     case wake
+    /// One-shot refresh just past a known quota reset boundary, so a stale reading flips promptly.
+    case resetBoundary
 
     var interaction: Interaction {
         switch self {
         case .manual, .menuOpen: .userInitiated
-        case .launch, .interval, .wake: .background
+        case .launch, .interval, .wake, .resetBoundary: .background
         }
     }
 
@@ -202,13 +204,15 @@ final class UsageStore {
 
     // MARK: Internals
 
-    @ObservationIgnored private let settings: SettingsStore
+    // Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the provider gates.
+    @ObservationIgnored let settings: SettingsStore
     @ObservationIgnored private let client: ClaudeUsageClient
     @ObservationIgnored private let codexClient: CodexUsageClient
     @ObservationIgnored private let scanner: CostScanner
     @ObservationIgnored private let codexScanner: CostScanner
     @ObservationIgnored private let persistence: StatePersistence?
-    @ObservationIgnored private let now: @Sendable () -> Date
+    // Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the injected clock.
+    @ObservationIgnored let now: @Sendable () -> Date
     @ObservationIgnored private let blockStatus: @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus?
 
     /// Wall-clock time of the last successful usage fetch.
@@ -235,6 +239,11 @@ final class UsageStore {
     @ObservationIgnored private var postSignInRecheckTask: Task<Void, Never>?
     /// Post-sign-in recheck cadence; injectable for tests.
     @ObservationIgnored var postSignInRecheckDelays: [TimeInterval] = [20, 60, 180]
+    // Reset-boundary refresh state (UsageStore+ResetBoundaryRefresh.swift); timing is injectable for tests.
+    @ObservationIgnored var resetBoundaryTask: Task<Void, Never>?
+    @ObservationIgnored var scheduledResetBoundaryAt: Date?
+    @ObservationIgnored var attemptedResetBoundaryRefreshes: Set<Date> = []
+    @ObservationIgnored var resetBoundaryTiming = ResetBoundaryTiming()
     @ObservationIgnored private var costScanTask: Task<Void, Never>?
     @ObservationIgnored private var codexCostScanTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
@@ -334,6 +343,8 @@ final class UsageStore {
         async let claude: Void = self.refreshClaude(trigger: trigger)
         async let codex: Void = self.refreshCodex(trigger: trigger)
         _ = await (claude, codex)
+        // Every refresh re-plans the one-shot boundary refresh from the freshest snapshots.
+        self.scheduleResetBoundaryRefreshIfNeeded()
     }
 
     private func refreshClaude(trigger: RefreshTrigger) async {
@@ -654,6 +665,8 @@ final class UsageStore {
             self.codexCostScanState = .idle
             self.schedulePersist()
         }
+        // Recompute here too so the disable path cancels its boundary candidates promptly.
+        self.scheduleResetBoundaryRefreshIfNeeded()
     }
 
     // MARK: - Cost

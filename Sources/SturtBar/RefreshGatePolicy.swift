@@ -44,7 +44,8 @@ enum RefreshGatePolicy {
         case .manual, .launch:
             return .proceed
 
-        case .menuOpen:
+        case .menuOpen, .resetBoundary:
+            // Reset-boundary shares the menu-open rule: also rate-limits an already-passed reset.
             guard let lastSuccessAt = lane.lastSuccessAt else { return .proceed }
             return now.timeIntervalSince(lastSuccessAt) >= self.menuOpenMinimumGapSeconds
                 ? .proceed
