@@ -66,10 +66,12 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                                 }
                             }
                         }
-                        Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+                        Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
                     } catch let error as ClaudeOAuthCredentialsError {
-                        guard case .notFound = error else {
-                            Issue.record("Expected .notFound, got \(error)")
+                        // With an item visibly present, the unread secret surfaces as the keychain-access remedy, not
+                        // notFound.
+                        guard case .claudeKeychainAccessRequired(_, reason: .accessLost) = error else {
+                            Issue.record("Expected .claudeKeychainAccessRequired(.accessLost), got \(error)")
                             return
                         }
                     }
@@ -156,8 +158,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .allowed
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
                             preflightOverride,
@@ -217,8 +220,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
                             preflightOverride,
@@ -280,8 +284,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .failure(-1)
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
                             preflightOverride,
@@ -343,8 +348,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
                             preflightOverride,
@@ -405,8 +411,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
                             preflightOverride,
@@ -471,8 +478,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
 
                         do {
@@ -505,10 +513,12 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                                         }
                                     })
                                 })
-                            Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+                            Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
                         } catch let error as ClaudeOAuthCredentialsError {
-                            guard case .notFound = error else {
-                                Issue.record("Expected .notFound, got \(error)")
+                            // With an item visibly present, the unread secret surfaces as the keychain-access remedy,
+                            // not notFound.
+                            guard case .claudeKeychainAccessRequired = error else {
+                                Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
                                 return
                             }
                         }
@@ -549,8 +559,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
 
                         do {
@@ -580,10 +591,12 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                                         }
                                     })
                                 })
-                            Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+                            Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
                         } catch let error as ClaudeOAuthCredentialsError {
-                            guard case .notFound = error else {
-                                Issue.record("Expected .notFound, got \(error)")
+                            // With an item visibly present, the unread secret surfaces as the keychain-access remedy,
+                            // not notFound.
+                            guard case .claudeKeychainAccessRequired = error else {
+                                Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
                                 return
                             }
                         }
@@ -652,10 +665,12 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                                         }
                                     }
                                 })
-                            Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+                            Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
                         } catch let error as ClaudeOAuthCredentialsError {
-                            guard case .notFound = error else {
-                                Issue.record("Expected .notFound, got \(error)")
+                            // With an item visibly present, the unread secret surfaces as the keychain-access remedy,
+                            // not notFound.
+                            guard case .claudeKeychainAccessRequired = error else {
+                                Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
                                 return
                             }
                         }
@@ -694,8 +709,9 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                         let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
                             .interactionRequired
                         }
-                        let promptHandler: @Sendable (KeychainPromptContext) -> Void = { _ in
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
                             preAlertHits.withLock { $0 += 1 }
+                            return .proceed
                         }
 
                         let creds = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
@@ -727,6 +743,80 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
 
                         #expect(creds.accessToken == "fallback-token")
                         #expect(preAlertHits.withLock { $0 } >= 1)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    func `pre-prompt declined skips the keychain read and records no denial cooldown`() throws {
+        let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
+        try KeychainCacheStore.withServiceOverrideForTesting(service) {
+            try KeychainAccessGate.withTaskOverrideForTesting(false) {
+                KeychainCacheStore.setTestStoreForTesting(true)
+                defer { KeychainCacheStore.setTestStoreForTesting(false) }
+
+                try ClaudeOAuthCredentialsStore.withIsolatedMemoryCacheForTesting {
+                    ClaudeOAuthCredentialsStore.invalidateCache()
+                    ClaudeOAuthCredentialsStore._resetCredentialsFileTrackingForTesting()
+                    defer {
+                        ClaudeOAuthCredentialsStore.invalidateCache()
+                        ClaudeOAuthCredentialsStore._resetCredentialsFileTrackingForTesting()
+                    }
+
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                    let fileURL = tempDir.appendingPathComponent("credentials.json")
+                    try ClaudeOAuthCredentialsStore.withCredentialsURLOverrideForTesting(fileURL) {
+                        let keychainData = self.makeCredentialsData(
+                            accessToken: "keychain-token",
+                            expiresAt: Date(timeIntervalSinceNow: 3600))
+
+                        let preAlertHits = Mutex(0)
+                        let preflightOverride: (String, String?) -> KeychainAccessPreflight.Outcome = { _, _ in
+                            .interactionRequired
+                        }
+                        let promptHandler: @Sendable (KeychainPromptContext) -> KeychainPromptDecision = { _ in
+                            preAlertHits.withLock { $0 += 1 }
+                            return .notNow
+                        }
+
+                        do {
+                            _ = try KeychainAccessPreflight.withCheckGenericPasswordOverrideForTesting(
+                                preflightOverride,
+                                operation: {
+                                    try KeychainPromptHandler.withHandlerForTesting(promptHandler, operation: {
+                                        try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(
+                                            .onlyOnUserAction)
+                                        {
+                                            try InteractionContext.$current.withValue(.userInitiated) {
+                                                try ClaudeOAuthCredentialsStore.withClaudeKeychainOverridesForTesting(
+                                                    data: keychainData,
+                                                    fingerprint: nil)
+                                                {
+                                                    try ClaudeOAuthCredentialsStore.load(
+                                                        environment: [:],
+                                                        allowKeychainPrompt: true,
+                                                        respectKeychainPromptCooldown: false)
+                                                }
+                                            }
+                                        }
+                                    })
+                                })
+                            Issue.record("Expected the declined pre-prompt to skip the keychain read")
+                        } catch let error as ClaudeOAuthCredentialsError {
+                            // Declining skips the read; the visible item then surfaces as the keychain-access remedy.
+                            guard case .claudeKeychainAccessRequired = error else {
+                                Issue.record("Expected .claudeKeychainAccessRequired after declining, got \(error)")
+                                return
+                            }
+                        }
+
+                        #expect(preAlertHits.withLock { $0 } == 1)
+                        // Declining the explainer is never punished: no denial cooldown recorded.
+                        #expect(ClaudeOAuthKeychainAccessGate.shouldAllowPrompt())
                     }
                 }
             }

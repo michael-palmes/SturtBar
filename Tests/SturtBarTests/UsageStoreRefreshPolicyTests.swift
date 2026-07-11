@@ -351,7 +351,7 @@ struct UsageStoreHealthMappingTests {
     }
 
     @Test
-    func `auth-required errors map to needsReauth`() async {
+    func `auth-required errors map to needsReauth with the sign-in remedy`() async {
         for (index, error) in [
             ClaudeUsageError.scopeUnsatisfied(message: "missing user:profile"),
             .credentials(.noRefreshToken(source: nil)),
@@ -359,10 +359,22 @@ struct UsageStoreHealthMappingTests {
         ].enumerated() {
             let ts = self.storeFailing("sturtbar-tests-reauth-\(index)", error: error)
             await ts.store.refresh(trigger: .manual)
-            guard case .needsReauth = ts.store.auth else {
-                Issue.record("expected needsReauth for \(error), got \(ts.store.auth)")
+            guard case .needsReauth(_, .signIn) = ts.store.auth else {
+                Issue.record("expected needsReauth(.signIn) for \(error), got \(ts.store.auth)")
                 continue
             }
+        }
+    }
+
+    @Test
+    func `keychain access required maps to needsReauth with the keychain remedy`() async {
+        let ts = self.storeFailing(
+            "sturtbar-tests-reauth-keychain",
+            error: .credentials(.claudeKeychainAccessRequired(underlying: "acl reset", reason: .accessLost)))
+        await ts.store.refresh(trigger: .manual)
+        guard case .needsReauth(_, .keychainAccess) = ts.store.auth else {
+            Issue.record("expected needsReauth(.keychainAccess), got \(ts.store.auth)")
+            return
         }
     }
 
@@ -373,7 +385,7 @@ struct UsageStoreHealthMappingTests {
             error: .fetch(.networkError(URLError(.timedOut))),
             blockStatus: { .terminal(reason: "invalid_grant", failures: 3) })
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.auth == .needsReauth(message: "invalid_grant"))
+        #expect(ts.store.auth == .needsReauth(message: "invalid_grant", remedy: .signIn))
         #expect(ts.store.health == .degraded(until: nil))
     }
 

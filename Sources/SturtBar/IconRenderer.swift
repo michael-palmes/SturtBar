@@ -42,6 +42,8 @@ enum IconRenderer {
         var secondaryBucket: Int?
         /// Dimmed presentation: stale data or broken auth (the controller folds those states).
         var dimmed: Bool
+        /// Needs-auth badge (exclamation disc): distinct from plain dimming so "act" reads differently to "wait".
+        var authBadge: Bool = false
     }
 
     // MARK: - Pixel grid
@@ -205,6 +207,28 @@ enum IconRenderer {
                 drawBar(rectPx: bottomRectPx, remaining: Double(secondary))
             } else {
                 drawBar(rectPx: bottomRectPx, remaining: nil, alpha: 0.45)
+            }
+
+            // Needs-auth badge: full-alpha exclamation disc over a cleared halo so it stands off the dimmed bars.
+            if key.authBadge {
+                let ctx = NSGraphicsContext.current?.cgContext
+                ctx?.saveGState()
+                ctx?.setBlendMode(.clear)
+                NSColor.black.setFill()
+                NSBezierPath(ovalIn: self.grid.rect(x: 17, y: 17, w: 20, h: 20)).fill()
+                ctx?.restoreGState()
+
+                // Deliberately ignores `dimmed`: dim bars, bright badge.
+                baseFill.withAlphaComponent(1.0).setFill()
+                NSBezierPath(ovalIn: self.grid.rect(x: 19, y: 19, w: 16, h: 16)).fill()
+
+                // Knocked-out exclamation: stem above, dot below (AppKit y grows upward).
+                ctx?.saveGState()
+                ctx?.setBlendMode(.clear)
+                NSColor.black.setFill()
+                NSBezierPath(rect: self.grid.rect(x: 26, y: 26, w: 2, h: 6)).fill()
+                NSBezierPath(rect: self.grid.rect(x: 26, y: 22, w: 2, h: 2)).fill()
+                ctx?.restoreGState()
             }
         }
     }

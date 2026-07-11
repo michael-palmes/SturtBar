@@ -59,6 +59,10 @@ Every network call it makes:
 - `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
 
+When the Claude session expires, the card offers a sign-in line. Clicking it writes a small helper script under `~/Library/Application Support/SturtBar` and opens it in your default terminal; the terminal runs `claude /login`. SturtBar itself never runs the claude CLI and never touches its credential stores.
+
+Keychain prompts are opt-in: SturtBar never shows a macOS Keychain prompt unless you allow it, via the "Ask for Keychain access when needed" setting or the menu's reconnect line. Silent reads that macOS already permits keep working either way.
+
 What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores or to anything under `~/.codex`, and secrets are redacted from its logs.
 
 ## Performance

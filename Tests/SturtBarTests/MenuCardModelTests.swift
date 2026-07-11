@@ -374,43 +374,71 @@ struct MenuCardModelTests {
     // MARK: - Status strip (new states)
 
     @Test
-    func `credentials missing shows login row`() {
+    func `credentials missing shows sign-in action row`() {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: nil,
             auth: .credentialsMissing,
             now: Self.now))
 
         #expect(model.status == .credentialsMissing)
-        #expect(model.status.text(now: Self.now) == "No light on this coast yet. Run `claude` to connect.")
+        #expect(model.status.text(now: Self.now) == "No light on this coast yet. Sign in to connect.")
         #expect(model.status.isError)
-        #expect(model.status.copyText == nil)
+        #expect(model.status.action == .claudeSignIn)
+        #expect(model.status.actionSymbolName == "apple.terminal")
+        #expect(model.status.helpText == "Opens your terminal running claude /login to connect.")
     }
 
     @Test
-    func `needs reauth shows reauthenticate row with copyable detail`() {
+    func `needs reauth shows sign-in action row with detail in the tooltip`() {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
-            auth: .needsReauth(message: "OAuth token refresh was rejected."),
+            auth: .needsReauth(message: "OAuth token refresh was rejected.", remedy: .signIn),
             now: Self.now))
 
-        #expect(model.status == .needsReauth(detail: "OAuth token refresh was rejected."))
-        #expect(
-            model.status.text(now: Self.now) ==
-                "Re-authenticate in Claude Code: OAuth token refresh was rejected.")
+        #expect(model.status == .needsReauth(detail: "OAuth token refresh was rejected.", remedy: .signIn))
+        #expect(model.status.text(now: Self.now) == "Sign in to Claude Code")
         #expect(model.status.isError)
-        #expect(model.status.copyText == "OAuth token refresh was rejected.")
+        #expect(model.status.action == .claudeSignIn)
+        #expect(model.status.helpText == "OAuth token refresh was rejected.")
     }
 
     @Test
-    func `needs reauth without message keeps the bare row`() {
+    func `needs reauth without message keeps the action row with a plain tooltip`() {
         let blank = UsageMenuCardView.Model.make(.init(
             snapshot: nil,
-            auth: .needsReauth(message: "   "),
+            auth: .needsReauth(message: "   ", remedy: .signIn),
             now: Self.now))
 
-        #expect(blank.status == .needsReauth(detail: nil))
-        #expect(blank.status.text(now: Self.now) == "Re-authenticate in Claude Code.")
-        #expect(blank.status.copyText == nil)
+        #expect(blank.status == .needsReauth(detail: nil, remedy: .signIn))
+        #expect(blank.status.text(now: Self.now) == "Sign in to Claude Code")
+        #expect(blank.status.action == .claudeSignIn)
+        #expect(blank.status.helpText == "Opens your terminal running claude /login to sign in again.")
+    }
+
+    @Test
+    func `keychain access remedy shows reconnect action row`() {
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: nil,
+            auth: .needsReauth(message: "Claude Code's sign-in changed.", remedy: .keychainAccess),
+            now: Self.now))
+
+        #expect(model.status == .needsReauth(detail: "Claude Code's sign-in changed.", remedy: .keychainAccess))
+        #expect(model.status.text(now: Self.now) == "Allow Keychain access to reconnect")
+        #expect(model.status.isError)
+        #expect(model.status.action == .claudeKeychainRetry)
+        #expect(model.status.actionSymbolName == "key.horizontal")
+        #expect(model.status.helpText == "Claude Code's sign-in changed.")
+    }
+
+    @Test
+    func `non-auth status lines carry no action`() {
+        let retrying = UsageMenuCardView.Model.make(.init(
+            snapshot: self.snapshot(primary: self.window(used: 10)),
+            health: .degraded(until: nil),
+            now: Self.now))
+        #expect(retrying.status.action == nil)
+        #expect(retrying.status.actionSymbolName == nil)
+        #expect(retrying.status.helpText == nil)
     }
 
     @Test
@@ -462,12 +490,12 @@ struct MenuCardModelTests {
     func `auth problems outrank health problems in the status strip`() {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: nil,
-            auth: .needsReauth(message: nil),
+            auth: .needsReauth(message: nil, remedy: .signIn),
             health: .rateLimited(until: Self.now.addingTimeInterval(600)),
             isStale: true,
             now: Self.now))
 
-        #expect(model.status == .needsReauth(detail: nil))
+        #expect(model.status == .needsReauth(detail: nil, remedy: .signIn))
     }
 
     // MARK: - Extra usage section
@@ -673,7 +701,11 @@ struct MenuCardModelTests {
             input { $0.snapshot = fullSnapshot; $0.cost = costData; $0.lastSuccessAt = now },
             input { $0.snapshot = fullSnapshot; $0.costScanState = .scanning },
             input { $0.auth = .credentialsMissing },
-            input { $0.snapshot = fullSnapshot; $0.auth = .needsReauth(message: "expired") },
+            input { $0.snapshot = fullSnapshot; $0.auth = .needsReauth(message: "expired", remedy: .signIn) },
+            input {
+                $0.snapshot = fullSnapshot
+                $0.auth = .needsReauth(message: "keychain", remedy: .keychainAccess)
+            },
             input { $0.snapshot = fullSnapshot; $0.health = .rateLimited(until: now.addingTimeInterval(600)) },
             input { $0.snapshot = fullSnapshot; $0.health = .degraded(until: nil) },
             input { $0.snapshot = fullSnapshot; $0.isStale = true; $0.isRefreshing = true },
@@ -705,8 +737,10 @@ struct MenuCardModelTests {
         let lines: [UsageMenuCardView.Model.StatusLine] = [
             .empty,
             .credentialsMissing,
-            .needsReauth(detail: nil),
-            .needsReauth(detail: "multi\nline\ndetail"),
+            .needsReauth(detail: nil, remedy: .signIn),
+            .needsReauth(detail: "multi\nline\ndetail", remedy: .signIn),
+            .needsReauth(detail: nil, remedy: .keychainAccess),
+            .needsReauth(detail: "multi\nline\ndetail", remedy: .keychainAccess),
             .rateLimited(until: now.addingTimeInterval(90)),
             .retrying,
             .stale,

@@ -152,12 +152,83 @@ struct IconStateDerivationTests {
         state.credentialsMissing = true
         #expect(state.rendererKey.dimmed)
 
+        state.credentialsMissing = false
+        state.unsupported = true
+        #expect(state.rendererKey.dimmed)
+        state.unsupported = false
+
         // The key never contains the display text: text changes must not bust the image cache.
+        state.credentialsMissing = true
         state.displayText = "52%"
         #expect(state.rendererKey == IconRenderer.Key(
             primaryBucket: 52,
             secondaryBucket: nil,
-            dimmed: true))
+            dimmed: true,
+            authBadge: true))
+    }
+
+    @Test
+    func `renderer key badges the fixable auth states only`() {
+        var state = IconState(
+            primaryBucket: 52,
+            secondaryBucket: nil,
+            isStale: false,
+            needsAuth: false,
+            credentialsMissing: false,
+            displayText: nil)
+        #expect(!state.rendererKey.authBadge)
+
+        // Stale is "wait", not "act": dimmed, no badge.
+        state.isStale = true
+        #expect(state.rendererKey.dimmed)
+        #expect(!state.rendererKey.authBadge)
+        state.isStale = false
+
+        state.needsAuth = true
+        #expect(state.rendererKey.authBadge)
+        state.needsAuth = false
+
+        state.credentialsMissing = true
+        #expect(state.rendererKey.authBadge)
+        state.credentialsMissing = false
+
+        // Codex API-key-only is permanent and informational: dimmed, never badged.
+        state.unsupported = true
+        #expect(state.rendererKey.dimmed)
+        #expect(!state.rendererKey.authBadge)
+    }
+
+    @Test
+    func `codex api-key-only lane dims without badging`() async {
+        let ts = makeTestStore(
+            suiteName: "sturtbar-iconstate-codex-apikey",
+            codexFetch: { throw CodexUsageError.apiKeyOnly },
+            fetch: { _, _ in makeUsageSnapshot() })
+        ts.settings.claudeProviderEnabled = false
+        ts.settings.codexProviderEnabled = true
+        await ts.store.refresh(trigger: .manual)
+
+        let state = IconState.derive(store: ts.store, settings: ts.settings)
+        #expect(state.unsupported)
+        #expect(!state.needsAuth)
+        #expect(state.rendererKey.dimmed)
+        #expect(!state.rendererKey.authBadge)
+    }
+
+    @Test
+    func `codex sign-in required lane badges`() async {
+        let ts = makeTestStore(
+            suiteName: "sturtbar-iconstate-codex-signin",
+            codexFetch: { throw CodexUsageError.unauthorized },
+            fetch: { _, _ in makeUsageSnapshot() })
+        ts.settings.claudeProviderEnabled = false
+        ts.settings.codexProviderEnabled = true
+        await ts.store.refresh(trigger: .manual)
+
+        let state = IconState.derive(store: ts.store, settings: ts.settings)
+        #expect(state.needsAuth)
+        #expect(!state.unsupported)
+        #expect(state.rendererKey.authBadge)
     }
 }
 

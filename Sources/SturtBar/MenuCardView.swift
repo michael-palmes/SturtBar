@@ -175,8 +175,9 @@ struct UsageMenuCardView: View {
             case empty
             /// AuthState.credentialsMissing — no Claude Code login on this machine.
             case credentialsMissing
-            /// AuthState.needsReauth — re-auth row, optionally with a one-line error detail.
-            case needsReauth(detail: String?)
+            /// AuthState.needsReauth — actionable re-auth row; the remedy picks the click action, the detail becomes a
+            /// tooltip.
+            case needsReauth(detail: String?, remedy: ClaudeReauthRemedy)
             /// FetchHealth.rateLimited — countdown to the server-provided retry date.
             case rateLimited(until: Date)
             /// FetchHealth.degraded — subtle "retrying" line.
@@ -197,11 +198,13 @@ struct UsageMenuCardView: View {
                 case .empty:
                     return nil
                 case .credentialsMissing:
-                    // Empty state (BRAND.md §3.3), kept actionable: the command stays.
-                    return "No light on this coast yet. Run `claude` to connect."
-                case let .needsReauth(detail):
-                    guard let detail else { return "Re-authenticate in Claude Code." }
-                    return "Re-authenticate in Claude Code: \(UsageFormatter.truncatedSingleLine(detail))"
+                    // Empty state (BRAND.md §3.3); the line itself is the sign-in action.
+                    return "No light on this coast yet. Sign in to connect."
+                case .needsReauth(_, .signIn):
+                    // Constant action label; the error detail lives in the tooltip.
+                    return "Sign in to Claude Code"
+                case .needsReauth(_, .keychainAccess):
+                    return "Allow Keychain access to reconnect"
                 case let .rateLimited(until):
                     let countdown = UsageFormatter.resetCountdownDescription(from: until, now: now)
                     return countdown == "now"
@@ -233,10 +236,46 @@ struct UsageMenuCardView: View {
                 }
             }
 
-            /// Full untruncated detail for the click-to-copy overlay.
-            var copyText: String? {
-                if case let .needsReauth(detail) = self { return detail }
-                return nil
+            /// What clicking the strip does; codex states stay inert (the codex CLI owns its own re-auth).
+            enum Action: Equatable {
+                /// Open the default terminal running `claude /login`.
+                case claudeSignIn
+                /// Re-fetch with user-initiated rights (same as ⌘R), which raises the consent prompt.
+                case claudeKeychainRetry
+            }
+
+            var action: Action? {
+                switch self {
+                case .credentialsMissing, .needsReauth(_, .signIn):
+                    .claudeSignIn
+                case .needsReauth(_, .keychainAccess):
+                    .claudeKeychainRetry
+                default:
+                    nil
+                }
+            }
+
+            /// Trailing glyph marking the strip as clickable.
+            var actionSymbolName: String? {
+                switch self.action {
+                case .claudeSignIn: "apple.terminal"
+                case .claudeKeychainRetry: "key.horizontal"
+                case nil: nil
+                }
+            }
+
+            /// Tooltip for the action states: the error detail, or a plain description of the click.
+            var helpText: String? {
+                switch self {
+                case let .needsReauth(detail, .signIn):
+                    detail ?? "Opens your terminal running claude /login to sign in again."
+                case .credentialsMissing:
+                    "Opens your terminal running claude /login to connect."
+                case let .needsReauth(detail, .keychainAccess):
+                    detail ?? "Fetches again and asks macOS for Keychain access."
+                default:
+                    nil
+                }
             }
         }
 
@@ -298,10 +337,17 @@ struct UsageMenuCardView: View {
 
     let model: Model
     let width: CGFloat
+    /// Handles status-line clicks; lives outside the Model so the Model stays an Equatable pure projection.
+    let onStatusAction: ((Model.StatusLine.Action) -> Void)?
 
-    init(model: Model, width: CGFloat = UsageMenuCardLayout.defaultWidth) {
+    init(
+        model: Model,
+        width: CGFloat = UsageMenuCardLayout.defaultWidth,
+        onStatusAction: ((Model.StatusLine.Action) -> Void)? = nil)
+    {
         self.model = model
         self.width = width
+        self.onStatusAction = onStatusAction
     }
 
     var body: some View {
@@ -328,7 +374,10 @@ struct UsageMenuCardView: View {
 
             Divider()
 
-            UsageMenuCardStatusStripView(status: self.model.status, now: now)
+            UsageMenuCardStatusStripView(
+                status: self.model.status,
+                now: now,
+                onAction: self.onStatusAction)
 
             VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricGroupSpacing) {
                 ForEach(self.model.metrics) { metric in
@@ -355,7 +404,10 @@ struct UsageMenuCardView: View {
                     planText: codexSection.planText,
                     subtitle: codexSection.subtitle,
                     now: now)
-                UsageMenuCardStatusStripView(status: codexSection.status, now: now)
+                UsageMenuCardStatusStripView(
+                    status: codexSection.status,
+                    now: now,
+                    onAction: self.onStatusAction)
                 VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricGroupSpacing) {
                     ForEach(codexSection.metrics) { metric in
                         MetricRow(metric: metric, tint: ProviderBranding.codex, now: now)
@@ -426,12 +478,13 @@ private struct UsageMenuCardHeaderView: View {
 private struct UsageMenuCardStatusStripView: View {
     let status: UsageMenuCardView.Model.StatusLine
     let now: Date
+    /// Receives the strip's action on click; nil hosts (previews, tests) render inert.
+    let onAction: ((UsageMenuCardView.Model.StatusLine.Action) -> Void)?
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
-        let text = self.status.text(now: self.now)
-        // The literal-space fallback reserves the line when there is nothing to report.
-        Text(text ?? " ")
+        // Action states append the glyph inside the one Text so the single-line height contract holds.
+        self.label
             .font(.footnote)
             .foregroundStyle(
                 self.status.isError
@@ -441,11 +494,21 @@ private struct UsageMenuCardStatusStripView: View {
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay {
-                if let copyText = self.status.copyText {
-                    ClickToCopyOverlay(copyText: copyText)
+                if let action = self.status.action, let onAction = self.onAction {
+                    ClickToLaunchOverlay { onAction(action) }
                 }
             }
-            .accessibilityHidden(text == nil)
+            .help(self.status.helpText ?? "")
+            .accessibilityHidden(self.status.text(now: self.now) == nil)
+            .accessibilityAddTraits(self.status.action != nil ? .isButton : [])
+    }
+
+    private var label: Text {
+        let text = self.status.text(now: self.now)
+        guard let text, let symbolName = self.status.actionSymbolName else {
+            return Text(text ?? " ")
+        }
+        return Text("\(text)  \(Image(systemName: symbolName))")
     }
 }
 
@@ -702,9 +765,9 @@ extension UsageMenuCardView.Model {
         switch input.auth {
         case .credentialsMissing:
             return .credentialsMissing
-        case let .needsReauth(message):
+        case let .needsReauth(message, remedy):
             let detail = message?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .needsReauth(detail: (detail?.isEmpty ?? true) ? nil : detail)
+            return .needsReauth(detail: (detail?.isEmpty ?? true) ? nil : detail, remedy: remedy)
         case .ok:
             break
         }
@@ -1111,7 +1174,19 @@ extension UsageMenuCardView.Model.Input {
 
 #Preview("Needs re-auth") {
     var input = UsageMenuCardView.Model.Input.preview()
-    input.auth = .needsReauth(message: "OAuth token refresh was rejected (invalid_grant).")
+    input.auth = .needsReauth(
+        message: "OAuth token refresh was rejected (invalid_grant).",
+        remedy: .signIn)
+    input.isStale = true
+    return UsageMenuCardView(model: .make(input))
+        .padding(.vertical, 8)
+}
+
+#Preview("Keychain access required") {
+    var input = UsageMenuCardView.Model.Input.preview()
+    input.auth = .needsReauth(
+        message: "Claude Code's sign-in changed and SturtBar can't read the new token yet.",
+        remedy: .keychainAccess)
     input.isStale = true
     return UsageMenuCardView(model: .make(input))
         .padding(.vertical, 8)

@@ -41,9 +41,17 @@ import SturtBarCore
 
 // MARK: - State types
 
+/// What fixes a needs-reauth state, typed from `ClaudeUsageError` so the card offers the right remedy.
+enum ClaudeReauthRemedy: Equatable {
+    /// A fresh sign-in via `claude /login`.
+    case signIn
+    /// Sign-in exists but SturtBar can't read it silently; the retry raises the Keychain consent prompt.
+    case keychainAccess
+}
+
 enum AuthState: Equatable {
     case ok
-    case needsReauth(message: String?)
+    case needsReauth(message: String?, remedy: ClaudeReauthRemedy)
     case credentialsMissing
 }
 
@@ -518,9 +526,11 @@ final class UsageStore {
         if let usageError, usageError.indicatesCredentialsMissing {
             self.auth = .credentialsMissing
         } else if let usageError, usageError.indicatesAuthenticationRequired {
-            self.auth = .needsReauth(message: usageError.errorDescription)
+            self.auth = .needsReauth(
+                message: usageError.errorDescription,
+                remedy: usageError.indicatesKeychainAccessRequired ? .keychainAccess : .signIn)
         } else if case let .terminal(reason, _) = gateStatus {
-            self.auth = .needsReauth(message: reason)
+            self.auth = .needsReauth(message: reason, remedy: .signIn)
         }
 
         // Fetch health.

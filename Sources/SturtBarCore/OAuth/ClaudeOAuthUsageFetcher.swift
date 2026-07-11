@@ -10,7 +10,7 @@ public enum ClaudeOAuthFetchError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .unauthorized:
-            return "Claude OAuth request unauthorized. Run `claude` to re-authenticate."
+            return "Claude OAuth request unauthorized. Run `claude /login` to sign in again."
         case .rateLimited:
             return "Claude OAuth usage endpoint is rate limited by Anthropic right now. Wait a few minutes, "
                 + "then click Refresh. If it keeps happening, run `claude logout && claude login`, then try again."

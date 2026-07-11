@@ -60,6 +60,13 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
         }
     }
 
+    /// True when the remedy is granting Keychain access, not a fresh sign-in. Typed refinement of
+    /// `indicatesAuthenticationRequired`.
+    public var indicatesKeychainAccessRequired: Bool {
+        guard case .credentials(.claudeKeychainAccessRequired) = self else { return false }
+        return true
+    }
+
     /// True when no Claude credentials exist at all and the user needs to run `claude` to log in.
     /// Phase 3 maps this → "run claude to log in" UX.
     public var indicatesCredentialsMissing: Bool {

@@ -39,7 +39,7 @@ public enum ClaudeOAuthCredentialsStore {
     private static let claudeKeychainChangeCheckLock = NSLock()
     private nonisolated(unsafe) static var lastClaudeKeychainChangeCheckAt: Date?
     private static let claudeKeychainChangeCheckMinimumInterval: TimeInterval = 60
-    private static let reauthenticateHint = "Run `claude` to re-authenticate."
+    private static let reauthenticateHint = "Run `claude /login` to sign in again."
 
     /// Canonical fingerprint type lives on the refresh failure gate; the store reuses it for its own
     /// keychain-change tracking so both sides compare the same values.
@@ -317,9 +317,20 @@ public enum ClaudeOAuthCredentialsStore {
                 if let expiredRecord {
                     return try self.validatedStaleRecord(expiredRecord)
                 }
-                if let lastError { throw lastError }
-                throw ClaudeOAuthCredentialsError.notFound
+                throw self.noReadableCredentialsError(lastError: lastError)
             }
+        }
+
+        /// Dead end when nothing was readable: the recorded error, else the keychain-access remedy if an item exists,
+        /// else notFound.
+        private func noReadableCredentialsError(lastError: Error?) -> Error {
+            if let lastError { return lastError }
+            if ClaudeOAuthCredentialsStore.hasClaudeKeychainItemWithoutPrompt() {
+                return ClaudeOAuthCredentialsError.claudeKeychainAccessRequired(
+                    underlying: "a Claude Code keychain item exists but cannot be read without a prompt",
+                    reason: ClaudeOAuthCredentialsStore.keychainAccessRequiredReason())
+            }
+            return ClaudeOAuthCredentialsError.notFound
         }
 
         /// A stale record that cannot be refreshed (no refresh token) is a dead end. When a Claude
@@ -331,7 +342,8 @@ public enum ClaudeOAuthCredentialsStore {
         {
             guard self.staleRecordNeedsClaudeKeychainAccess(record) else { return record }
             throw ClaudeOAuthCredentialsError.claudeKeychainAccessRequired(
-                underlying: "refresh token missing from \(record.source.humanLabel)")
+                underlying: "refresh token missing from \(record.source.humanLabel)",
+                reason: ClaudeOAuthCredentialsStore.keychainAccessRequiredReason())
         }
 
         private func staleRecordNeedsClaudeKeychainAccess(_ record: ClaudeOAuthCredentialRecord) -> Bool {
@@ -431,11 +443,17 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 if ClaudeOAuthCredentialsStore.shouldShowClaudeKeychainPreAlert() {
-                    KeychainPromptHandler.notify(
+                    let decision = KeychainPromptHandler.requestApproval(
                         KeychainPromptContext(
                             kind: .claudeOAuth,
                             service: ClaudeOAuthCredentialsStore.claudeKeychainService,
                             account: nil))
+                    guard decision == .proceed else {
+                        // Declined at the explainer: no OS dialog and no denial cooldown, so the reconnect line stays
+                        // clickable.
+                        ClaudeOAuthCredentialsStore.log.info("Claude keychain pre-prompt declined")
+                        return nil
+                    }
                 }
                 let keychainData: Data = if shouldPreferSecurityCLIKeychainRead {
                     try ClaudeOAuthCredentialsStore.loadFromClaudeKeychainUsingSecurityFramework(
@@ -1229,7 +1247,15 @@ public enum ClaudeOAuthCredentialsStore {
         guard case let .refreshFailed(kind, message) = error, kind == .terminal else { return error }
         guard recordSource != .claudeKeychain else { return error }
         guard self.hasClaudeKeychainItemWithoutPrompt() else { return error }
-        return .claudeKeychainAccessRequired(underlying: message)
+        return .claudeKeychainAccessRequired(
+            underlying: message,
+            reason: self.keychainAccessRequiredReason())
+    }
+
+    /// The blocker is the opt-out itself when prompts are off, otherwise the item's access control.
+    static func keychainAccessRequiredReason() -> ClaudeKeychainAccessRequiredReason {
+        ClaudeOAuthKeychainPromptPreference.securityFrameworkFallbackMode() == .never
+            ? .promptsDisabled : .accessLost
     }
 
     /// Save refreshed credentials to SturtBar's own keychain cache.

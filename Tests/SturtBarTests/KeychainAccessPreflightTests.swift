@@ -44,29 +44,46 @@ struct KeychainAccessPreflightTests {
     func `KeychainPromptHandler task handler fires before global handler`() {
         let globalFired = Mutex(false)
         let taskFired = Mutex(false)
-        KeychainPromptHandler.handler = { _ in globalFired.withLock { $0 = true } }
+        KeychainPromptHandler.handler = { _ in
+            globalFired.withLock { $0 = true }
+            return .proceed
+        }
         defer { KeychainPromptHandler.handler = nil }
 
-        KeychainPromptHandler.withHandlerForTesting { _ in
+        let decision = KeychainPromptHandler.withHandlerForTesting { _ in
             taskFired.withLock { $0 = true }
+            return .notNow
         } operation: {
-            KeychainPromptHandler.notify(
+            KeychainPromptHandler.requestApproval(
                 KeychainPromptContext(kind: .claudeOAuth, service: "svc", account: nil))
         }
 
         #expect(taskFired.withLock { $0 } == true)
         #expect(globalFired.withLock { $0 } == false)
+        #expect(decision == .notNow)
     }
 
     @Test
     func `KeychainPromptHandler global handler fires when no task handler`() {
         let globalFired = Mutex(false)
-        KeychainPromptHandler.handler = { _ in globalFired.withLock { $0 = true } }
+        KeychainPromptHandler.handler = { _ in
+            globalFired.withLock { $0 = true }
+            return .proceed
+        }
         defer { KeychainPromptHandler.handler = nil }
 
-        KeychainPromptHandler.notify(
+        let decision = KeychainPromptHandler.requestApproval(
             KeychainPromptContext(kind: .claudeOAuth, service: "svc", account: nil))
 
         #expect(globalFired.withLock { $0 } == true)
+        #expect(decision == .proceed)
+    }
+
+    @Test
+    func `KeychainPromptHandler defaults to proceed with no handler installed`() {
+        // Headless and test runs must never block on a missing UX layer.
+        let decision = KeychainPromptHandler.requestApproval(
+            KeychainPromptContext(kind: .claudeOAuth, service: "svc", account: nil))
+        #expect(decision == .proceed)
     }
 }
