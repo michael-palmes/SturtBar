@@ -72,4 +72,31 @@ struct RefreshSchedulerTests {
         try await Task.sleep(for: .milliseconds(150))
         #expect(counter.count <= 1)
     }
+
+    // MARK: - Power-aware cadence
+
+    @Test
+    func `power constrained ticks alternate skip and refresh`() {
+        // Unconstrained: every tick refreshes.
+        #expect(RefreshScheduler.tickDecision(
+            isPowerConstrained: false, skippedPreviousTick: false) == (true, false))
+        // Constrained: skip one tick...
+        #expect(RefreshScheduler.tickDecision(
+            isPowerConstrained: true, skippedPreviousTick: false) == (false, true))
+        // ...but never two in a row, so the effective interval doubles rather than stalling.
+        #expect(RefreshScheduler.tickDecision(
+            isPowerConstrained: true, skippedPreviousTick: true) == (true, false))
+        // Constraint lifted right after a skip: back to normal.
+        #expect(RefreshScheduler.tickDecision(
+            isPowerConstrained: false, skippedPreviousTick: true) == (true, false))
+    }
+
+    @Test
+    func `power constraint maps low power mode and thermal pressure`() {
+        #expect(RefreshScheduler.isPowerConstrained(lowPowerModeEnabled: true, thermalState: .nominal))
+        #expect(RefreshScheduler.isPowerConstrained(lowPowerModeEnabled: false, thermalState: .serious))
+        #expect(RefreshScheduler.isPowerConstrained(lowPowerModeEnabled: false, thermalState: .critical))
+        #expect(!RefreshScheduler.isPowerConstrained(lowPowerModeEnabled: false, thermalState: .nominal))
+        #expect(!RefreshScheduler.isPowerConstrained(lowPowerModeEnabled: false, thermalState: .fair))
+    }
 }

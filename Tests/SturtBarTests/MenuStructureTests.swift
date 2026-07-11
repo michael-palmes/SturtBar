@@ -310,7 +310,7 @@ struct MenuStructureTests {
 
     @Test
     func `chart submenu hydrates lazily on submenu open`() async throws {
-        let scanner = CostScanner(scanOperation: { _, _, _ in makeCostSnapshot() })
+        let scanner = CostScanner(scanOperation: { _, _, _, _ in makeCostSnapshot() })
         let (controller, ts) = self.makeController(
             suiteName: "sturtbar-menu-chart-hydrate",
             scanner: scanner)

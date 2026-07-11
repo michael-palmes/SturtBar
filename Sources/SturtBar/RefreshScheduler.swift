@@ -44,6 +44,7 @@ final class RefreshScheduler {
         Self.log.info("Refresh loop started", metadata: ["interval": "\(interval)"])
         let refresh = self.refresh
         self.loopTask = Task {
+            var skippedPreviousTick = false
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(
@@ -53,9 +54,49 @@ final class RefreshScheduler {
                 } catch {
                     return // cancelled
                 }
+                let decision = Self.tickDecision(
+                    isPowerConstrained: Self.isCurrentlyPowerConstrained(),
+                    skippedPreviousTick: skippedPreviousTick)
+                skippedPreviousTick = decision.skipped
+                guard decision.refresh else {
+                    Self.log.debug("Interval tick skipped (Low Power Mode or thermal pressure)")
+                    continue
+                }
                 await refresh(.interval)
             }
         }
+    }
+
+    // MARK: - Power-aware cadence
+
+    /// Skips every other tick under Low Power Mode or thermal pressure, doubling the effective interval.
+    nonisolated static func tickDecision(
+        isPowerConstrained: Bool,
+        skippedPreviousTick: Bool) -> (refresh: Bool, skipped: Bool)
+    {
+        if isPowerConstrained, !skippedPreviousTick {
+            return (refresh: false, skipped: true)
+        }
+        return (refresh: true, skipped: false)
+    }
+
+    nonisolated static func isPowerConstrained(
+        lowPowerModeEnabled: Bool,
+        thermalState: ProcessInfo.ThermalState) -> Bool
+    {
+        if lowPowerModeEnabled { return true }
+        switch thermalState {
+        case .serious, .critical: return true
+        case .nominal, .fair: return false
+        @unknown default: return false
+        }
+    }
+
+    private nonisolated static func isCurrentlyPowerConstrained() -> Bool {
+        let processInfo = ProcessInfo.processInfo
+        return self.isPowerConstrained(
+            lowPowerModeEnabled: processInfo.isLowPowerModeEnabled,
+            thermalState: processInfo.thermalState)
     }
 
     func stop() {

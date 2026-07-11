@@ -18,7 +18,7 @@ struct UsageStoreCodexCostTests {
     }
 
     private func recordingCodexScanner(_ recorder: CallRecorder) -> CostScanner {
-        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays in
+        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays, _ in
             await recorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             return makeCodexCostSnapshot()
         })

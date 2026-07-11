@@ -27,9 +27,15 @@ public enum UsageFormatter {
 
     public static func usageLine(remaining: Double, used: Double, showUsed: Bool) -> String {
         let percent = showUsed ? used : remaining
-        let clamped = min(100, max(0, percent))
         let suffix = showUsed ? "used" : "left"
-        return String(format: "%.0f%% %@", clamped, suffix)
+        return "\(self.percentText(percent)) \(suffix)"
+    }
+
+    /// Clamps to 0...100; every positive value below one percent renders as "<1%" rather than rounding.
+    public static func percentText(_ percent: Double) -> String {
+        let clamped = min(100, max(0, percent))
+        if clamped > 0, clamped < 1 { return "<1%" }
+        return String(format: "%.0f%%", clamped)
     }
 
     // MARK: - Reset descriptions
@@ -45,6 +51,7 @@ public enum UsageFormatter {
 
         if days > 0 {
             if hours > 0 { return "in \(days)d \(hours)h" }
+            if minutes > 0 { return "in \(days)d \(minutes)m" }
             return "in \(days)d"
         }
         if hours > 0 {

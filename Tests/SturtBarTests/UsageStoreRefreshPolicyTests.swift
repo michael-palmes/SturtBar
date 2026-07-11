@@ -477,7 +477,7 @@ struct UsageStoreCostScanTests {
     }
 
     private func makeRecordingScanner(_ recorder: CallRecorder) -> CostScanner {
-        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays in
+        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays, _ in
             await recorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             return makeCostSnapshot()
         })
@@ -579,7 +579,7 @@ struct UsageStoreCostScanTests {
         // detect the disabled state and discard the result.
         let scanStarted = TestLatch()
         let releaseScan = TestLatch()
-        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, _, _ in
+        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, _, _, _ in
             await scanStarted.open()
             await releaseScan.wait()
             return makeCostSnapshot()
@@ -739,5 +739,44 @@ struct UsageStoreHealthMappingMissingTests {
         #expect(ts.store.health == .degraded(until: nil))
         #expect(ts.store.auth == .ok)
         #expect(ts.store.failureStreak == 1)
+    }
+}
+
+// MARK: - Post-sign-in recheck
+
+@MainActor
+struct UsageStorePostSignInRecheckTests {
+    @Test
+    func `post sign-in recheck retries until auth recovers then stops`() async throws {
+        let script = FetchScript([
+            .failure(.credentials(.missingOAuth)),
+            .success(makeUsageSnapshot()),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-postsignin") { _, _ in try script.next() }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .credentialsMissing)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        ts.store.postSignInRecheckDelays = [0.01, 0.01, 0.01]
+        ts.store.beginPostSignInRecheck()
+        try await Task.sleep(for: .seconds(0.5))
+
+        #expect(ts.store.auth == .ok)
+        // The first recheck picks up the fresh credentials; later rounds exit without fetching.
+        #expect(await ts.recorder.fetchCount == fetchesBefore + 1)
+    }
+
+    @Test
+    func `post sign-in recheck is a no-op once auth is already ok`() async throws {
+        let ts = makeTestStore(suiteName: "sturtbar-tests-postsignin-ok") { _, _ in makeUsageSnapshot() }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .ok)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        ts.store.postSignInRecheckDelays = [0.01]
+        ts.store.beginPostSignInRecheck()
+        try await Task.sleep(for: .seconds(0.3))
+
+        #expect(await ts.recorder.fetchCount == fetchesBefore)
     }
 }

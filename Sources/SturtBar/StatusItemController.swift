@@ -250,6 +250,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.buildStatusItem()
         self.armAndRender()
         self.armCardPresentation()
+        self.scheduleStatusItemRecoveryCheck()
+    }
+
+    /// True when AppKit gave a visible-intent status item no window (the macOS 26 startup rejection).
+    nonisolated static func shouldRebuildStatusItem(isVisible: Bool, hasWindow: Bool) -> Bool {
+        isVisible && !hasWindow
+    }
+
+    /// One delayed post-startup check: rebuilds the item once if AppKit rejected it (no Dock icon fallback).
+    private func scheduleStatusItemRecoveryCheck(delay: TimeInterval = 2) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, self.started else { return }
+            guard let item = self.statusItem,
+                  Self.shouldRebuildStatusItem(
+                      isVisible: item.isVisible,
+                      hasWindow: item.button?.window != nil)
+            else { return }
+            Self.log.error("Status item has no window after startup; rebuilding once")
+            self.statusBar.removeStatusItem(item)
+            self.statusItem = nil
+            self.buildStatusItem()
+            // Clear the render cache so the fresh button repaints without re-arming the tracker.
+            self.lastRendered = nil
+            self.renderIfNeeded(IconState.derive(store: self.store, settings: self.settings))
+        }
     }
 
     #if DEBUG

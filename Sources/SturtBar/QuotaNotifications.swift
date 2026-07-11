@@ -75,7 +75,20 @@ final class QuotaNotifier {
                     + "of the \(Self.windowNoun(window)) remains.",
                 notificationSoundEnabled: false,
                 playsAlertSound: soundEnabled)
+        case let .namedWindowThresholdCrossed(title, threshold, currentRemaining):
+            // Named extra windows ride the weekly flavour; the title is functional disambiguation.
+            Delivery(
+                idPrefix: "quota-warning-\(provider.rawValue)-\(Self.slug(title))-\(threshold)",
+                title: Self.warningTitle(.weekly),
+                body: "\(provider.displayName): \(Self.percentText(currentRemaining)) "
+                    + "of the \(title) allowance remains.",
+                notificationSoundEnabled: false,
+                playsAlertSound: soundEnabled)
         }
+    }
+
+    private static func slug(_ title: String) -> String {
+        title.lowercased().replacingOccurrences(of: " ", with: "-")
     }
 
     private static func warningTitle(_ window: QuotaWindow) -> String {

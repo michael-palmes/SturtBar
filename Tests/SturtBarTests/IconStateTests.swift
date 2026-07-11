@@ -517,3 +517,18 @@ struct StatusItemControllerStalenessDeadlineTests {
         #expect(activeSleeps.withLock { $0 } == 1)
     }
 }
+
+// MARK: - Status item recovery decision
+
+struct StatusItemRecoveryDecisionTests {
+    @Test
+    func `rebuilds only when visible intent has no window`() {
+        // The macOS 26 startup rejection: intent says visible, AppKit gave no window.
+        #expect(StatusItemController.shouldRebuildStatusItem(isVisible: true, hasWindow: false))
+        // Healthy item.
+        #expect(!StatusItemController.shouldRebuildStatusItem(isVisible: true, hasWindow: true))
+        // User hid the item (Cmd-drag off): respected, never fought.
+        #expect(!StatusItemController.shouldRebuildStatusItem(isVisible: false, hasWindow: false))
+        #expect(!StatusItemController.shouldRebuildStatusItem(isVisible: false, hasWindow: true))
+    }
+}

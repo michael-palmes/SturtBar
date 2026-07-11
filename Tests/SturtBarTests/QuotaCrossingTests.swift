@@ -431,3 +431,102 @@ struct UsageStoreQuotaCrossingTests {
         #expect(crossings.isEmpty)
     }
 }
+
+// MARK: - Named extra windows
+
+struct NamedWindowWarningTests {
+    private func makeConfiguration(weeklyEnabled: Bool = true) -> QuotaTransitionMachine.Configuration {
+        QuotaTransitionMachine.Configuration(
+            sessionQuotaNotificationsEnabled: false,
+            quotaWarningNotificationsEnabled: true,
+            sessionWarningEnabled: false,
+            weeklyWarningEnabled: weeklyEnabled,
+            sessionThresholds: [50, 20],
+            weeklyThresholds: [50, 20])
+    }
+
+    private func snapshot(fableUsed: Double) -> ProviderUsageSnapshot {
+        ProviderUsageSnapshot(
+            primary: RateWindow(usedPercent: 10, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: nil,
+            opus: nil,
+            modelWeeklyWindows: [
+                NamedRateWindow(
+                    id: "model-weekly-fable",
+                    title: "Fable",
+                    window: RateWindow(
+                        usedPercent: fableUsed,
+                        windowMinutes: 7 * 24 * 60,
+                        resetsAt: nil,
+                        resetDescription: nil)),
+            ],
+            updatedAt: Date(timeIntervalSince1970: 1_000_000_000),
+            loginMethod: nil)
+    }
+
+    @Test
+    func `named window crossing fires on the weekly thresholds with its title`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration()
+
+        var events = machine.process(snapshot: self.snapshot(fableUsed: 40), configuration: config)
+        #expect(events.isEmpty)
+
+        events = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
+        #expect(events == [.namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45)])
+
+        // Fired threshold stays quiet while remaining keeps falling short of the next one.
+        events = machine.process(snapshot: self.snapshot(fableUsed: 56), configuration: config)
+        #expect(events.isEmpty)
+    }
+
+    @Test
+    func `named window re-arms after its reset`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration()
+
+        _ = machine.process(snapshot: self.snapshot(fableUsed: 40), configuration: config)
+        _ = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
+
+        // The carve-out resets: remaining recovers above the threshold, re-arming it.
+        var events = machine.process(snapshot: self.snapshot(fableUsed: 5), configuration: config)
+        #expect(events.isEmpty)
+        events = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
+        #expect(events == [.namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45)])
+    }
+
+    @Test
+    func `weekly toggle off keeps named windows silent and clears their state`() {
+        var machine = QuotaTransitionMachine()
+        let off = self.makeConfiguration(weeklyEnabled: false)
+
+        _ = machine.process(snapshot: self.snapshot(fableUsed: 40), configuration: off)
+        let events = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: off)
+        #expect(events.isEmpty)
+        #expect(machine.namedWindowWarnings.isEmpty)
+    }
+
+    @Test
+    func `vanished named windows drop their state`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration()
+
+        _ = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
+        #expect(machine.namedWindowWarnings.keys.contains("model-weekly-fable"))
+
+        // The carve-out disappears (promo over): its state is pruned.
+        _ = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 10), configuration: config)
+        #expect(machine.namedWindowWarnings.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func `named window delivery names the allowance`() {
+        let delivery = QuotaNotifier.delivery(
+            for: .namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45),
+            provider: .claude,
+            soundEnabled: false)
+        #expect(delivery.idPrefix == "quota-warning-claude-fable-50")
+        #expect(delivery.body == "Claude: 45% of the Fable allowance remains.")
+    }
+}

@@ -61,13 +61,14 @@ enum MenuBarDisplayText {
     static func percentText(window: RateWindow?, showUsed: Bool) -> String? {
         guard let window else { return nil }
         let percent = showUsed ? window.usedPercent : window.remainingPercent
-        let clamped = min(100, max(0, percent))
-        return String(format: "%.0f%%", clamped)
+        return UsageFormatter.percentText(percent)
     }
 
     static func paceText(pace: UsagePace?) -> String? {
         guard let pace else { return nil }
         let deltaValue = Int(abs(pace.deltaPercent).rounded())
+        // A sub-half-percent delta rounds to 0; "+0%"/"-0%" is a nonsensical signed zero.
+        if deltaValue == 0 { return "0%" }
         let sign = pace.deltaPercent >= 0 ? "+" : "-"
         return "\(sign)\(deltaValue)%"
     }
@@ -97,9 +98,16 @@ enum MenuBarDisplayText {
 // MARK: - MenuBarMetricWindowResolver
 
 enum MenuBarMetricWindowResolver {
-    /// The window whose percentage the menu bar text shows (legacy `automatic` lane for Claude).
+    /// Normally the primary (session) window, but falls back to the weekly window when only it is exhausted.
     static func percentWindow(snapshot: ProviderUsageSnapshot?) -> RateWindow? {
-        snapshot?.primary
+        guard let snapshot else { return nil }
+        if let secondary = snapshot.secondary,
+           secondary.remainingPercent <= 0,
+           snapshot.primary.remainingPercent > 0
+        {
+            return secondary
+        }
+        return snapshot.primary
     }
 
     /// Resolved display text for a snapshot. Pace is computed on the percent window (legacy

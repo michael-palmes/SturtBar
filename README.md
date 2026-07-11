@@ -49,6 +49,7 @@ What it reads:
 
 - Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
 - Session logs under `~/.claude/projects`, scanned locally for spend estimates. It reads the token counts these logs record, not the prompts or replies in them. Nothing is uploaded.
+- Claude Desktop's local agent transcripts, only if you turn on "Include Claude Desktop sessions" (off by default): scanned read-only under `~/Library/Application Support/Claude` for the same token counts. While the setting is off, those folders are never touched.
 - Codex's sign-in, read-only: `~/.codex/auth.json`, or the `CODEX_HOME` location if you have set one. Its contents are read only while the Codex provider is enabled. SturtBar never writes it, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`.
 - Codex session logs, read locally for spend estimates only while the Codex provider and cost tracking are both on: scanned under `~/.codex` (`sessions` and `archived_sessions`, or the `CODEX_HOME` location if set), reading the token counts only, not your prompts or replies. Nothing is uploaded.
 

@@ -34,6 +34,20 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.usageLine(remaining: -5, used: 105, showUsed: true) == "100% used")
     }
 
+    @Test
+    func `every positive sub one percent value renders as less than one percent`() {
+        // Below 0.5 used to round down to 0%; 0.5 to 1 used to round up to 1%.
+        #expect(UsageFormatter.percentText(0.4) == "<1%")
+        #expect(UsageFormatter.percentText(0.6) == "<1%")
+        #expect(UsageFormatter.percentText(0.99) == "<1%")
+        // True zero, exact one, and the cap are preserved.
+        #expect(UsageFormatter.percentText(0) == "0%")
+        #expect(UsageFormatter.percentText(1) == "1%")
+        #expect(UsageFormatter.percentText(105) == "100%")
+        #expect(UsageFormatter.usageLine(remaining: 0.4, used: 99.6, showUsed: false) == "<1% left")
+        #expect(UsageFormatter.usageLine(remaining: 99.6, used: 0.4, showUsed: true) == "<1% used")
+    }
+
     // MARK: - Updated-ago
 
     @Test
@@ -80,8 +94,19 @@ struct UsageFormatterTests {
     @Test
     func `reset countdown days and hours`() {
         let now = Date(timeIntervalSince1970: 1_000_000)
-        let reset = now.addingTimeInterval((26 * 3600) + 10)
+        let reset = now.addingTimeInterval((26 * 3600) + (1 * 60))
         #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 1d 2h")
+    }
+
+    @Test
+    func `reset countdown days and minutes without whole hours`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        // 2 days 45 minutes used to drop the minutes entirely ("in 2d").
+        let reset = now.addingTimeInterval((48 * 3600) + (45 * 60))
+        #expect(UsageFormatter.resetCountdownDescription(from: reset, now: now) == "in 2d 45m")
+        // Exact whole days stay terse.
+        let exact = now.addingTimeInterval(5 * 24 * 3600)
+        #expect(UsageFormatter.resetCountdownDescription(from: exact, now: now) == "in 5d")
     }
 
     @Test
@@ -105,6 +130,17 @@ struct UsageFormatterTests {
         let window = RateWindow(usedPercent: 0, windowMinutes: nil, resetsAt: reset, resetDescription: "Resets soon")
         let text = UsageFormatter.resetLine(for: window, style: .countdown, now: now)
         #expect(text == "Resets in 11m")
+    }
+
+    @Test
+    func `reset line renders resets now for a stale past reset date`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let window = RateWindow(
+            usedPercent: 73,
+            windowMinutes: 5 * 60,
+            resetsAt: now.addingTimeInterval(-300),
+            resetDescription: "Resets Jul 9, 3:00pm (UTC)")
+        #expect(UsageFormatter.resetLine(for: window, style: .countdown, now: now) == "Resets now")
     }
 
     @Test

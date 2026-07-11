@@ -28,6 +28,8 @@ enum CostUsageScanner {
         /// Override roots for the Codex session scan (`sessions` + `archived_sessions`).
         /// nil resolves to `CODEX_HOME`/`~/.codex`.
         var codexSessionsRoots: [URL]?
+        /// Opt-in: also scan Claude Desktop's embedded transcript stores; ignored if `claudeProjectsRoots` overrides.
+        var includeClaudeDesktopRoots: Bool = false
         var cacheRoot: URL?
         var refreshMinIntervalSeconds: TimeInterval = 60
         /// Force a full rescan, ignoring per-file cache and incremental offsets.
@@ -36,11 +38,13 @@ enum CostUsageScanner {
         init(
             claudeProjectsRoots: [URL]? = nil,
             codexSessionsRoots: [URL]? = nil,
+            includeClaudeDesktopRoots: Bool = false,
             cacheRoot: URL? = nil,
             forceRescan: Bool = false)
         {
             self.claudeProjectsRoots = claudeProjectsRoots
             self.codexSessionsRoots = codexSessionsRoots
+            self.includeClaudeDesktopRoots = includeClaudeDesktopRoots
             self.cacheRoot = cacheRoot
             self.forceRescan = forceRescan
         }

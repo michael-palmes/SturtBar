@@ -183,6 +183,13 @@ struct SettingsView: View {
                     Text("History window: \(self.settings.costUsageHistoryDays) days")
                         .font(.footnote)
                 }
+
+                PreferenceToggleRow(
+                    title: "Include Claude Desktop sessions",
+                    subtitle: "Also scans Claude Desktop's local agent transcripts under "
+                        + "~/Library/Application Support/Claude, reading the same token counts. "
+                        + "Off by default; while off those folders are never touched.",
+                    isOn: self.$settings.claudeDesktopSessionsEnabled)
             }
         }
     }

@@ -88,11 +88,13 @@ enum RefreshTrigger: String {
     case menuOpen
     case manual
     case wake
+    /// One-shot refresh just past a known quota reset boundary, so a stale reading flips promptly.
+    case resetBoundary
 
     var interaction: Interaction {
         switch self {
         case .manual, .menuOpen: .userInitiated
-        case .launch, .interval, .wake: .background
+        case .launch, .interval, .wake, .resetBoundary: .background
         }
     }
 
@@ -202,13 +204,15 @@ final class UsageStore {
 
     // MARK: Internals
 
-    @ObservationIgnored private let settings: SettingsStore
+    // Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the provider gates.
+    @ObservationIgnored let settings: SettingsStore
     @ObservationIgnored private let client: ClaudeUsageClient
     @ObservationIgnored private let codexClient: CodexUsageClient
     @ObservationIgnored private let scanner: CostScanner
     @ObservationIgnored private let codexScanner: CostScanner
     @ObservationIgnored private let persistence: StatePersistence?
-    @ObservationIgnored private let now: @Sendable () -> Date
+    // Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the injected clock.
+    @ObservationIgnored let now: @Sendable () -> Date
     @ObservationIgnored private let blockStatus: @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus?
 
     /// Wall-clock time of the last successful usage fetch.
@@ -232,6 +236,14 @@ final class UsageStore {
     @ObservationIgnored private var codexRefreshTask: Task<Void, Never>?
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var postSignInRecheckTask: Task<Void, Never>?
+    /// Post-sign-in recheck cadence; injectable for tests.
+    @ObservationIgnored var postSignInRecheckDelays: [TimeInterval] = [20, 60, 180]
+    // Reset-boundary refresh state (UsageStore+ResetBoundaryRefresh.swift); timing is injectable for tests.
+    @ObservationIgnored var resetBoundaryTask: Task<Void, Never>?
+    @ObservationIgnored var scheduledResetBoundaryAt: Date?
+    @ObservationIgnored var attemptedResetBoundaryRefreshes: Set<Date> = []
+    @ObservationIgnored var resetBoundaryTiming = ResetBoundaryTiming()
     @ObservationIgnored private var costScanTask: Task<Void, Never>?
     @ObservationIgnored private var codexCostScanTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
@@ -305,6 +317,21 @@ final class UsageStore {
 
     // MARK: - Refresh
 
+    /// Bounded refresh burst after sign-in; rechecks since SturtBar can't watch the terminal login.
+    func beginPostSignInRecheck() {
+        self.postSignInRecheckTask?.cancel()
+        let delays = self.postSignInRecheckDelays
+        self.postSignInRecheckTask = Task { [weak self] in
+            for delay in delays {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { return }
+                guard self.settings.claudeProviderEnabled else { return }
+                if self.auth == .ok { return }
+                await self.refresh(trigger: .manual)
+            }
+        }
+    }
+
     /// Fans out to every ENABLED provider lane. The lanes run as concurrent child tasks: each
     /// suspends at its own client await, so a hung Codex fetch never delays Claude data (and
     /// vice versa). A disabled lane is an instant no-op — the privacy gate (decision 6).
@@ -316,6 +343,8 @@ final class UsageStore {
         async let claude: Void = self.refreshClaude(trigger: trigger)
         async let codex: Void = self.refreshCodex(trigger: trigger)
         _ = await (claude, codex)
+        // Every refresh re-plans the one-shot boundary refresh from the freshest snapshots.
+        self.scheduleResetBoundaryRefreshIfNeeded()
     }
 
     private func refreshClaude(trigger: RefreshTrigger) async {
@@ -592,6 +621,7 @@ final class UsageStore {
 
         case (.claude, false):
             self.refreshTask?.cancel()
+            self.postSignInRecheckTask?.cancel()
             let client = self.client
             Task { await client.cancelInFlight() }
             self.usage = nil
@@ -635,6 +665,8 @@ final class UsageStore {
             self.codexCostScanState = .idle
             self.schedulePersist()
         }
+        // Recompute here too so the disable path cancels its boundary candidates promptly.
+        self.scheduleResetBoundaryRefreshIfNeeded()
     }
 
     // MARK: - Cost
@@ -669,6 +701,7 @@ final class UsageStore {
         guard self.costScanTask == nil else { return } // in-flight; the scanner would join anyway
         self.costScanState = .scanning
         let historyDays = self.settings.costUsageHistoryDays
+        let includeClaudeDesktopSessions = self.settings.claudeDesktopSessionsEnabled
         let scanner = self.scanner
         let now = self.now
         // Utility priority: a cold daily rescan can take 10s+; it must never compete with UI work.
@@ -676,7 +709,11 @@ final class UsageStore {
         // the scanner actor at this task's priority.
         self.costScanTask = Task(priority: .utility) {
             defer { self.costScanTask = nil }
-            let result = await scanner.scan(bypassGate: bypassGate, historyDays: historyDays, now: now())
+            let result = await scanner.scan(
+                bypassGate: bypassGate,
+                historyDays: historyDays,
+                includeClaudeDesktopSessions: includeClaudeDesktopSessions,
+                now: now())
             switch result {
             case let .scanned(snapshot):
                 // Cost-disable race: a 10s+ scan that finishes after the user disables cost usage

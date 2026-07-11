@@ -53,6 +53,25 @@ struct MenuBarDisplayTests {
         #expect(MenuBarDisplayText.paceText(pace: nil) == nil)
     }
 
+    @Test
+    func `pace text drops the sign when the rounded delta is zero`() {
+        // A sub-half-percent delta rounds to 0; "+0%"/"-0%" is a nonsensical signed zero.
+        let slightlyAhead = UsagePace.historical(
+            expectedUsedPercent: 40,
+            actualUsedPercent: 40.3,
+            etaSeconds: nil,
+            willLastToReset: true,
+            runOutProbability: nil)
+        let slightlyBehind = UsagePace.historical(
+            expectedUsedPercent: 40,
+            actualUsedPercent: 39.7,
+            etaSeconds: nil,
+            willLastToReset: true,
+            runOutProbability: nil)
+        #expect(MenuBarDisplayText.paceText(pace: slightlyAhead) == "0%")
+        #expect(MenuBarDisplayText.paceText(pace: slightlyBehind) == "0%")
+    }
+
     // MARK: - displayText modes
 
     @Test
@@ -116,6 +135,25 @@ struct MenuBarDisplayTests {
         // Spend-limit accounts fold the spend window into primary; the text shows its percent.
         let snapshot = makeUsageSnapshot(primaryUsedPercent: 30, primaryWindowKind: .spendLimit)
         #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: snapshot) == "70%")
+    }
+
+    @Test
+    func `resolver follows the weekly window when it is the binding cap`() {
+        // Weekly exhausted while the session is fresh: the text follows the weekly window instead.
+        let blocked = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: 100)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: blocked) == "0%")
+
+        // A non-exhausted weekly leaves the session window in charge.
+        let normal = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: 97)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: normal) == "97%")
+
+        // Both exhausted: primary already tells the truth.
+        let bothSpent = makeUsageSnapshot(primaryUsedPercent: 100, secondaryUsedPercent: 100)
+        #expect(MenuBarMetricWindowResolver.percentWindow(snapshot: bothSpent)?.windowMinutes == 5 * 60)
+
+        // No secondary window: primary as always.
+        let sessionOnly = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: nil)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: sessionOnly) == "97%")
     }
 
     @Test
