@@ -506,22 +506,24 @@ public struct ClaudeUsageService: Sendable {
         }
     }
 
-    /// One window per `weekly_scoped` entry in the `limits` array, titled from the API display
-    /// name. Other kinds (session, weekly_all, unknown) are ignored; the legacy keyed buckets
-    /// stay the source for those. Entries without a display name are skipped.
+    /// One window per `weekly_scoped` limit entry; skips unnamed/non-finite entries, collapses duplicate models.
     private static func oauthModelWeeklyWindows(from usage: OAuthUsageResponse) -> [NamedRateWindow] {
         guard let limits = usage.limits else { return [] }
+        var seenIDs: Set<String> = []
         return limits.compactMap { limit in
             guard limit.kind == "weekly_scoped",
+                  let percent = limit.percent, percent.isFinite,
                   let title = limit.modelDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty
             else { return nil }
+            let id = "model-weekly-" + title.lowercased().replacingOccurrences(of: " ", with: "-")
+            guard seenIDs.insert(id).inserted else { return nil }
             let resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(limit.resetsAt)
             return NamedRateWindow(
-                id: "model-weekly-" + title.lowercased().replacingOccurrences(of: " ", with: "-"),
+                id: id,
                 title: title,
                 window: RateWindow(
-                    usedPercent: limit.percent ?? 0,
+                    usedPercent: percent,
                     windowMinutes: Self.weeklyWindowMinutes,
                     resetsAt: resetDate,
                     resetDescription: resetDate.map(Self.formatResetDate)))

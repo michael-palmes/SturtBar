@@ -385,6 +385,41 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
+    func `skips weekly scoped entries without a finite percent`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped",
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } },
+            { "kind": "weekly_scoped", "percent": 1e999,
+              "scope": { "model": { "id": null, "display_name": "Opus" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.isEmpty)
+    }
+
+    @Test
+    func `duplicate weekly scoped entries for one model collapse to the first`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 5,
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } },
+            { "kind": "weekly_scoped", "percent": 55,
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.count == 1)
+        #expect(snap.modelWeeklyWindows.first?.window.usedPercent == 5)
+    }
+
+    @Test
     func `scoped sonnet row supersedes the legacy sonnet slot`() throws {
         let json = """
         {
