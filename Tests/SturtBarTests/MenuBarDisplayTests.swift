@@ -138,6 +138,25 @@ struct MenuBarDisplayTests {
     }
 
     @Test
+    func `resolver follows the weekly window when it is the binding cap`() {
+        // Weekly exhausted while the session is fresh: the text follows the weekly window instead.
+        let blocked = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: 100)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: blocked) == "0%")
+
+        // A non-exhausted weekly leaves the session window in charge.
+        let normal = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: 97)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: normal) == "97%")
+
+        // Both exhausted: primary already tells the truth.
+        let bothSpent = makeUsageSnapshot(primaryUsedPercent: 100, secondaryUsedPercent: 100)
+        #expect(MenuBarMetricWindowResolver.percentWindow(snapshot: bothSpent)?.windowMinutes == 5 * 60)
+
+        // No secondary window: primary as always.
+        let sessionOnly = makeUsageSnapshot(primaryUsedPercent: 3, secondaryUsedPercent: nil)
+        #expect(MenuBarMetricWindowResolver.displayText(mode: .percent, snapshot: sessionOnly) == "97%")
+    }
+
+    @Test
     func `resolver computes pace on the percent window`() {
         let now = Date(timeIntervalSince1970: 1_000_000_000)
         // Halfway through a 5h session window with 50% used = exactly on pace... use 60% for +10%.

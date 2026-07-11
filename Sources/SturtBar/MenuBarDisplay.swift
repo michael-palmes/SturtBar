@@ -98,9 +98,16 @@ enum MenuBarDisplayText {
 // MARK: - MenuBarMetricWindowResolver
 
 enum MenuBarMetricWindowResolver {
-    /// The window whose percentage the menu bar text shows (legacy `automatic` lane for Claude).
+    /// Normally the primary (session) window, but falls back to the weekly window when only it is exhausted.
     static func percentWindow(snapshot: ProviderUsageSnapshot?) -> RateWindow? {
-        snapshot?.primary
+        guard let snapshot else { return nil }
+        if let secondary = snapshot.secondary,
+           secondary.remainingPercent <= 0,
+           snapshot.primary.remainingPercent > 0
+        {
+            return secondary
+        }
+        return snapshot.primary
     }
 
     /// Resolved display text for a snapshot. Pace is computed on the percent window (legacy
