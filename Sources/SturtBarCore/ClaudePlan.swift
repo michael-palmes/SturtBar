@@ -22,6 +22,14 @@ public enum ClaudePlan: String, CaseIterable, Sendable {
         }
     }
 
+    /// Branded label including the Max usage multiplier when the rate-limit tier carries one.
+    public func brandedLoginMethod(rateLimitTier: String?) -> String {
+        guard self == .max, let multiplier = Self.maxUsageMultiplier(rateLimitTier: rateLimitTier) else {
+            return self.brandedLoginMethod
+        }
+        return "\(self.brandedLoginMethod) \(multiplier)"
+    }
+
     public var compactLoginMethod: String {
         switch self {
         case .max:
@@ -79,13 +87,13 @@ public enum ClaudePlan: String, CaseIterable, Sendable {
     }
 
     public static func oauthLoginMethod(rateLimitTier: String?) -> String? {
-        self.fromOAuthRateLimitTier(rateLimitTier)?.brandedLoginMethod
+        self.fromOAuthRateLimitTier(rateLimitTier)?.brandedLoginMethod(rateLimitTier: rateLimitTier)
     }
 
     public static func oauthLoginMethod(subscriptionType: String?, rateLimitTier: String?) -> String? {
         self.fromOAuthCredentials(
             subscriptionType: subscriptionType,
-            rateLimitTier: rateLimitTier)?.brandedLoginMethod
+            rateLimitTier: rateLimitTier)?.brandedLoginMethod(rateLimitTier: rateLimitTier)
     }
 
     private static func fromRateLimitTier(_ rateLimitTier: String?) -> Self? {
@@ -103,6 +111,22 @@ public enum ClaudePlan: String, CaseIterable, Sendable {
             return .enterprise
         }
         return nil
+    }
+
+    /// The `<n>x` word following "max" in a rate-limit tier, e.g. "5x" in `default_claude_max_5x`.
+    private static func maxUsageMultiplier(rateLimitTier: String?) -> String? {
+        let words = Self.normalizedWords(rateLimitTier)
+        guard let maxIndex = words.firstIndex(of: Self.max.rawValue),
+              words.indices.contains(maxIndex + 1)
+        else {
+            return nil
+        }
+
+        let multiplier = words[maxIndex + 1]
+        guard multiplier.last == "x", Int(multiplier.dropLast()) != nil else {
+            return nil
+        }
+        return multiplier
     }
 
     private static func normalized(_ text: String?) -> String {
