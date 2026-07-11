@@ -50,8 +50,9 @@ enum KeychainPromptCoordinator {
         "Claude Code stores its sign-in token in the macOS Keychain. SturtBar is about to ask " +
         "macOS for read access to that item so it can fetch your Claude usage and limits.\n\n" +
         "If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant " +
-        "ongoing read access, or Deny to refuse. If Claude Code signs in again later, macOS will " +
-        "ask again.\n\n" +
+        "ongoing read access, or Deny to refuse. If that dialog asks for your Mac login password, " +
+        "the entry is handled by macOS itself; SturtBar never sees what you type. If Claude Code " +
+        "signs in again later, macOS will ask again.\n\n" +
         "SturtBar only reads the token and uses it with Anthropic's API to fetch usage and " +
         "refresh the token. It keeps its own refreshed copy in SturtBar's own Keychain item. " +
         "It never changes Claude Code's sign-in and never sends the token anywhere else."
