@@ -34,6 +34,8 @@ enum QuotaWindow: String, Codable, CaseIterable, Equatable {
 enum QuotaCrossing: Equatable {
     /// Remaining quota dropped to/below a configured warning threshold.
     case warningThresholdCrossed(window: QuotaWindow, threshold: Int, currentRemaining: Double)
+    /// A named extra window (model-scoped weekly carve-out, Daily Routines) crossed a threshold.
+    case namedWindowThresholdCrossed(title: String, threshold: Int, currentRemaining: Double)
     /// The session window hit 0% remaining.
     case sessionDepleted
     /// The session window recovered from 0% remaining.
@@ -181,6 +183,8 @@ struct QuotaTransitionMachine {
     /// Warning machine state (legacy `quotaWarningState[provider, window]`, de-keyed).
     private(set) var sessionWarning = WindowState()
     private(set) var weeklyWarning = WindowState()
+    /// Per-window state for named extra windows, keyed by stable ID; pruned when a window disappears.
+    private(set) var namedWindowWarnings: [String: WindowState] = [:]
 
     /// Processes one snapshot through both machines and returns the crossings to surface.
     mutating func process(snapshot: ProviderUsageSnapshot, configuration: Configuration) -> [QuotaCrossing] {
@@ -268,6 +272,7 @@ struct QuotaTransitionMachine {
             configuration: configuration,
             state: &self.weeklyWarning,
             into: &crossings)
+        self.processNamedWindowWarnings(snapshot: snapshot, configuration: configuration, into: &crossings)
     }
 
     private func processWarningWindow(
@@ -287,27 +292,76 @@ struct QuotaTransitionMachine {
             return
         }
 
-        let currentRemaining = rateWindow.remainingPercent
+        if let threshold = Self.advanceWarningState(
+            &state,
+            currentRemaining: rateWindow.remainingPercent,
+            thresholds: settings.thresholds)
+        {
+            crossings.append(.warningThresholdCrossed(
+                window: window,
+                threshold: threshold,
+                currentRemaining: rateWindow.remainingPercent))
+        }
+    }
+
+    /// Named extra windows are weekly-scale, so they ride the weekly toggle and thresholds.
+    private mutating func processNamedWindowWarnings(
+        snapshot: ProviderUsageSnapshot,
+        configuration: Configuration,
+        into crossings: inout [QuotaCrossing])
+    {
+        let settings = configuration.warningSettings(for: .weekly)
+        let named = snapshot.modelWeeklyWindows + snapshot.extraRateWindows
+        guard settings.enabled, !named.isEmpty else {
+            self.namedWindowWarnings = [:]
+            return
+        }
+
+        // Windows that vanished from the snapshot drop their state (no unbounded growth).
+        let presentIDs = Set(named.map(\.id))
+        self.namedWindowWarnings = self.namedWindowWarnings.filter { presentIDs.contains($0.key) }
+
+        for namedWindow in named {
+            var state = self.namedWindowWarnings[namedWindow.id] ?? WindowState()
+            if let threshold = Self.advanceWarningState(
+                &state,
+                currentRemaining: namedWindow.window.remainingPercent,
+                thresholds: settings.thresholds)
+            {
+                crossings.append(.namedWindowThresholdCrossed(
+                    title: namedWindow.title,
+                    threshold: threshold,
+                    currentRemaining: namedWindow.window.remainingPercent))
+            }
+            self.namedWindowWarnings[namedWindow.id] = state
+        }
+    }
+
+    /// Shared re-arm + crossing step for one window's state; returns the threshold that fired.
+    private static func advanceWarningState(
+        _ state: inout WindowState,
+        currentRemaining: Double,
+        thresholds: [Int]) -> Int?
+    {
         let cleared = QuotaCrossingLogic.thresholdsToClear(
             currentRemaining: currentRemaining,
             alreadyFired: state.firedThresholds)
         state.firedThresholds.subtract(cleared)
 
+        var fired: Int?
         if let threshold = QuotaCrossingLogic.crossedThreshold(
             previousRemaining: state.lastRemaining,
             currentRemaining: currentRemaining,
-            thresholds: settings.thresholds,
+            thresholds: thresholds,
             alreadyFired: state.firedThresholds)
         {
             state.firedThresholds.formUnion(QuotaCrossingLogic.firedThresholdsAfterWarning(
                 threshold: threshold,
-                thresholds: settings.thresholds))
-            crossings.append(.warningThresholdCrossed(
-                window: window,
-                threshold: threshold,
-                currentRemaining: currentRemaining))
+                thresholds: thresholds))
+            fired = threshold
         }
 
         state.lastRemaining = currentRemaining
+        return fired
     }
 }
