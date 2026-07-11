@@ -79,6 +79,51 @@ struct ClaudeOAuthUsageFetcherTests {
     }
 
     @Test
+    func `decodes limits array keeping unknown kinds`() async throws {
+        ClaudeOAuthUsageRateLimitGate.resetForTesting()
+        defer { ClaudeOAuthUsageRateLimitGate.resetForTesting() }
+
+        let json = """
+        {
+          "five_hour": { "utilization": 1 },
+          "limits": [
+            { "kind": "session", "group": "session", "percent": 1, "severity": "normal",
+              "resets_at": "2026-07-02T03:30:00.827231+00:00", "scope": null, "is_active": true },
+            { "kind": "weekly_all", "group": "weekly", "percent": 0, "severity": "normal",
+              "resets_at": "2026-07-06T10:00:00.827258+00:00", "scope": null, "is_active": false },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 12.5, "severity": "normal",
+              "resets_at": "2026-07-06T10:00:00.827673+00:00",
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null },
+              "is_active": false },
+            { "kind": "mystery_kind", "percent": "not-a-number", "scope": 42 }
+          ]
+        }
+        """
+        let transport = self.makeTransport(statusCode: 200, body: json)
+        let usage = try await ClaudeOAuthUsageFetcher.fetchUsage(accessToken: "token", transport: transport)
+
+        let limits = try #require(usage.limits)
+        #expect(limits.count == 4)
+        #expect(limits[0].kind == "session")
+        #expect(limits[0].modelDisplayName == nil)
+        #expect(limits[1].kind == "weekly_all")
+        #expect(limits[2].kind == "weekly_scoped")
+        #expect(limits[2].percent == 12.5)
+        #expect(limits[2].resetsAt == "2026-07-06T10:00:00.827673+00:00")
+        #expect(limits[2].modelDisplayName == "Fable")
+        // Junk fields decode to nil without dropping the entry or the array.
+        #expect(limits[3].kind == "mystery_kind")
+        #expect(limits[3].percent == nil)
+        #expect(limits[3].modelDisplayName == nil)
+    }
+
+    @Test
+    func `parses reset dates with six fractional digits and utc offset`() {
+        #expect(ClaudeOAuthUsageFetcher.parseISO8601Date("2026-07-06T10:00:00.827673+00:00") != nil)
+        #expect(ClaudeOAuthUsageFetcher.parseISO8601Date("2026-07-06T10:00:00+00:00") != nil)
+    }
+
+    @Test
     func `fetch usage maps 401 to typed unauthorized error`() async {
         ClaudeOAuthUsageRateLimitGate.resetForTesting()
         defer { ClaudeOAuthUsageRateLimitGate.resetForTesting() }

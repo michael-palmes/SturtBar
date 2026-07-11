@@ -57,8 +57,7 @@ import SturtBarCore
 
         // State layer.
         let settings = SettingsStore()
-        // allowStartupBootstrapPrompt: permits the one-time background keychain prompt during the
-        // startup fetch when no cached credentials exist yet (first run after install).
+        // allowStartupBootstrapPrompt: permits the one-time first-run keychain prompt, and only when prompts are enabled.
         let client = ClaudeUsageClient(service: ClaudeUsageService(allowStartupBootstrapPrompt: true))
         // Inert until the opt-in Codex provider is enabled: constructing the service performs no
         // IO; the store's privacy gate keeps the lane idle while the toggle is off.
@@ -80,6 +79,11 @@ import SturtBarCore
         }
         settings.onProviderEnabledChange = { [weak store] provider, enabled in
             store?.providerEnabledDidChange(provider, enabled: enabled)
+        }
+        // Flipping prompts ON refreshes immediately so the prompt appears and the card heals; OFF does nothing.
+        settings.onClaudeKeychainPromptsChange = { [weak store] enabled in
+            guard enabled, let store else { return }
+            Task { await store.refresh(trigger: .manual) }
         }
 
         // Quota notifications. Contract (UsageStore.onQuotaThresholdCrossing): fires synchronously

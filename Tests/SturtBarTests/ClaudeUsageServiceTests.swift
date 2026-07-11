@@ -336,6 +336,130 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
+    func `maps weekly scoped limits to model weekly windows`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day": { "utilization": 30, "resets_at": "2026-07-06T10:00:00.827258+00:00" },
+          "limits": [
+            { "kind": "session", "percent": 1, "resets_at": "2026-07-02T03:30:00.827231+00:00", "scope": null },
+            { "kind": "weekly_all", "percent": 0, "resets_at": "2026-07-06T10:00:00.827258+00:00", "scope": null },
+            { "kind": "weekly_scoped", "percent": 42.5,
+              "resets_at": "2026-07-06T10:00:00.827673+00:00",
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } },
+            { "kind": "mystery_kind", "percent": 7,
+              "scope": { "model": { "id": null, "display_name": "Mystery" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.count == 1)
+        let fable = try #require(snap.modelWeeklyWindows.first)
+        #expect(fable.id == "model-weekly-fable")
+        #expect(fable.title == "Fable")
+        #expect(fable.window.usedPercent == 42.5)
+        #expect(fable.window.windowMinutes == 7 * 24 * 60)
+        #expect(fable.window.resetsAt != nil)
+        #expect(fable.window.resetDescription?.isEmpty == false)
+        // Session and weekly_all kinds stay with the legacy keyed buckets.
+        #expect(snap.primary.usedPercent == 10)
+        #expect(snap.secondary?.usedPercent == 30)
+    }
+
+    @Test
+    func `skips weekly scoped entries without a display name`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 5, "scope": null },
+            { "kind": "weekly_scoped", "percent": 6,
+              "scope": { "model": { "id": null, "display_name": null }, "surface": null } },
+            { "kind": "weekly_scoped", "percent": 7,
+              "scope": { "model": { "id": null, "display_name": "  " }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.isEmpty)
+    }
+
+    @Test
+    func `scoped sonnet row supersedes the legacy sonnet slot`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day_sonnet": { "utilization": 5 },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 6,
+              "resets_at": "2026-07-06T10:00:00.827673+00:00",
+              "scope": { "model": { "id": null, "display_name": "sonnet" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.opus == nil)
+        #expect(snap.modelWeeklyWindows.first?.title == "sonnet")
+        #expect(snap.modelWeeklyWindows.first?.window.usedPercent == 6)
+    }
+
+    @Test
+    func `scoped opus row supersedes the legacy opus slot`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day_opus": { "utilization": 42 },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 41,
+              "scope": { "model": { "id": null, "display_name": "Opus" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.opus == nil)
+        #expect(snap.modelWeeklyWindows.first?.title == "Opus")
+    }
+
+    @Test
+    func `scoped row for a different model keeps the legacy slot`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day_sonnet": { "utilization": 5 },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 42.5,
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.opus?.usedPercent == 5)
+        #expect(snap.modelWeeklyWindows.first?.title == "Fable")
+    }
+
+    @Test
+    func `old persisted snapshots decode with empty model weekly windows`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
+          "seven_day": { "utilization": 30, "resets_at": "2025-12-31T00:00:00.000Z" }
+        }
+        """
+        let snapshot = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+
+        // Re-encode without the new key to simulate a snapshot persisted by an older build.
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "modelWeeklyWindows")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(ProviderUsageSnapshot.self, from: stripped)
+        #expect(decoded.modelWeeklyWindows.isEmpty)
+        #expect(decoded.primary.usedPercent == snapshot.primary.usedPercent)
+        #expect(decoded.secondary?.usedPercent == snapshot.secondary?.usedPercent)
+    }
+
+    @Test
     func `same payload and same now date produce equal snapshots`() throws {
         let json = """
         {
@@ -356,12 +480,18 @@ struct ClaudeOAuthUsageMappingTests {
           "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
           "seven_day": { "utilization": 30, "resets_at": "2025-12-31T00:00:00.000Z" },
           "seven_day_routines": { "utilization": 18, "resets_at": "2026-01-01T00:00:00.000Z" },
-          "extra_usage": { "is_enabled": true, "monthly_limit": 2050, "used_credits": 325 }
+          "extra_usage": { "is_enabled": true, "monthly_limit": 2050, "used_credits": 325 },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 42.5,
+              "resets_at": "2026-07-06T10:00:00.827673+00:00",
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } }
+          ]
         }
         """
         let snapshot = try ClaudeUsageService._mapOAuthUsageForTesting(
             Data(json.utf8),
             rateLimitTier: "claude_pro")
+        #expect(snapshot.modelWeeklyWindows.count == 1)
 
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(ProviderUsageSnapshot.self, from: encoded)

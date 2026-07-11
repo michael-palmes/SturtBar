@@ -26,7 +26,20 @@ public enum ClaudeOAuthKeychainPromptPreference {
         {
             return mode
         }
-        return .onlyOnUserAction
+        // Prompts are opt-in: unset means never prompt until the Settings toggle or card opt-in writes a mode.
+        return .never
+    }
+
+    /// Persists the chosen mode where `storedMode` reads it; nil removes it (back to the never default).
+    public static func setStoredMode(
+        _ mode: ClaudeOAuthKeychainPromptMode?,
+        userDefaults: UserDefaults = .standard)
+    {
+        guard let mode else {
+            userDefaults.removeObject(forKey: self.userDefaultsKey)
+            return
+        }
+        userDefaults.set(mode.rawValue, forKey: self.userDefaultsKey)
     }
 
     public static func isApplicable(

@@ -16,6 +16,7 @@
 
 import Foundation
 import Observation
+import SturtBarCore
 
 // MARK: - RefreshFrequency
 
@@ -85,6 +86,7 @@ final class SettingsStore {
         static let resetTimesShowAbsolute = "sturtbar.resetTimesShowAbsolute"
         static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
         static let weeklyWorkWeekPacingEnabled = "sturtbar.weeklyWorkWeekPacingEnabled"
+        static let showModelWeeklyLimits = "sturtbar.showModelWeeklyLimits"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -95,6 +97,8 @@ final class SettingsStore {
     @ObservationIgnored var onCostSettingsChange: (() -> Void)?
     /// App wiring (AppDelegate): wipe/kick the provider's lane in UsageStore when toggled.
     @ObservationIgnored var onProviderEnabledChange: ((UsageProviderKind, Bool) -> Void)?
+    /// App wiring (AppDelegate): refresh immediately when Keychain prompts are turned ON.
+    @ObservationIgnored var onClaudeKeychainPromptsChange: ((Bool) -> Void)?
 
     // MARK: Providers
 
@@ -115,6 +119,18 @@ final class SettingsStore {
             guard oldValue != self.codexProviderEnabled else { return }
             self.defaults.set(self.codexProviderEnabled, forKey: Keys.codexProviderEnabled)
             self.onProviderEnabledChange?(.codex, self.codexProviderEnabled)
+        }
+    }
+
+    /// Keychain prompt opt-in, default off. Writes the core's un-namespaced key (not Keys.*) so the fetch path reads
+    /// it; off = .never, on = .onlyOnUserAction.
+    var claudeKeychainPromptsEnabled: Bool {
+        didSet {
+            guard oldValue != self.claudeKeychainPromptsEnabled else { return }
+            ClaudeOAuthKeychainPromptPreference.setStoredMode(
+                self.claudeKeychainPromptsEnabled ? .onlyOnUserAction : .never,
+                userDefaults: self.defaults)
+            self.onClaudeKeychainPromptsChange?(self.claudeKeychainPromptsEnabled)
         }
     }
 
@@ -269,6 +285,12 @@ final class SettingsStore {
         didSet { self.defaults.set(self.weeklyWorkWeekPacingEnabled, forKey: Keys.weeklyWorkWeekPacingEnabled) }
     }
 
+    /// Popover rows for model-scoped weekly limits (such as Fable). Display-time filter only:
+    /// the data is still fetched, mapped and persisted while hidden, so the toggle is instant.
+    var showModelWeeklyLimits: Bool {
+        didSet { self.defaults.set(self.showModelWeeklyLimits, forKey: Keys.showModelWeeklyLimits) }
+    }
+
     // MARK: Init
 
     init(userDefaults: UserDefaults = .standard) {
@@ -280,6 +302,8 @@ final class SettingsStore {
         // Absent keys reproduce today's Claude-only behavior — no migration needed.
         self.claudeProviderEnabled = userDefaults.object(forKey: Keys.claudeProviderEnabled) as? Bool ?? true
         self.codexProviderEnabled = userDefaults.object(forKey: Keys.codexProviderEnabled) as? Bool ?? false
+        self.claudeKeychainPromptsEnabled =
+            ClaudeOAuthKeychainPromptPreference.storedMode(userDefaults: userDefaults) != .never
         self.menuBarProviderSource = userDefaults.string(forKey: Keys.menuBarProviderSource)
             .flatMap(MenuBarProviderSource.init(rawValue:)) ?? .default
 
@@ -316,6 +340,8 @@ final class SettingsStore {
         self.usageBarsShowUsed = userDefaults.object(forKey: Keys.usageBarsShowUsed) as? Bool ?? false
         self.weeklyWorkWeekPacingEnabled =
             userDefaults.object(forKey: Keys.weeklyWorkWeekPacingEnabled) as? Bool ?? false
+        self.showModelWeeklyLimits =
+            userDefaults.object(forKey: Keys.showModelWeeklyLimits) as? Bool ?? true
     }
 
     private static func clampedHistoryDays(_ raw: Int) -> Int {

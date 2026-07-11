@@ -53,6 +53,15 @@ struct SettingsView: View {
                 iconProvider: .claude,
                 isOn: self.$settings.claudeProviderEnabled)
 
+            if self.settings.claudeProviderEnabled {
+                PreferenceToggleRow(
+                    title: "Ask for Keychain access when needed",
+                    subtitle: "Keychain prompts are needed to read Claude Code's sign-in; leaving this "
+                        + "off can leave Claude usage blank until you allow access.",
+                    isOn: self.$settings.claudeKeychainPromptsEnabled)
+                    .padding(.leading, 20)
+            }
+
             PreferenceToggleRow(
                 title: "Codex",
                 subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
@@ -150,6 +159,11 @@ struct SettingsView: View {
                 title: "5-day work week (Mon-Fri)",
                 subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
                 isOn: self.$settings.weeklyWorkWeekPacingEnabled)
+
+            PreferenceToggleRow(
+                title: "Show model weekly limits",
+                subtitle: "Adds a row for model-specific weekly limits, such as Fable.",
+                isOn: self.$settings.showModelWeeklyLimits)
         }
     }
 

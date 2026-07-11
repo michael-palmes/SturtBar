@@ -164,6 +164,15 @@ public enum RefreshFailureKind: String, Sendable, Equatable {
     case suppressed // refresh-failure gate blocked the attempt
 }
 
+/// Why a keychain item exists but SturtBar cannot read it; typed so the tooltip explains the fix without string
+/// parsing.
+public enum ClaudeKeychainAccessRequiredReason: String, Sendable, Equatable {
+    /// The item's access control no longer covers SturtBar (typical after a Claude Code re-login).
+    case accessLost
+    /// The stored prompt preference is never, so reads needing the OS dialog are disallowed.
+    case promptsDisabled
+}
+
 public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
     case decodeFailed
     case missingOAuth
@@ -173,22 +182,20 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
     case readFailed(String)
     case refreshFailed(kind: RefreshFailureKind, message: String)
     case noRefreshToken(source: ClaudeOAuthCredentialSource?)
-    /// The only loadable credentials are stale, but a Claude Code keychain item exists that
-    /// SturtBar could not read silently — typically after a re-login in Claude Code recreated the
-    /// item and reset its access control. The fix is a user-initiated refresh plus approving the
-    /// Keychain prompt, not another re-login.
-    case claudeKeychainAccessRequired(underlying: String?)
+    /// A keychain item exists that SturtBar could not read silently; the fix is granting Keychain access, not a
+    /// re-login.
+    case claudeKeychainAccessRequired(underlying: String?, reason: ClaudeKeychainAccessRequiredReason)
 
     public var errorDescription: String? {
         switch self {
         case .decodeFailed:
             return "Claude OAuth credentials are invalid."
         case .missingOAuth:
-            return "Claude OAuth credentials missing. Run `claude` to authenticate."
+            return "Claude OAuth credentials missing. Run `claude /login` to sign in."
         case .missingAccessToken:
-            return "Claude OAuth access token missing. Run `claude` to authenticate."
+            return "Claude OAuth access token missing. Run `claude /login` to sign in."
         case .notFound:
-            return "Claude OAuth credentials not found. Run `claude` to authenticate."
+            return "Claude OAuth credentials not found. Run `claude /login` to sign in."
         case let .keychainError(status):
             #if os(macOS)
             if status == Int(errSecUserCanceled)
@@ -196,8 +203,8 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
                 || status == Int(errSecInteractionNotAllowed)
                 || status == Int(errSecNoAccessForItem)
             {
-                return "Claude Keychain access was denied. Open the SturtBar menu and press ⌘R, "
-                    + "then choose Always Allow. SturtBar backs off in the background until you do."
+                return "Claude Keychain access was denied. Click the reconnect line in the SturtBar "
+                    + "menu, then choose Always Allow. SturtBar backs off in the background until you do."
             }
             #endif
             return "Claude OAuth keychain error: \(status)"
@@ -211,11 +218,16 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
                     + "Provide a fresh STURTBAR_CLAUDE_OAUTH_TOKEN."
             }
             let origin = source.map { " (from \($0.humanLabel))" } ?? ""
-            return "Claude OAuth refresh token missing\(origin). Run `claude` to authenticate."
-        case let .claudeKeychainAccessRequired(underlying):
-            // Keep the action inside the first ~80 characters: the menu card truncates the detail.
-            var text = "Open the SturtBar menu, press ⌘R, then allow Keychain access. "
-                + "Claude Code's sign-in changed and SturtBar can't read it yet."
+            return "Claude OAuth refresh token missing\(origin). Run `claude /login` to sign in again."
+        case let .claudeKeychainAccessRequired(underlying, reason):
+            var text = switch reason {
+            case .accessLost:
+                "Claude Code's sign-in changed and SturtBar can't read the new token yet. "
+                    + "Click the reconnect line, then choose Always Allow when macOS asks."
+            case .promptsDisabled:
+                "Keychain prompts are off, so SturtBar can't read Claude Code's sign-in yet. "
+                    + "Click the reconnect line to allow access."
+            }
             if let underlying, !underlying.isEmpty {
                 text += " (\(underlying))"
             }

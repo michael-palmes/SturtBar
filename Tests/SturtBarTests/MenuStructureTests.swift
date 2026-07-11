@@ -22,11 +22,17 @@ struct MenuStructureTests {
     private func makeController(
         suiteName: String,
         scanner: CostScanner? = nil,
-        fetch: @escaping ClaudeUsageClient.FetchOperation = { _, _ in makeUsageSnapshot() })
+        fetch: @escaping ClaudeUsageClient.FetchOperation = { _, _ in makeUsageSnapshot() },
+        // After the trailing-closure slot so existing callers keep binding to `fetch`; declines by default so no test
+        // hangs on a real NSAlert.
+        keychainOptInPresenter: @escaping @MainActor () -> KeychainPromptDecision = { .notNow })
         -> (controller: StatusItemController, ts: TestStore)
     {
         let ts = makeTestStore(suiteName: suiteName, scanner: scanner, fetch: fetch)
-        let controller = StatusItemController(store: ts.store, settings: ts.settings)
+        let controller = StatusItemController(
+            store: ts.store,
+            settings: ts.settings,
+            keychainOptInPresenter: keychainOptInPresenter)
         return (controller, ts)
     }
 
@@ -331,5 +337,106 @@ struct MenuStructureTests {
         #expect(hosting.frame.width == UsageMenuCardLayout.defaultWidth)
         #expect(hosting.frame.height > 0)
         await self.drainMainQueue()
+    }
+
+    // MARK: - Card status-line actions
+
+    @Test
+    func `claude sign-in action routes to the injected launcher`() async {
+        let ts = makeTestStore(suiteName: "sturtbar-menu-signin-action") { _, _ in makeUsageSnapshot() }
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sturtbar-menu-signin-action-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let controller = StatusItemController(
+            store: ts.store,
+            settings: ts.settings,
+            signInLauncher: TerminalLoginLauncher(
+                scriptDirectory: scratch,
+                open: { _ in true }))
+        controller.startWithMenuForTesting()
+
+        controller.handleCardStatusAction(.claudeSignIn)
+
+        // The launcher ran: the helper script exists (the injected open swallowed the launch).
+        let script = scratch.appendingPathComponent("SturtBar Claude sign-in.command")
+        #expect(FileManager.default.fileExists(atPath: script.path))
+        await self.drainMainQueue()
+    }
+
+    @Test
+    func `claude keychain retry with prompts enabled fires a user-initiated refresh`() async throws {
+        var presenterCalls = 0
+        let (controller, ts) = self.makeController(
+            suiteName: "sturtbar-menu-keychain-action",
+            keychainOptInPresenter: {
+                presenterCalls += 1
+                return .notNow
+            })
+        ts.settings.claudeKeychainPromptsEnabled = true
+        controller.startWithMenuForTesting()
+        let before = await ts.recorder.fetchCount
+
+        controller.handleCardStatusAction(.claudeKeychainRetry)
+        for _ in 0..<200 {
+            if await ts.recorder.fetchCount > before { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        let fetches = await ts.recorder.fetches
+        #expect(fetches.count > before)
+        #expect(fetches.last?.interaction == .userInitiated)
+        #expect(presenterCalls == 0) // prompts already allowed: no opt-in consent needed
+        await self.drainMainQueue()
+    }
+
+    @Test
+    func `claude keychain retry with prompts off runs the one-click opt-in on proceed`() async throws {
+        let suite = "sturtbar-menu-keychain-optin"
+        let (controller, ts) = self.makeController(
+            suiteName: suite,
+            keychainOptInPresenter: { .proceed })
+        // Wire the settings callback the way SturtBarApp does: enabling prompts refreshes.
+        ts.settings.onClaudeKeychainPromptsChange = { [weak store = ts.store] enabled in
+            guard enabled, let store else { return }
+            Task { await store.refresh(trigger: .manual) }
+        }
+        controller.startWithMenuForTesting()
+        #expect(!ts.settings.claudeKeychainPromptsEnabled) // opt-out default
+        let before = await ts.recorder.fetchCount
+
+        controller.handleCardStatusAction(.claudeKeychainRetry)
+        for _ in 0..<200 {
+            if await ts.recorder.fetchCount > before { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        #expect(ts.settings.claudeKeychainPromptsEnabled)
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        #expect(ClaudeOAuthKeychainPromptPreference.storedMode(userDefaults: defaults) == .onlyOnUserAction)
+        let fetches = await ts.recorder.fetches
+        #expect(fetches.count == before + 1) // exactly one refresh, fired by the callback
+        #expect(fetches.last?.interaction == .userInitiated)
+        // Drain the consent the opt-in registered so other tests see a clean coordinator.
+        _ = KeychainPromptCoordinator.consumeRecentConsent()
+        await self.drainMainQueue()
+    }
+
+    @Test
+    func `claude keychain retry with prompts off does nothing on not now`() async {
+        let (controller, ts) = self.makeController(
+            suiteName: "sturtbar-menu-keychain-decline",
+            keychainOptInPresenter: { .notNow })
+        var callbackFired = false
+        ts.settings.onClaudeKeychainPromptsChange = { _ in callbackFired = true }
+        controller.startWithMenuForTesting()
+        let before = await ts.recorder.fetchCount
+
+        controller.handleCardStatusAction(.claudeKeychainRetry)
+        await self.drainMainQueue()
+
+        #expect(!ts.settings.claudeKeychainPromptsEnabled)
+        #expect(!callbackFired)
+        let after = await ts.recorder.fetchCount
+        #expect(after == before)
     }
 }

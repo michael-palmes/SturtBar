@@ -29,8 +29,16 @@ final class ProviderCardSlot {
     private(set) var remeasureCount = 0
     #endif
 
-    init(model: UsageMenuCardView.Model) {
-        self.hosting = MenuCardItemHostingView(rootView: UsageMenuCardView(model: model))
+    /// Status-line action handler; stable across model swaps so the Equatable re-make gate still compares models only.
+    private let onStatusAction: ((UsageMenuCardView.Model.StatusLine.Action) -> Void)?
+
+    init(
+        model: UsageMenuCardView.Model,
+        onStatusAction: ((UsageMenuCardView.Model.StatusLine.Action) -> Void)? = nil)
+    {
+        self.onStatusAction = onStatusAction
+        self.hosting = MenuCardItemHostingView(
+            rootView: UsageMenuCardView(model: model, onStatusAction: onStatusAction))
         // .preferredContentSize keeps intrinsicContentSize synced; the explicit frame below pins
         // the initial measurement at the fixed width.
         self.hosting.sizingOptions = .preferredContentSize
@@ -50,7 +58,7 @@ final class ProviderCardSlot {
         let shape = MenuCardShape(model: model)
         let shapeChanged = shape != self.lastShape
         self.lastShape = shape
-        self.hosting.rootView = UsageMenuCardView(model: model)
+        self.hosting.rootView = UsageMenuCardView(model: model, onStatusAction: self.onStatusAction)
         #if DEBUG
         self.onApply?(model)
         #endif
@@ -74,7 +82,9 @@ final class ProviderCardSlot {
     func remeasure() {
         guard let model = self.lastModel else { return }
         let width = UsageMenuCardLayout.defaultWidth
-        let height = StatusItemController.idealHeight(for: UsageMenuCardView(model: model), width: width)
+        let height = StatusItemController.idealHeight(
+            for: UsageMenuCardView(model: model, onStatusAction: self.onStatusAction),
+            width: width)
         self.hosting.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
         #if DEBUG
         self.remeasureCount += 1

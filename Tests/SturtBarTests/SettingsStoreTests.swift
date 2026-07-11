@@ -2,6 +2,7 @@
 // (salvaged legacy loader semantics), and change callbacks.
 
 import Foundation
+import SturtBarCore
 import Testing
 @testable import SturtBar
 
@@ -53,6 +54,8 @@ struct SettingsStoreTests {
         #expect(!settings.resetTimesShowAbsolute) // countdown by default
         #expect(!settings.usageBarsShowUsed) // remaining by default
         #expect(!settings.weeklyWorkWeekPacingEnabled) // 7-day pacing by default
+        #expect(settings.showModelWeeklyLimits) // model weekly rows on by default
+        #expect(!settings.claudeKeychainPromptsEnabled) // keychain prompts are opt-in
     }
 
     @Test
@@ -62,11 +65,13 @@ struct SettingsStoreTests {
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
         settings.weeklyWorkWeekPacingEnabled = true
+        settings.showModelWeeklyLimits = false
 
         let reloaded = try SettingsStore(userDefaults: #require(UserDefaults(suiteName: suite)))
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
         #expect(reloaded.weeklyWorkWeekPacingEnabled)
+        #expect(!reloaded.showModelWeeklyLimits)
         UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
 
@@ -160,6 +165,7 @@ struct SettingsStoreTests {
         settings.resetTimesShowAbsolute = true
         settings.usageBarsShowUsed = true
         settings.weeklyWorkWeekPacingEnabled = true
+        settings.showModelWeeklyLimits = false
         settings.costUsageEnabled = false
         settings.costUsageHistoryDays = 14
         settings.sessionQuotaNotificationsEnabled = false
@@ -175,6 +181,7 @@ struct SettingsStoreTests {
         #expect(reloaded.resetTimesShowAbsolute)
         #expect(reloaded.usageBarsShowUsed)
         #expect(reloaded.weeklyWorkWeekPacingEnabled)
+        #expect(!reloaded.showModelWeeklyLimits)
         #expect(!reloaded.costUsageEnabled)
         #expect(reloaded.costUsageHistoryDays == 14)
         #expect(!reloaded.sessionQuotaNotificationsEnabled)
@@ -209,5 +216,48 @@ struct SettingsStoreTests {
         settings.costUsageHistoryDays = 7
         settings.costUsageHistoryDays = 7 // no-op
         #expect(fired == 2)
+    }
+
+    @Test
+    func `keychain prompts toggle round-trips through the core preference`() throws {
+        let suite = "sturtbar-settings-keychain-prompts"
+        let settings = self.makeSettings(suite)
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        settings.claudeKeychainPromptsEnabled = true
+        #expect(ClaudeOAuthKeychainPromptPreference.storedMode(userDefaults: defaults) == .onlyOnUserAction)
+
+        settings.claudeKeychainPromptsEnabled = false
+        #expect(ClaudeOAuthKeychainPromptPreference.storedMode(userDefaults: defaults) == .never)
+
+        // Cold reload sees the persisted opt-out.
+        settings.claudeKeychainPromptsEnabled = true
+        let reloaded = SettingsStore(userDefaults: defaults)
+        #expect(reloaded.claudeKeychainPromptsEnabled)
+    }
+
+    @Test
+    func `manually stored always reads as prompts enabled`() throws {
+        let suite = "sturtbar-settings-keychain-always"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        ClaudeOAuthKeychainPromptPreference.setStoredMode(.always, userDefaults: defaults)
+        let settings = SettingsStore(userDefaults: defaults)
+        #expect(settings.claudeKeychainPromptsEnabled)
+    }
+
+    @Test
+    func `keychain prompts change fires the callback on change only`() {
+        let settings = self.makeSettings("sturtbar-settings-keychain-callback")
+        var received: [Bool] = []
+        settings.onClaudeKeychainPromptsChange = { received.append($0) }
+
+        settings.claudeKeychainPromptsEnabled = true
+        settings.claudeKeychainPromptsEnabled = true // no-op: unchanged
+        settings.claudeKeychainPromptsEnabled = false
+        #expect(received == [true, false])
     }
 }

@@ -34,6 +34,25 @@ struct IconRendererTests {
     }
 
     @Test
+    func `auth badge is a distinct cache state with visibly different pixels`() {
+        IconRenderer.resetCacheForTesting()
+        let dimmed = IconRenderer.icon(for: self.key(52, dimmed: true))
+        let badged = IconRenderer.icon(
+            for: IconRenderer.Key(primaryBucket: 52, secondaryBucket: nil, dimmed: true, authBadge: true))
+        #expect(dimmed !== badged)
+        #expect(IconRenderer.cacheCountForTesting == 2)
+
+        /// Samples a solid-disc pixel clear of the glyph to prove the badge landed in the bitmap.
+        func alphaOnBadgeDisc(_ image: NSImage) -> CGFloat {
+            guard let rep = image.representations.first as? NSBitmapImageRep else { return -1 }
+            // (22, 8) top-down maps inside the disc but clear of the glyph (bottom-up centre 27,27, radius 8).
+            return rep.colorAt(x: 22, y: 8)?.alphaComponent ?? -1
+        }
+        #expect(alphaOnBadgeDisc(badged) == 1.0)
+        #expect(alphaOnBadgeDisc(dimmed) < 1.0)
+    }
+
+    @Test
     func `cache caps at 16 and evicts the least recently used`() {
         IconRenderer.resetCacheForTesting()
         let firstKey = self.key(0)

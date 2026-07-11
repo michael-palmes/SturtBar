@@ -163,17 +163,21 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
             createdAt: 300,
             persistentRefHash: "new-item")
         try self.withIsolatedClaudeKeychain(fingerprint: fingerprint) {
-            let original = ClaudeOAuthCredentialsError.refreshFailed(
-                kind: .terminal,
-                message: "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
-            let redirected = ClaudeOAuthCredentialsStore.redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
-                original,
-                recordSource: .credentialsFile)
-            guard case let .claudeKeychainAccessRequired(underlying) = redirected else {
-                Issue.record("Expected .claudeKeychainAccessRequired, got \(redirected)")
-                return
+            try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(.onlyOnUserAction) {
+                let original = ClaudeOAuthCredentialsError.refreshFailed(
+                    kind: .terminal,
+                    message: "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
+                let redirected = ClaudeOAuthCredentialsStore
+                    .redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
+                        original,
+                        recordSource: .credentialsFile)
+                guard case let .claudeKeychainAccessRequired(underlying, reason) = redirected else {
+                    Issue.record("Expected .claudeKeychainAccessRequired, got \(redirected)")
+                    return
+                }
+                #expect(underlying == "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
+                #expect(reason == .accessLost)
             }
-            #expect(underlying == "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
         }
     }
 
@@ -218,6 +222,114 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
             guard case .refreshFailed(kind: .transient, message: _) = unchanged else {
                 Issue.record("Expected unchanged transient .refreshFailed, got \(unchanged)")
                 return
+            }
+        }
+    }
+
+    // MARK: - Nothing readable anywhere (the notFound redirect)
+
+    /// Like `withStaleFileHarness` but with no credentials file, exercising the final-throw redirect in `loadRecord`.
+    private func withMissingFileHarness<T>(
+        keychainFingerprint: ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint?,
+        promptMode: ClaudeOAuthKeychainPromptMode,
+        operation: () throws -> T) throws -> T
+    {
+        let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
+        return try InteractionContext.$current.withValue(.background) {
+            try KeychainCacheStore.withServiceOverrideForTesting(service) {
+                try ClaudeOAuthCredentialsStore.withKeychainAccessOverrideForTesting(true) {
+                    KeychainCacheStore.setTestStoreForTesting(true)
+                    defer { KeychainCacheStore.setTestStoreForTesting(false) }
+
+                    ClaudeOAuthCredentialsStore._resetCredentialsFileTrackingForTesting()
+                    defer { ClaudeOAuthCredentialsStore._resetCredentialsFileTrackingForTesting() }
+                    return try ClaudeOAuthCredentialsStore.withIsolatedCredentialsFileTrackingForTesting {
+                        try ClaudeOAuthCredentialsStore.withIsolatedMemoryCacheForTesting {
+                            let tempDir = FileManager.default.temporaryDirectory
+                                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                            let fileURL = tempDir.appendingPathComponent("credentials.json")
+                            return try ClaudeOAuthCredentialsStore.withCredentialsURLOverrideForTesting(fileURL) {
+                                try ClaudeOAuthKeychainReadStrategyPreference.withTaskOverrideForTesting(
+                                    .securityFramework)
+                                {
+                                    try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(promptMode) {
+                                        try ClaudeOAuthCredentialsStore.withClaudeKeychainOverridesForTesting(
+                                            data: nil,
+                                            fingerprint: keychainFingerprint)
+                                        {
+                                            try operation()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    func `nothing readable under never redirects to keychain access when item exists`() throws {
+        let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
+            modifiedAt: 400,
+            createdAt: 400,
+            persistentRefHash: "unreadable-item")
+        try self.withMissingFileHarness(keychainFingerprint: fingerprint, promptMode: .never) {
+            do {
+                _ = try ClaudeOAuthCredentialsStore.loadRecord(
+                    environment: [:],
+                    allowKeychainPrompt: false,
+                    respectKeychainPromptCooldown: true)
+                Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
+            } catch let error as ClaudeOAuthCredentialsError {
+                guard case let .claudeKeychainAccessRequired(_, reason) = error else {
+                    Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
+                    return
+                }
+                #expect(reason == .promptsDisabled)
+            }
+        }
+    }
+
+    @Test
+    func `nothing readable without a keychain item still throws notFound`() throws {
+        try self.withMissingFileHarness(keychainFingerprint: nil, promptMode: .never) {
+            do {
+                _ = try ClaudeOAuthCredentialsStore.loadRecord(
+                    environment: [:],
+                    allowKeychainPrompt: false,
+                    respectKeychainPromptCooldown: true)
+                Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+            } catch let error as ClaudeOAuthCredentialsError {
+                guard case .notFound = error else {
+                    Issue.record("Expected .notFound, got \(error)")
+                    return
+                }
+            }
+        }
+    }
+
+    @Test
+    func `nothing readable in background with prompts allowed redirects with accessLost`() throws {
+        let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
+            modifiedAt: 500,
+            createdAt: 500,
+            persistentRefHash: "acl-item")
+        try self.withMissingFileHarness(keychainFingerprint: fingerprint, promptMode: .onlyOnUserAction) {
+            do {
+                _ = try ClaudeOAuthCredentialsStore.loadRecord(
+                    environment: [:],
+                    allowKeychainPrompt: false,
+                    respectKeychainPromptCooldown: true)
+                Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
+            } catch let error as ClaudeOAuthCredentialsError {
+                guard case let .claudeKeychainAccessRequired(_, reason) = error else {
+                    Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
+                    return
+                }
+                #expect(reason == .accessLost)
             }
         }
     }
