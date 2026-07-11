@@ -57,6 +57,20 @@ struct ClaudeOAuthCredentialModelTests {
     }
 
     @Test
+    func `mcp oauth only keychain payload maps to missing credentials`() {
+        // Claude Code 2.1.x can leave only MCP server OAuth state after the login lapses.
+        let json = """
+        { "mcpOAuth": { "plugin:synthetic": { "accessToken": "synthetic-mcp-token" } } }
+        """
+        #expect {
+            _ = try ClaudeOAuthCredentials.parse(data: Data(json.utf8))
+        } throws: { error in
+            guard case ClaudeOAuthCredentialsError.missingOAuth = error else { return false }
+            return ClaudeUsageError.credentials(.missingOAuth).indicatesCredentialsMissing
+        }
+    }
+
+    @Test
     func `treats missing expiry as expired`() {
         let creds = ClaudeOAuthCredentials(
             accessToken: "token",

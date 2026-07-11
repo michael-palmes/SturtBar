@@ -133,6 +133,17 @@ struct UsageFormatterTests {
     }
 
     @Test
+    func `reset line renders resets now for a stale past reset date`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let window = RateWindow(
+            usedPercent: 73,
+            windowMinutes: 5 * 60,
+            resetsAt: now.addingTimeInterval(-300),
+            resetDescription: "Resets Jul 9, 3:00pm (UTC)")
+        #expect(UsageFormatter.resetLine(for: window, style: .countdown, now: now) == "Resets now")
+    }
+
+    @Test
     func `reset line absolute style renders a clock time, not a countdown`() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let reset = now.addingTimeInterval(90 * 60) // same calendar moment + 1.5h
