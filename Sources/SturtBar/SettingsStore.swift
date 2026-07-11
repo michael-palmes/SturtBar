@@ -82,6 +82,7 @@ final class SettingsStore {
         static let quotaWarningSoundEnabled = "sturtbar.quotaWarningSoundEnabled"
         static let costUsageEnabled = "sturtbar.costUsageEnabled"
         static let costUsageHistoryDays = "sturtbar.costUsageHistoryDays"
+        static let claudeDesktopSessionsEnabled = "sturtbar.claudeDesktopSessionsEnabled"
         static let menuBarDisplayMode = "sturtbar.menuBarDisplayMode"
         static let resetTimesShowAbsolute = "sturtbar.resetTimesShowAbsolute"
         static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
@@ -261,6 +262,15 @@ final class SettingsStore {
         }
     }
 
+    /// Opt-in: also scan Claude Desktop's local agent transcripts for cost usage. Off by default.
+    var claudeDesktopSessionsEnabled: Bool {
+        didSet {
+            guard oldValue != self.claudeDesktopSessionsEnabled else { return }
+            self.defaults.set(self.claudeDesktopSessionsEnabled, forKey: Keys.claudeDesktopSessionsEnabled)
+            self.onCostSettingsChange?()
+        }
+    }
+
     // MARK: Display
 
     /// Text shown next to the menu bar icon (Phase 3b: drives StatusItemController's IconState).
@@ -333,6 +343,8 @@ final class SettingsStore {
         self.costUsageEnabled = userDefaults.object(forKey: Keys.costUsageEnabled) as? Bool ?? true
         self.costUsageHistoryDays = Self.clampedHistoryDays(
             userDefaults.object(forKey: Keys.costUsageHistoryDays) as? Int ?? 30)
+        self.claudeDesktopSessionsEnabled =
+            userDefaults.object(forKey: Keys.claudeDesktopSessionsEnabled) as? Bool ?? false
 
         self.menuBarDisplayMode = userDefaults.string(forKey: Keys.menuBarDisplayMode)
             .flatMap(MenuBarDisplayMode.init(rawValue:)) ?? .default

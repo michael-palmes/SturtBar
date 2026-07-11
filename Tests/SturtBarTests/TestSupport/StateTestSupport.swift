@@ -182,7 +182,7 @@ func makeTestSettings(suiteName: String) -> SettingsStore {
 
 /// No-op scanner: returns `.scanned(nil)` instantly and records nothing.
 func makeIdleScanner() -> CostScanner {
-    CostScanner(scanOperation: { _, _, _ in nil })
+    CostScanner(scanOperation: { _, _, _, _ in nil })
 }
 
 @MainActor

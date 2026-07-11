@@ -669,6 +669,7 @@ final class UsageStore {
         guard self.costScanTask == nil else { return } // in-flight; the scanner would join anyway
         self.costScanState = .scanning
         let historyDays = self.settings.costUsageHistoryDays
+        let includeClaudeDesktopSessions = self.settings.claudeDesktopSessionsEnabled
         let scanner = self.scanner
         let now = self.now
         // Utility priority: a cold daily rescan can take 10s+; it must never compete with UI work.
@@ -676,7 +677,11 @@ final class UsageStore {
         // the scanner actor at this task's priority.
         self.costScanTask = Task(priority: .utility) {
             defer { self.costScanTask = nil }
-            let result = await scanner.scan(bypassGate: bypassGate, historyDays: historyDays, now: now())
+            let result = await scanner.scan(
+                bypassGate: bypassGate,
+                historyDays: historyDays,
+                includeClaudeDesktopSessions: includeClaudeDesktopSessions,
+                now: now())
             switch result {
             case let .scanned(snapshot):
                 // Cost-disable race: a 10s+ scan that finishes after the user disables cost usage

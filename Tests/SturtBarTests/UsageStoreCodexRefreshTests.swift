@@ -44,7 +44,7 @@ struct UsageStoreCodexRefreshTests {
     @Test
     func `disabled claude provider never fetches and skips cost scans`() async {
         let scanRecorder = CallRecorder()
-        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, bypassGate, historyDays in
+        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, bypassGate, historyDays, _ in
             await scanRecorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             return makeCostSnapshot()
         })

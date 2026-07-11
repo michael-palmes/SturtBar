@@ -129,7 +129,7 @@ struct CostScannerTests {
     @Test
     func `min-gap suppresses scans and bypass ignores it`() async {
         let recorder = CallRecorder()
-        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays in
+        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays, _ in
             await recorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             return makeCostSnapshot()
         })
@@ -157,7 +157,7 @@ struct CostScannerTests {
         let scanner = CostScanner(
             minimumGap: 60,
             refreshPricing: { _ in pricingCalls.withLock { $0 += 1 } },
-            scanOperation: { _, _, _ in nil })
+            scanOperation: { _, _, _, _ in nil })
         let t0 = Date(timeIntervalSince1970: 1_000_000_000)
 
         _ = await scanner.scan(bypassGate: false, historyDays: 30, now: t0)
@@ -172,7 +172,7 @@ struct CostScannerTests {
         let recorder = CallRecorder()
         let started = TestLatch()
         let release = TestLatch()
-        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays in
+        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays, _ in
             await recorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             await started.open()
             await release.wait()
@@ -196,7 +196,7 @@ struct CostScannerTests {
     @Test
     func `cancelInFlight surfaces as cancelled`() async {
         let started = TestLatch()
-        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, _, _ throws(CancellationError) in
+        let scanner = CostScanner(minimumGap: 60, scanOperation: { _, _, _, _ throws(CancellationError) in
             await started.open()
             // Wait until cancelled.
             while !Task.isCancelled {

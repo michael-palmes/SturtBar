@@ -54,6 +54,14 @@ extension CostUsageScanner {
             roots.append(home.appendingPathComponent(".claude/projects", isDirectory: true))
         }
 
+        // Opt-in Claude Desktop stores; row-level reconciliation dedupes any overlap.
+        if options.includeClaudeDesktopRoots {
+            let known = Set(roots.map(\.standardizedFileURL.path))
+            for root in ClaudeDesktopProjectsLocator.roots() where !known.contains(root.path) {
+                roots.append(root)
+            }
+        }
+
         return roots
     }
 

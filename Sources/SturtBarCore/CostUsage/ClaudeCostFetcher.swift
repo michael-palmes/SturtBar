@@ -63,12 +63,14 @@ public struct ClaudeCostFetcher: Sendable {
     public func loadTokenSnapshot(
         now: Date = Date(),
         bypassScanGate: Bool = false,
-        historyDays: Int = 30) async throws(CancellationError) -> CostUsageTokenSnapshot?
+        historyDays: Int = 30,
+        includeClaudeDesktopSessions: Bool = false) async throws(CancellationError) -> CostUsageTokenSnapshot?
     {
         try await Self.loadTokenSnapshot(
             now: now,
             bypassScanGate: bypassScanGate,
             historyDays: historyDays,
+            includeClaudeDesktopSessions: includeClaudeDesktopSessions,
             scannerOptions: self.scannerOptions)
     }
 
@@ -76,6 +78,7 @@ public struct ClaudeCostFetcher: Sendable {
         now: Date = Date(),
         bypassScanGate: Bool = false,
         historyDays: Int = 30,
+        includeClaudeDesktopSessions: Bool = false,
         scannerOptions overrideScannerOptions: CostUsageScanner
             .Options? = nil) async throws(CancellationError) -> CostUsageTokenSnapshot?
     {
@@ -85,6 +88,8 @@ public struct ClaudeCostFetcher: Sendable {
         let since = Calendar.current.date(byAdding: .day, value: -(clampedHistoryDays - 1), to: now) ?? now
 
         var options = overrideScannerOptions ?? CostUsageScanner.Options()
+        // Either surface can opt in: the per-call flag (settings) or injected options (tests).
+        options.includeClaudeDesktopRoots = options.includeClaudeDesktopRoots || includeClaudeDesktopSessions
 
         // bypassScanGate → refreshMinIntervalSeconds = 0 (triggers a rescan on TTL;
         // does NOT force a nuclear cache reset — that is forceRescan).

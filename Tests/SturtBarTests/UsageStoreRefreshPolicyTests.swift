@@ -477,7 +477,7 @@ struct UsageStoreCostScanTests {
     }
 
     private func makeRecordingScanner(_ recorder: CallRecorder) -> CostScanner {
-        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays in
+        CostScanner(minimumGap: 60, scanOperation: { _, bypassGate, historyDays, _ in
             await recorder.recordScan(bypassGate: bypassGate, historyDays: historyDays)
             return makeCostSnapshot()
         })
@@ -579,7 +579,7 @@ struct UsageStoreCostScanTests {
         // detect the disabled state and discard the result.
         let scanStarted = TestLatch()
         let releaseScan = TestLatch()
-        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, _, _ in
+        let scanner = CostScanner(minimumGap: 0, scanOperation: { _, _, _, _ in
             await scanStarted.open()
             await releaseScan.wait()
             return makeCostSnapshot()

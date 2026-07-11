@@ -35,7 +35,8 @@ actor CostScanner {
     typealias ScanOperation = @Sendable (
         _ now: Date,
         _ bypassScanGate: Bool,
-        _ historyDays: Int) async throws(CancellationError) -> CostUsageTokenSnapshot?
+        _ historyDays: Int,
+        _ includeClaudeDesktopSessions: Bool) async throws(CancellationError) -> CostUsageTokenSnapshot?
 
     private let scanOperation: ScanOperation
     private let refreshPricing: @Sendable (_ now: Date) async -> Void
@@ -49,11 +50,13 @@ actor CostScanner {
 
     /// Production entry: wraps a `ClaudeCostFetcher`.
     init(fetcher: ClaudeCostFetcher = ClaudeCostFetcher(), minimumGap: TimeInterval = defaultMinimumGapSeconds) {
-        self.scanOperation = { now, bypassScanGate, historyDays throws(CancellationError) in
+        self.scanOperation = { now, bypassScanGate, historyDays, includeClaudeDesktopSessions
+            throws(CancellationError) in
             try await fetcher.loadTokenSnapshot(
                 now: now,
                 bypassScanGate: bypassScanGate,
-                historyDays: historyDays)
+                historyDays: historyDays,
+                includeClaudeDesktopSessions: includeClaudeDesktopSessions)
         }
         self.refreshPricing = { now in
             await fetcher.refreshPricingCatalogIfNeeded(now: now)
@@ -61,10 +64,9 @@ actor CostScanner {
         self.minimumGap = minimumGap
     }
 
-    /// Production entry for the Codex lane: wraps a `CodexCostFetcher`. The actor is otherwise
-    /// provider-agnostic — both fetchers expose the same scan + pricing-refresh surface.
+    /// Production entry for the Codex lane: wraps a `CodexCostFetcher`; ignores the Claude Desktop flag.
     init(codexFetcher: CodexCostFetcher, minimumGap: TimeInterval = defaultMinimumGapSeconds) {
-        self.scanOperation = { now, bypassScanGate, historyDays throws(CancellationError) in
+        self.scanOperation = { now, bypassScanGate, historyDays, _ throws(CancellationError) in
             try await codexFetcher.loadTokenSnapshot(
                 now: now,
                 bypassScanGate: bypassScanGate,
@@ -91,8 +93,14 @@ actor CostScanner {
     /// - Parameters:
     ///   - bypassGate: bypasses the 60s min-gap AND the scanner TTL (manual "refresh now").
     ///   - historyDays: rolling window size (settings.costUsageHistoryDays).
+    ///   - includeClaudeDesktopSessions: opt-in Claude Desktop transcript stores; Codex scans ignore it.
     ///   - now: injected clock for tests.
-    func scan(bypassGate: Bool, historyDays: Int, now: Date = Date()) async -> CostScanResult {
+    func scan(
+        bypassGate: Bool,
+        historyDays: Int,
+        includeClaudeDesktopSessions: Bool = false,
+        now: Date = Date()) async -> CostScanResult
+    {
         if let inFlight = self.inFlight {
             return await inFlight.value
         }
@@ -117,7 +125,7 @@ actor CostScanner {
 
             await refreshPricing(now)
             do throws(CancellationError) {
-                let snapshot = try await operation(now, bypassGate, historyDays)
+                let snapshot = try await operation(now, bypassGate, historyDays, includeClaudeDesktopSessions)
                 return CostScanResult.scanned(snapshot)
             } catch {
                 Self.log.debug("Cost scan cancelled")
