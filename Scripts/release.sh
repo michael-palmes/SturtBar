@@ -23,6 +23,7 @@ APP_BUNDLE="$ROOT/dist/SturtBar.app"
 TAG="v${MARKETING_VERSION}"
 APP_DMG="$ROOT/dist/SturtBar-${MARKETING_VERSION}.dmg"
 APP_ZIP="$ROOT/dist/SturtBar-${MARKETING_VERSION}.zip"
+APP_ZIP_SHA="$ROOT/dist/SturtBar-${MARKETING_VERSION}.zip.sha256"
 DSYM_ZIP="$ROOT/dist/SturtBar-${MARKETING_VERSION}.dSYM.zip"
 # Derive the dSYM path from the same arm64 release build sign-and-notarize.sh produces
 # (single-arch builds live under .build/<triple>/release, not .build/apple/Products).
@@ -50,8 +51,12 @@ swift test -q
 
 # --- Artifacts ----------------------------------------------------------------
 echo "==> Zipping artifacts"
-rm -f "$APP_ZIP" "$DSYM_ZIP"
+rm -f "$APP_ZIP" "$APP_ZIP_SHA" "$DSYM_ZIP"
 /usr/bin/ditto --norsrc -c -k --keepParent "$APP_BUNDLE" "$APP_ZIP"
+
+# In-app updater verifies this before installing; the asset must be named "<zip name>.sha256"
+# and the recorded filename must be bare (hence the cd), matching UpdateChecksum's parser.
+(cd "$ROOT/dist" && /usr/bin/shasum -a 256 "$(basename "$APP_ZIP")" > "$(basename "$APP_ZIP_SHA")")
 
 if [[ -d "$DSYM_PATH" ]]; then
   /usr/bin/ditto --norsrc -c -k --keepParent "$DSYM_PATH" "$DSYM_ZIP"
@@ -80,7 +85,7 @@ git tag -a "$TAG" -m "SturtBar ${MARKETING_VERSION}"
 git push origin "$TAG"
 
 echo "==> Creating draft GitHub release $TAG"
-ASSETS=("$APP_DMG" "$APP_ZIP") # DMG first: the human installer
+ASSETS=("$APP_DMG" "$APP_ZIP" "$APP_ZIP_SHA") # DMG first: the human installer
 [[ -f "$DSYM_ZIP" ]] && ASSETS+=("$DSYM_ZIP")
 gh release create "$TAG" "${ASSETS[@]}" \
   --draft \
