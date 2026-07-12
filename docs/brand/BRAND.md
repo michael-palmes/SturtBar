@@ -270,6 +270,9 @@ The complete list of network destinations. Anything not on this list does not ha
 | `platform.claude.com/v1/oauth/token` | Refreshes the OAuth token, only when a stored token has expired |
 | `chatgpt.com/backend-api/wham/usage` | Reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled |
 | `models.dev/api.json` | Fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled |
+| `api.github.com/repos/michael-palmes/SturtBar/releases/latest` | Reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually |
+| `github.com/michael-palmes/SturtBar/releases/download/...` | Downloads the update archive and its checksum, only when you choose to install an update |
+| `release-assets.githubusercontent.com` | GitHub's asset host the release download redirects to, only when you choose to install an update |
 
 Links that open in your browser (the provider consoles and status pages) are not app traffic and stay off this list.
 

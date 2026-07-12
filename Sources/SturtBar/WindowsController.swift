@@ -15,11 +15,13 @@ import SwiftUI
 @MainActor
 final class WindowsController {
     private let settings: SettingsStore
+    private let updateStore: UpdateStore?
     private(set) var settingsWindow: NSWindow?
     private(set) var aboutWindow: NSWindow?
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, updateStore: UpdateStore? = nil) {
         self.settings = settings
+        self.updateStore = updateStore
     }
 
     func showSettings() {
@@ -29,7 +31,7 @@ final class WindowsController {
         // The reused window never triggers .onAppear again after the first show, so stale
         // checkbox state would persist for the lifetime of the process without this.
         if let hosting = window.contentViewController as? NSHostingController<SettingsView> {
-            hosting.rootView = SettingsView(settings: self.settings)
+            hosting.rootView = SettingsView(settings: self.settings, updateStore: self.updateStore)
         }
         self.present(window)
     }
@@ -48,7 +50,8 @@ final class WindowsController {
     }
 
     private func makeSettingsWindow() -> NSWindow {
-        let hosting = NSHostingController(rootView: SettingsView(settings: self.settings))
+        let hosting = NSHostingController(
+            rootView: SettingsView(settings: self.settings, updateStore: self.updateStore))
         hosting.sizingOptions = .preferredContentSize
         return self.makeWindow(contentViewController: hosting, title: "SturtBar Settings")
     }

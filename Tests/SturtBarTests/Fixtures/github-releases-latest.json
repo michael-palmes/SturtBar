@@ -1,0 +1,33 @@
+{
+  "tag_name": "v9.9.9",
+  "name": "SturtBar 9.9.9",
+  "draft": false,
+  "prerelease": false,
+  "body": "## SturtBar 9.9.9 (build 42)\n\n- fixture release for updater tests",
+  "assets": [
+    {
+      "name": "SturtBar-9.9.9.dmg",
+      "size": 7381370,
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "browser_download_url": "https://github.com/michael-palmes/SturtBar/releases/download/v9.9.9/SturtBar-9.9.9.dmg"
+    },
+    {
+      "name": "SturtBar-9.9.9.zip",
+      "size": 5084230,
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "browser_download_url": "https://github.com/michael-palmes/SturtBar/releases/download/v9.9.9/SturtBar-9.9.9.zip"
+    },
+    {
+      "name": "SturtBar-9.9.9.zip.sha256",
+      "size": 84,
+      "digest": null,
+      "browser_download_url": "https://github.com/michael-palmes/SturtBar/releases/download/v9.9.9/SturtBar-9.9.9.zip.sha256"
+    },
+    {
+      "name": "SturtBar-9.9.9.dSYM.zip",
+      "size": 2388120,
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "browser_download_url": "https://github.com/michael-palmes/SturtBar/releases/download/v9.9.9/SturtBar-9.9.9.dSYM.zip"
+    }
+  ]
+}
