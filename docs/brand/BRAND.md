@@ -1,6 +1,6 @@
 # SturtBar Brand, Voice and Design Guidelines
 
-Version 1.854-draft. Australian English throughout. No em dashes, ever.
+Version 1.855-draft. Australian English throughout. No em dashes, ever.
 
 SturtBar is a macOS menu bar app that tracks AI plan usage: session windows, credit balances, and reset countdowns. It launches supporting one provider and is designed to expand to several. The brand never names, imitates, or implies affiliation with any provider. Providers are simply "stations" whose lights we keep.
 
@@ -97,7 +97,7 @@ Laconic, faintly bureaucratic South Australian public servant, circa a well-run 
 - Numbers and times are exact and prominent. The Keeper is precise; the wit lives around the data, never instead of it.
 - Never blame the user. Weather happens. "You've used your quota" not "You've burnt through your quota again".
 - Never reference the explorer, colonisation, or any named historical person.
-- Never name a provider's brand in flavour copy. Providers appear by name only in functional UI (account labels, settings, onboarding pickers).
+- Never name a provider's brand in flavour copy. Providers appear by name only in functional UI (account labels, settings, onboarding pickers, notification titles).
 - Theme density is inversely proportional to glance frequency. The menu bar shows almost no theme. The popover shows a little. Notifications show one line of it. The About box and onboarding can be soaked in it.
 - When the subject is the user's credentials, keychain, or data, the Keeper drops the metaphor and states the fact plainly. Themed security lines are for marketing surfaces only; the claim itself is always literal (see section 6 and the hard boundaries).
 
@@ -110,12 +110,12 @@ State lines (popover status):
 - Hard aground: "Hard aground. Tide turns {time}."
 - Light doused: "Light's doused. Nothing in or out until {time}."
 
-Notices to Mariners (notifications, always prefixed `Notice to Mariners:`):
+Notices to Mariners (notifications): the title names the provider and states the fact plainly; the body leads with the numbers, adds the reset time when known, and closes with at most one Keeper clause. "Notice to Mariners" is the category's name, never a prefix on the banner (the prefix cost the title its clarity and its first 18 characters).
 
-- 75% threshold: "Notice to Mariners: shoaling water ahead. 25% of the session remains."
-- Limit reached: "Notice to Mariners: vessel aground. Refloat expected {time}."
-- Reset: "Notice to Mariners: tide's turned. Full passage restored."
-- Weekly limit nearing: "Notice to Mariners: the week's drawing in. {n}% remains until {day}."
+- 75% threshold: "{Provider} session running low" / "25% of the session remains; resets {time}. Shoaling water ahead."
+- Limit reached: "{Provider} session limit reached" / "Hard aground. Resets {time}; you'll get word."
+- Reset: "{Provider} session reset" / "Tide's turned. Full passage restored."
+- Weekly limit nearing: "{Provider} weekly limit nearing" / "{n}% of the week remains; resets {time}. The week's drawing in."
 
 System moments:
 
@@ -140,10 +140,10 @@ Trust moments (the claims are literal; see section 6):
 | Don't write | Write |
 |---|---|
 | "Oops! You've hit your limit 😅" | "Hard aground. Tide turns 02:00." |
-| "Warning!! 95% used!!" | "Notice to Mariners: shoaling water ahead." |
+| "Warning!! 95% used!!" | "{Provider} session running low. 5% of the session remains." |
 | "Charles Sturt would be proud" | (nothing; we don't do the man) |
 | "Your Claude tokens are running low" | "Sea room's getting thin at Willoughby station." (flavour) or "{Provider}: 12% remaining." (functional) |
-| "Don't worry, resets soon!" | "Refloat expected 02:00." |
+| "Don't worry, resets soon!" | "Resets 02:00; you'll get word." |
 
 ---
 
