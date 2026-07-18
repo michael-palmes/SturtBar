@@ -160,6 +160,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     let settings: SettingsStore
     /// Settings/About window owner; menu actions route here. nil in icon-only tests.
     let windows: WindowsController?
+    /// Update lane; nil in tests that don't exercise the update item.
+    let updateStore: UpdateStore?
     /// Opens the default terminal running a provider sign-in command (card status-line action).
     let signInLauncher: TerminalLoginLauncher
     /// Presents the Keychain opt-in consent for the reconnect line; injectable since NSAlert cannot run headless.
@@ -192,6 +194,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var disclaimerItem: NSMenuItem?
     /// Separator between the Claude and Codex sections, shown only when BOTH providers are enabled.
     var providerDividerItem: NSMenuItem?
+    /// "Check for Updates…" / "Install Update X.Y.Z…" (present only when an UpdateStore exists).
+    var updateItem: NSMenuItem?
     /// Local (non-observable) mirror of "the root menu is open" for defer decisions. The store's
     /// `isMenuOpen` stays the published contract; reading it in the card pipeline would register
     /// it as an observation dependency and re-derive the model twice per menu interaction.
@@ -223,6 +227,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         store: UsageStore,
         settings: SettingsStore,
         windows: WindowsController? = nil,
+        updateStore: UpdateStore? = nil,
         signInLauncher: TerminalLoginLauncher = TerminalLoginLauncher(),
         keychainOptInPresenter: @escaping @MainActor () -> KeychainPromptDecision =
             { KeychainPromptCoordinator.presentClaudeKeychainOptIn() },
@@ -232,6 +237,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.store = store
         self.settings = settings
         self.windows = windows
+        self.updateStore = updateStore
         self.signInLauncher = signInLauncher
         self.keychainOptInPresenter = keychainOptInPresenter
         self.statusBar = statusBar
@@ -250,6 +256,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.buildStatusItem()
         self.armAndRender()
         self.armCardPresentation()
+        self.armUpdateItemPresentation()
         self.scheduleStatusItemRecoveryCheck()
     }
 
@@ -294,6 +301,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.menu = self.buildMenu()
         self.armAndRender()
         self.armCardPresentation()
+        self.armUpdateItemPresentation()
     }
     #endif
 

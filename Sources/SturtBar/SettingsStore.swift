@@ -88,6 +88,7 @@ final class SettingsStore {
         static let usageBarsShowUsed = "sturtbar.usageBarsShowUsed"
         static let weeklyWorkWeekPacingEnabled = "sturtbar.weeklyWorkWeekPacingEnabled"
         static let showModelWeeklyLimits = "sturtbar.showModelWeeklyLimits"
+        static let updateChecksEnabled = "sturtbar.updateChecksEnabled"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -100,6 +101,8 @@ final class SettingsStore {
     @ObservationIgnored var onProviderEnabledChange: ((UsageProviderKind, Bool) -> Void)?
     /// App wiring (AppDelegate): refresh immediately when Keychain prompts are turned ON.
     @ObservationIgnored var onClaudeKeychainPromptsChange: ((Bool) -> Void)?
+    /// App wiring (AppDelegate): start or tear down the update-check lane when the gate flips.
+    @ObservationIgnored var onUpdateChecksEnabledChange: ((Bool?) -> Void)?
 
     // MARK: Providers
 
@@ -301,6 +304,22 @@ final class SettingsStore {
         didSet { self.defaults.set(self.showModelWeeklyLimits, forKey: Keys.showModelWeeklyLimits) }
     }
 
+    // MARK: Updates
+
+    /// Hard privacy gate for the daily update check. Tri-state: nil = the first-run ask has not
+    /// been answered yet (no checks run while undecided), true/false = the user's decision.
+    var updateChecksEnabled: Bool? {
+        didSet {
+            guard oldValue != self.updateChecksEnabled else { return }
+            if let value = self.updateChecksEnabled {
+                self.defaults.set(value, forKey: Keys.updateChecksEnabled)
+            } else {
+                self.defaults.removeObject(forKey: Keys.updateChecksEnabled)
+            }
+            self.onUpdateChecksEnabledChange?(self.updateChecksEnabled)
+        }
+    }
+
     // MARK: Init
 
     init(userDefaults: UserDefaults = .standard) {
@@ -354,6 +373,8 @@ final class SettingsStore {
             userDefaults.object(forKey: Keys.weeklyWorkWeekPacingEnabled) as? Bool ?? false
         self.showModelWeeklyLimits =
             userDefaults.object(forKey: Keys.showModelWeeklyLimits) as? Bool ?? true
+        // Absent key = undecided: the one-time first-run ask resolves it to true or false.
+        self.updateChecksEnabled = userDefaults.object(forKey: Keys.updateChecksEnabled) as? Bool
     }
 
     private static func clampedHistoryDays(_ raw: Int) -> Int {

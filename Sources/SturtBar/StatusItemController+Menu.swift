@@ -109,6 +109,21 @@ extension StatusItemController {
         aboutItem.target = self
         menu.addItem(aboutItem)
 
+        // Always visible when the update lane exists; title/enablement track the store
+        // (armUpdateItemPresentation). Absent in tests constructed without an UpdateStore.
+        if self.updateStore != nil {
+            let update = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(self.updateMenuItemAction),
+                keyEquivalent: "")
+            update.target = self
+            update.image = NSImage(
+                systemSymbolName: "arrow.down.app",
+                accessibilityDescription: "Updates")
+            self.updateItem = update
+            menu.addItem(update)
+        }
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -134,6 +149,15 @@ extension StatusItemController {
             keyEquivalent: "")
         fetchUsage.target = self
         menu.addItem(fetchUsage)
+
+        if self.updateStore != nil {
+            let forceUpdateCheck = NSMenuItem(
+                title: "Check for Updates (debug log)",
+                action: #selector(self.forceUpdateCheckForDebug),
+                keyEquivalent: "")
+            forceUpdateCheck.target = self
+            menu.addItem(forceUpdateCheck)
+        }
         #endif
 
         self.applyMenuVisibility()
@@ -403,6 +427,120 @@ extension StatusItemController {
     @objc private func showAboutWindow() {
         self.windows?.showAbout()
     }
+
+    // MARK: - Updates
+
+    /// One-shot Observation arm mirroring the card pipeline: any update-lane change re-derives
+    /// the item's title/enablement (titles may change live; only structure cannot while open).
+    func armUpdateItemPresentation() {
+        guard self.isStarted, self.menu != nil, let updateStore = self.updateStore else { return }
+        let item = withObservationTracking {
+            UpdateMenuPresentation.item(
+                phase: updateStore.phase,
+                availableVersion: updateStore.availableRelease?.version)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.armUpdateItemPresentation()
+            }
+        }
+        self.updateItem?.title = item.title
+        self.updateItem?.isEnabled = item.enabled
+    }
+
+    /// Install when an offer stands, otherwise a manual check. Manual checks are explicit user
+    /// consent and run even while the daily gate is off; they surface their outcome in an alert.
+    @objc private func updateMenuItemAction() {
+        guard let updateStore = self.updateStore else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if updateStore.availableRelease != nil {
+                await self.runUpdateInstallFlow(updateStore: updateStore)
+            } else {
+                let outcome = await updateStore.performCheck(userInitiated: true)
+                self.presentManualCheckOutcome(outcome, updateStore: updateStore)
+            }
+        }
+    }
+
+    private func presentManualCheckOutcome(
+        _ outcome: UpdateStore.ManualCheckOutcome,
+        updateStore: UpdateStore)
+    {
+        switch outcome {
+        case .busy:
+            return
+        case .upToDate:
+            self.presentUpdateAlert(
+                title: "SturtBar is up to date",
+                message: "Version \(AboutView.versionString()) is the latest release.")
+        case let .available(release):
+            let alert = NSAlert()
+            alert.messageText = "Update available"
+            alert.informativeText = "SturtBar \(release.version) is ready to download and install."
+            alert.addButton(withTitle: "Install Update")
+            alert.addButton(withTitle: "Later")
+            NSApp.activate()
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            Task { @MainActor [weak self] in
+                await self?.runUpdateInstallFlow(updateStore: updateStore)
+            }
+        case let .failed(failure):
+            self.presentUpdateAlert(title: "Update check failed", message: failure.userMessage)
+        }
+    }
+
+    private func runUpdateInstallFlow(updateStore: UpdateStore) async {
+        let result = await updateStore.installAvailableUpdate()
+        switch result {
+        case .installedAndReadyToRelaunch:
+            // The installer's helper relaunches the new version once this process exits.
+            NSApp.terminate(nil)
+        case let .revealed(reason, appURL):
+            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+            self.presentUpdateAlert(title: "Update ready to install", message: Self.revealMessage(for: reason))
+        case let .failed(error):
+            self.presentUpdateAlert(title: "Update not installed", message: error.userMessage)
+        case .busy, .nothingToInstall:
+            break
+        }
+    }
+
+    static func revealMessage(for reason: UpdateRevealReason) -> String {
+        switch reason {
+        case .needsAdministrator:
+            "Installing needs administrator rights. The verified update is shown in Finder: "
+                + "replace SturtBar in Applications when you have access, or choose Install "
+                + "Update again to retry."
+        case .notInApplications:
+            "SturtBar is running from a location it cannot update in place, such as a disk "
+                + "image or Downloads. The verified update is shown in Finder: drag it into "
+                + "Applications, then open it from there."
+        case .unsignedBuild:
+            "This build of SturtBar cannot replace itself. The verified update is shown in "
+                + "Finder: install it manually."
+        }
+    }
+
+    private func presentUpdateAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        NSApp.activate()
+        alert.runModal()
+    }
+
+    #if DEBUG
+    /// Alert-free manual check with the outcome logged; pairs with the debug repo-slug override.
+    @objc private func forceUpdateCheckForDebug() {
+        guard let updateStore = self.updateStore else { return }
+        Self.log.info("Debug update check started")
+        Task { @MainActor in
+            let outcome = await updateStore.performCheck(userInitiated: true)
+            Self.log.info("Debug update check finished", metadata: ["outcome": "\(outcome)"])
+        }
+    }
+    #endif
 }
 
 // MARK: - Cost disclaimer view

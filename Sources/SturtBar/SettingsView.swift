@@ -15,6 +15,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
+    /// Update lane for the Updates section; nil in previews and tests.
+    var updateStore: UpdateStore?
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
     /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
     @State private var codexAuthFileDetected: Bool?
@@ -32,6 +34,8 @@ struct SettingsView: View {
             self.costSection
             Divider()
             self.notificationsSection
+            Divider()
+            self.updatesSection
         }
         .frame(width: 460, alignment: .leading)
         .padding(20)
@@ -212,6 +216,57 @@ struct SettingsView: View {
                 QuotaWarningSettingsView(settings: self.settings)
             }
         }
+    }
+
+    // MARK: - Updates
+
+    private var updatesSection: some View {
+        SettingsSection(title: "Updates") {
+            PreferenceToggleRow(
+                title: "Check for updates daily",
+                subtitle: "Asks GitHub once a day whether a newer release exists (api.github.com). "
+                    + "Sends no identifiers; nothing downloads or installs without your say-so.",
+                isOn: Binding(
+                    get: { self.settings.updateChecksEnabled ?? false },
+                    set: { self.settings.updateChecksEnabled = $0 }))
+
+            if let updateStore = self.updateStore {
+                UpdateCheckNowRow(updateStore: updateStore)
+            }
+        }
+    }
+}
+
+/// "Check now" plus a quiet status line; a manual check is explicit consent, so it works even
+/// while the daily toggle is off (and persists nothing in that case).
+private struct UpdateCheckNowRow: View {
+    var updateStore: UpdateStore
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button("Check now") {
+                Task { await self.updateStore.performCheck(userInitiated: true) }
+            }
+            .controlSize(.small)
+            .disabled(self.updateStore.phase != .idle)
+
+            Text(self.statusLine)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusLine: String {
+        if self.updateStore.phase != .idle {
+            return "Checking…"
+        }
+        if let release = self.updateStore.availableRelease {
+            return "Update \(release.version) available; install it from the menu bar menu."
+        }
+        if let checked = self.updateStore.lastCheckedAt {
+            return "Last checked \(checked.formatted(.relative(presentation: .named)))."
+        }
+        return "Not checked yet."
     }
 }
 

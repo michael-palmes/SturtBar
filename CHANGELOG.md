@@ -4,6 +4,7 @@ All notable changes to SturtBar are recorded here.
 
 ## Unreleased
 
+- Built-in updates, strictly opt-in: SturtBar can ask GitHub once a day whether a newer release exists (asked once on first launch; toggle under Settings > Updates, and turning it off wipes the lane's stored state). The menu's "Check for Updates" becomes "Install Update X.Y.Z" when one is waiting; installing downloads the archive, verifies its SHA-256 checksum and Developer ID signature against the running app's own identity, swaps the bundle and relaunches. Standard users get the normal macOS administrator dialog; where that is unavailable, the verified update is revealed in Finder for a manual install.
 - New opt-in "Include Claude Desktop sessions" cost setting, off by default: when on, the local cost estimate also scans Claude Desktop's agent transcripts under `~/Library/Application Support/Claude` (read-only, token counts only, de-duplicated against `~/.claude/projects`). While off, those folders are never touched.
 - The Claude plan label now distinguishes Max 5x and Max 20x subscriptions instead of a flat "Max".
 - Usage readings are now honest at the low end: every positive value below one percent shows as "<1%" (in the card, the menu bar text, and the usage line) instead of rounding to "0%" or "1%". True zero still shows "0%".

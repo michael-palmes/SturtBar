@@ -59,6 +59,10 @@ Every network call it makes:
 - `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
 - `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
+- `api.github.com/repos/michael-palmes/SturtBar/releases/latest`: reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually.
+- `github.com/michael-palmes/SturtBar/releases/download/...` and `release-assets.githubusercontent.com` (the asset host it redirects to): downloads the update archive and its checksum, only when you choose to install an update.
+
+Update checks are opt-in: SturtBar asks once on first launch, and the toggle lives under Settings > Updates (turning it off wipes the lane's stored state). The check sends no identifiers. Installing verifies the download's SHA-256 checksum and its Developer ID signature against the running app's own identity before anything is replaced.
 
 When the Claude session expires, the card offers a sign-in line. Clicking it writes a small helper script under `~/Library/Application Support/SturtBar` and opens it in your default terminal; the terminal runs `claude /login`. SturtBar itself never runs the claude CLI and never touches its credential stores.
 

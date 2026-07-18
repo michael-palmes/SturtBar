@@ -28,6 +28,7 @@ import SturtBarCore
     private var statusItemController: StatusItemController?
     private var quotaNotifier: QuotaNotifier?
     private var windows: WindowsController?
+    private var updateStore: UpdateStore?
     #if DEBUG
     private var menuDebugDriver: MenuDebugDriver?
     #endif
@@ -86,6 +87,23 @@ import SturtBarCore
             Task { await store.refresh(trigger: .manual) }
         }
 
+        // Update lane (strictly opt-in): inert until the gate is true; the toggle arms or wipes it.
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        #if DEBUG
+        // Debug builds may point the checker at a scratch repo for end-to-end update testing.
+        let updateRepoSlug = UserDefaults.standard.string(forKey: "sturtbar.debug.updateRepoSlug")
+            ?? GitHubReleaseClient.defaultRepoSlug
+        #else
+        let updateRepoSlug = GitHubReleaseClient.defaultRepoSlug
+        #endif
+        let updateStore = UpdateStore(
+            settings: settings,
+            checker: GitHubReleaseClient(repoSlug: updateRepoSlug, userAgent: "SturtBar/\(appVersion ?? "dev")"),
+            installer: UpdateInstaller())
+        settings.onUpdateChecksEnabledChange = { [weak updateStore] enabled in
+            updateStore?.updateChecksEnabledDidChange(enabled)
+        }
+
         // Quota notifications. Contract (UsageStore.onQuotaThresholdCrossing): fires synchronously
         // on the MainActor mid-refresh; the notifier only reads settings and enqueues async
         // notification work — it never mutates store state or re-enters refresh.
@@ -96,11 +114,12 @@ import SturtBarCore
         }
 
         // Windows (Settings/About) + icon/menu pipeline.
-        let windows = WindowsController(settings: settings)
+        let windows = WindowsController(settings: settings, updateStore: updateStore)
         let statusItemController = StatusItemController(
             store: store,
             settings: settings,
             windows: windows,
+            updateStore: updateStore,
             debugUsageClient: client)
         statusItemController.start()
 
@@ -110,6 +129,7 @@ import SturtBarCore
         self.statusItemController = statusItemController
         self.quotaNotifier = quotaNotifier
         self.windows = windows
+        self.updateStore = updateStore
 
         #if DEBUG
         // Live-verification driver (Phase 4b): only when STURTBAR_DEBUG_AUTOMENU=1.
@@ -120,11 +140,14 @@ import SturtBarCore
         }
         #endif
 
-        // Deferred launch work: cached state first, then the scheduler + startup fetch.
+        // Deferred launch work: cached state first, then the scheduler + startup fetch. The
+        // update consent ask waits until the launch fetch settles so it never delays first data.
         Task(priority: .utility) {
             await store.loadPersistedState()
             scheduler.start(interval: settings.refreshFrequency.interval)
             await store.refresh(trigger: .launch)
+            UpdateConsentPrompt.presentIfNeeded(settings: settings)
+            updateStore.start()
         }
 
         // First lit 1852; standing watch since you installed it (BRAND.md §3.3 system moment).
@@ -140,5 +163,6 @@ import SturtBarCore
         self.statusItemController?.shutdown()
         self.store?.shutdown()
         self.scheduler?.stop()
+        self.updateStore?.shutdown()
     }
 }
