@@ -2,9 +2,9 @@
 //
 // Ported from legacy CodexBar/SessionQuotaNotifications.swift (the delivery layer; the pure
 // transition logic moved to QuotaWarnings.swift in Phase 3a). Changes vs legacy:
-//   - Copy rewritten as Notices to Mariners in the Keeper's voice (BRAND.md §3.3). With
-//     multi-provider parity (decision 15) the provider name opens the BODY as functional
-//     disambiguation (titles stay flavour-only), and dedup id prefixes are provider-scoped
+//   - Copy per BRAND.md §3.3: the title states the provider and the fact plainly, the body
+//     leads with the numbers (reset time included when the window reports one) and closes with
+//     one short Keeper clause. Dedup id prefixes are provider-scoped
 //     (`claude-session-depleted`, `quota-warning-codex-weekly-50`).
 //   - `accountDisplayName` body variant dropped: `ProviderUsageSnapshot` carries no account
 //     identity, so the legacy hidePersonalInfo/account-name copy paths are unreachable.
@@ -41,60 +41,100 @@ final class QuotaNotifier {
 
     init() {}
 
-    /// Notices to Mariners (BRAND.md §3.3): the Keeper signals only when it matters, in the
-    /// station's dry maritime register. Titles stay provider-free flavour copy; the provider
-    /// name opens the body as FUNCTIONAL disambiguation (decision 15: with two coasts tracked,
-    /// "which one ran aground" is information, not flavour). Dedup ids are provider-scoped so a
-    /// Claude notice never replaces a Codex one.
+    /// Notices to Mariners (BRAND.md §3.3): the title carries the provider and the plain fact,
+    /// the body leads with the numbers and closes with one Keeper clause (accuracy beats theme,
+    /// hard boundary 7). Dedup ids are provider-scoped so a Claude notice never replaces a
+    /// Codex one.
     static func delivery(
         for crossing: QuotaCrossing,
         provider: UsageProviderKind,
-        soundEnabled: Bool) -> Delivery
+        soundEnabled: Bool,
+        now: Date = .init()) -> Delivery
     {
         switch crossing {
-        case .sessionDepleted:
+        case let .sessionDepleted(resetsAt):
             Delivery(
                 idPrefix: "\(provider.rawValue)-session-depleted",
-                title: "Notice to Mariners: aground",
-                body: "\(provider.displayName): session spent. "
-                    + "Nothing in or out until it refloats; you'll get word when it does.",
+                title: "\(provider.displayName) session limit reached",
+                body: Self.depletedBody(resetsAt: resetsAt, now: now),
                 notificationSoundEnabled: true,
                 playsAlertSound: false)
         case .sessionRestored:
             Delivery(
                 idPrefix: "\(provider.rawValue)-session-restored",
-                title: "Notice to Mariners: tide's turned",
-                body: "\(provider.displayName): session refloated. Full passage restored.",
+                title: "\(provider.displayName) session reset",
+                body: "Tide's turned. Full passage restored.",
                 notificationSoundEnabled: true,
                 playsAlertSound: false)
-        case let .warningThresholdCrossed(window, threshold, currentRemaining):
+        case let .warningThresholdCrossed(window, threshold, currentRemaining, resetsAt):
             Delivery(
                 idPrefix: "quota-warning-\(provider.rawValue)-\(window.rawValue)-\(threshold)",
-                title: Self.warningTitle(window),
-                body: "\(provider.displayName): \(Self.percentText(currentRemaining)) "
-                    + "of the \(Self.windowNoun(window)) remains.",
+                title: "\(provider.displayName) \(Self.warningTitleSuffix(window))",
+                body: Self.thresholdBody(
+                    currentRemaining: currentRemaining,
+                    noun: Self.windowNoun(window),
+                    flavour: Self.warningFlavour(window),
+                    resetsAt: resetsAt,
+                    now: now),
                 notificationSoundEnabled: false,
                 playsAlertSound: soundEnabled)
-        case let .namedWindowThresholdCrossed(title, threshold, currentRemaining):
-            // Named extra windows ride the weekly flavour; the title is functional disambiguation.
+        case let .namedWindowThresholdCrossed(title, threshold, currentRemaining, resetsAt):
+            // Named extra windows carry their own title; no flavour line, the allowance name is enough.
             Delivery(
                 idPrefix: "quota-warning-\(provider.rawValue)-\(Self.slug(title))-\(threshold)",
-                title: Self.warningTitle(.weekly),
-                body: "\(provider.displayName): \(Self.percentText(currentRemaining)) "
-                    + "of the \(title) allowance remains.",
+                title: "\(provider.displayName) \(title) limit nearing",
+                body: Self.thresholdBody(
+                    currentRemaining: currentRemaining,
+                    noun: "\(title) allowance",
+                    flavour: nil,
+                    resetsAt: resetsAt,
+                    now: now),
                 notificationSoundEnabled: false,
                 playsAlertSound: soundEnabled)
         }
+    }
+
+    private static func depletedBody(resetsAt: Date?, now: Date) -> String {
+        guard let resetsAt else {
+            return "Hard aground. You'll get word when the session resets."
+        }
+        return "Hard aground. Resets \(UsageFormatter.resetDescription(from: resetsAt, now: now)); "
+            + "you'll get word."
+    }
+
+    private static func thresholdBody(
+        currentRemaining: Double,
+        noun: String,
+        flavour: String?,
+        resetsAt: Date?,
+        now: Date) -> String
+    {
+        var body = "\(Self.percentText(currentRemaining)) of the \(noun) remains"
+        if let resetsAt {
+            body += "; resets \(UsageFormatter.resetDescription(from: resetsAt, now: now))"
+        }
+        body += "."
+        if let flavour {
+            body += " \(flavour)"
+        }
+        return body
     }
 
     private static func slug(_ title: String) -> String {
         title.lowercased().replacingOccurrences(of: " ", with: "-")
     }
 
-    private static func warningTitle(_ window: QuotaWindow) -> String {
+    private static func warningTitleSuffix(_ window: QuotaWindow) -> String {
         switch window {
-        case .session: "Notice to Mariners: shoaling water"
-        case .weekly: "Notice to Mariners: the week's drawing in"
+        case .session: "session running low"
+        case .weekly: "weekly limit nearing"
+        }
+    }
+
+    private static func warningFlavour(_ window: QuotaWindow) -> String {
+        switch window {
+        case .session: "Shoaling water ahead."
+        case .weekly: "The week's drawing in."
         }
     }
 

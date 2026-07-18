@@ -155,7 +155,7 @@ struct QuotaTransitionMachineTests {
         var events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 20), configuration: config)
         #expect(events.isEmpty)
         events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 100), configuration: config)
-        #expect(events == [.sessionDepleted])
+        #expect(events == [.sessionDepleted(resetsAt: nil)])
         events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 30), configuration: config)
         #expect(events == [.sessionRestored])
     }
@@ -166,7 +166,7 @@ struct QuotaTransitionMachineTests {
         let config = self.makeConfiguration(warningNotifications: false)
 
         var events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 100), configuration: config)
-        #expect(events == [.sessionDepleted])
+        #expect(events == [.sessionDepleted(resetsAt: nil)])
         events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 100), configuration: config)
         #expect(events.isEmpty)
     }
@@ -231,7 +231,9 @@ struct QuotaTransitionMachineTests {
                 snapshot: makeUsageSnapshot(primaryUsedPercent: used),
                 configuration: config)
         }
-        #expect(events == [.warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 45)])
+        #expect(events == [
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 45, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -241,7 +243,9 @@ struct QuotaTransitionMachineTests {
 
         _ = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 10), configuration: config)
         let events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 85), configuration: config)
-        #expect(events == [.warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 15)])
+        #expect(events == [
+            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 15, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -251,7 +255,7 @@ struct QuotaTransitionMachineTests {
 
         var thresholds: [Int] = []
         for used in [40.0, 55, 10, 55] {
-            for case let .warningThresholdCrossed(_, threshold, _) in machine.process(
+            for case let .warningThresholdCrossed(_, threshold, _, _) in machine.process(
                 snapshot: makeUsageSnapshot(primaryUsedPercent: used),
                 configuration: config)
             {
@@ -282,7 +286,9 @@ struct QuotaTransitionMachineTests {
         let events = machine.process(
             snapshot: makeUsageSnapshot(primaryUsedPercent: 60, secondaryUsedPercent: 60),
             configuration: config)
-        #expect(events == [.warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40)])
+        #expect(events == [
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -296,7 +302,9 @@ struct QuotaTransitionMachineTests {
         let events = machine.process(
             snapshot: makeUsageSnapshot(primaryUsedPercent: 60, secondaryUsedPercent: 60),
             configuration: config)
-        #expect(events == [.warningThresholdCrossed(window: .weekly, threshold: 50, currentRemaining: 40)])
+        #expect(events == [
+            .warningThresholdCrossed(window: .weekly, threshold: 50, currentRemaining: 40, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -311,8 +319,8 @@ struct QuotaTransitionMachineTests {
             snapshot: makeUsageSnapshot(primaryUsedPercent: 55, secondaryUsedPercent: 55),
             configuration: config)
         #expect(events == [
-            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 45),
-            .warningThresholdCrossed(window: .weekly, threshold: 50, currentRemaining: 45),
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 45, resetsAt: nil),
+            .warningThresholdCrossed(window: .weekly, threshold: 50, currentRemaining: 45, resetsAt: nil),
         ])
     }
 
@@ -332,7 +340,9 @@ struct QuotaTransitionMachineTests {
         // Re-enabling re-arms: the first sample is a fresh baseline, still below the threshold,
         // so it fires again (legacy startup-below-threshold semantics).
         let refired = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 60), configuration: enabled)
-        #expect(refired == [.warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40)])
+        #expect(refired == [
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -377,9 +387,9 @@ struct UsageStoreQuotaCrossingTests {
 
         // Per-snapshot event order: depletion machine first, then warnings.
         #expect(crossings == [
-            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40),
-            .sessionDepleted,
-            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0),
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40, resetsAt: nil),
+            .sessionDepleted(resetsAt: nil),
+            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0, resetsAt: nil),
         ])
         #expect(providers == [.claude, .claude, .claude])
     }
@@ -412,9 +422,9 @@ struct UsageStoreQuotaCrossingTests {
         // the lanes run separate machines off the shared threshold configuration.
         #expect(events.map(\.0) == [.codex, .codex, .codex])
         #expect(events.map(\.1) == [
-            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40),
-            .sessionDepleted,
-            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0),
+            .warningThresholdCrossed(window: .session, threshold: 50, currentRemaining: 40, resetsAt: nil),
+            .sessionDepleted(resetsAt: nil),
+            .warningThresholdCrossed(window: .session, threshold: 20, currentRemaining: 0, resetsAt: nil),
         ])
     }
 
@@ -473,7 +483,9 @@ struct NamedWindowWarningTests {
         #expect(events.isEmpty)
 
         events = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
-        #expect(events == [.namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45)])
+        #expect(events == [
+            .namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45, resetsAt: nil),
+        ])
 
         // Fired threshold stays quiet while remaining keeps falling short of the next one.
         events = machine.process(snapshot: self.snapshot(fableUsed: 56), configuration: config)
@@ -492,7 +504,9 @@ struct NamedWindowWarningTests {
         var events = machine.process(snapshot: self.snapshot(fableUsed: 5), configuration: config)
         #expect(events.isEmpty)
         events = machine.process(snapshot: self.snapshot(fableUsed: 55), configuration: config)
-        #expect(events == [.namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45)])
+        #expect(events == [
+            .namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45, resetsAt: nil),
+        ])
     }
 
     @Test
@@ -523,10 +537,11 @@ struct NamedWindowWarningTests {
     @MainActor
     func `named window delivery names the allowance`() {
         let delivery = QuotaNotifier.delivery(
-            for: .namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45),
+            for: .namedWindowThresholdCrossed(title: "Fable", threshold: 50, currentRemaining: 45, resetsAt: nil),
             provider: .claude,
             soundEnabled: false)
         #expect(delivery.idPrefix == "quota-warning-claude-fable-50")
-        #expect(delivery.body == "Claude: 45% of the Fable allowance remains.")
+        #expect(delivery.title == "Claude Fable limit nearing")
+        #expect(delivery.body == "45% of the Fable allowance remains.")
     }
 }
