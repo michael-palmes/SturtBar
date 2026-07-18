@@ -31,13 +31,15 @@ enum QuotaWindow: String, Codable, CaseIterable, Equatable {
 }
 
 /// A quota event the app surfaces to the user (Phase 3b: notifications).
+/// Crossings carry the window's reset date (when the provider reports one) so notices can say
+/// when the limit lifts.
 enum QuotaCrossing: Equatable {
     /// Remaining quota dropped to/below a configured warning threshold.
-    case warningThresholdCrossed(window: QuotaWindow, threshold: Int, currentRemaining: Double)
+    case warningThresholdCrossed(window: QuotaWindow, threshold: Int, currentRemaining: Double, resetsAt: Date?)
     /// A named extra window (model-scoped weekly carve-out, Daily Routines) crossed a threshold.
-    case namedWindowThresholdCrossed(title: String, threshold: Int, currentRemaining: Double)
+    case namedWindowThresholdCrossed(title: String, threshold: Int, currentRemaining: Double, resetsAt: Date?)
     /// The session window hit 0% remaining.
-    case sessionDepleted
+    case sessionDepleted(resetsAt: Date?)
     /// The session window recovered from 0% remaining.
     case sessionRestored
 }
@@ -230,7 +232,7 @@ struct QuotaTransitionMachine {
         guard previousRemaining != nil else {
             // Startup case: first sample already depleted warns once.
             if SessionQuotaLogic.isDepleted(currentRemaining) {
-                crossings.append(.sessionDepleted)
+                crossings.append(.sessionDepleted(resetsAt: window.resetsAt))
             }
             return
         }
@@ -242,7 +244,7 @@ struct QuotaTransitionMachine {
         case .none:
             break
         case .depleted:
-            crossings.append(.sessionDepleted)
+            crossings.append(.sessionDepleted(resetsAt: window.resetsAt))
         case .restored:
             crossings.append(.sessionRestored)
         }
@@ -300,7 +302,8 @@ struct QuotaTransitionMachine {
             crossings.append(.warningThresholdCrossed(
                 window: window,
                 threshold: threshold,
-                currentRemaining: rateWindow.remainingPercent))
+                currentRemaining: rateWindow.remainingPercent,
+                resetsAt: rateWindow.resetsAt))
         }
     }
 
@@ -331,7 +334,8 @@ struct QuotaTransitionMachine {
                 crossings.append(.namedWindowThresholdCrossed(
                     title: namedWindow.title,
                     threshold: threshold,
-                    currentRemaining: namedWindow.window.remainingPercent))
+                    currentRemaining: namedWindow.window.remainingPercent,
+                    resetsAt: namedWindow.window.resetsAt))
             }
             self.namedWindowWarnings[namedWindow.id] = state
         }
