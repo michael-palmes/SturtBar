@@ -3,6 +3,8 @@
 # SturtBar
 
 [![CI](https://github.com/michael-palmes/SturtBar/actions/workflows/ci.yml/badge.svg)](https://github.com/michael-palmes/SturtBar/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/michael-palmes/SturtBar/actions/workflows/codeql.yml/badge.svg)](https://github.com/michael-palmes/SturtBar/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/michael-palmes/SturtBar/badge)](https://scorecard.dev/viewer/?uri=github.com/michael-palmes/SturtBar)
 [![Latest release](https://img.shields.io/github/v/release/michael-palmes/SturtBar)](https://github.com/michael-palmes/SturtBar/releases/latest)
 [![Licence](https://img.shields.io/github/license/michael-palmes/SturtBar)](LICENSE)
 
