@@ -58,4 +58,48 @@ struct MenuCardSnapshotTests {
         try png.write(to: out)
         print("snapshot written: \(out.path)")
     }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STURTBAR_SNAPSHOT"] == "1"))
+    func `renders the reauth banner states to pngs for visual review`() throws {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let staleSnapshot = ProviderUsageSnapshot(
+            primary: RateWindow(
+                usedPercent: 40,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(3000),
+                resetDescription: nil),
+            secondary: RateWindow(
+                usedPercent: 63,
+                windowMinutes: 10080,
+                resetsAt: now.addingTimeInterval(200_000),
+                resetDescription: nil),
+            opus: nil,
+            updatedAt: now,
+            loginMethod: "Claude Max")
+
+        let states: [(name: String, auth: AuthState, snapshot: ProviderUsageSnapshot?)] = [
+            ("expired", .needsReauth(message: "OAuth token refresh was rejected.", remedy: .signIn), staleSnapshot),
+            ("keychain", .needsReauth(message: "Keychain read blocked.", remedy: .keychainAccess), staleSnapshot),
+            ("missing", .credentialsMissing, nil),
+        ]
+        for state in states {
+            var input = UsageMenuCardView.Model.Input(now: now)
+            input.snapshot = state.snapshot
+            input.auth = state.auth
+            input.isStale = state.snapshot != nil
+            input.lastSuccessAt = state.snapshot != nil ? now.addingTimeInterval(-7200) : nil
+            let model = UsageMenuCardView.Model.make(input)
+
+            let renderer = ImageRenderer(content: UsageMenuCardView(model: model)
+                .background(Color(nsColor: .windowBackgroundColor)))
+            renderer.scale = 2
+            let image = try #require(renderer.nsImage)
+            let tiff = try #require(image.tiffRepresentation)
+            let rep = try #require(NSBitmapImageRep(data: tiff))
+            let png = try #require(rep.representation(using: .png, properties: [:]))
+            let out = URL(fileURLWithPath: "/tmp/sturtbar-card-banner-\(state.name).png")
+            try png.write(to: out)
+            print("snapshot written: \(out.path)")
+        }
+    }
 }

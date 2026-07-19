@@ -430,6 +430,69 @@ struct MenuCardModelTests {
         #expect(model.status.helpText == "Claude Code's sign-in changed.")
     }
 
+    // MARK: - Reauth banner
+
+    /// Claude auth states render the banner block: sign-in is always the primary remedy and the
+    /// Keychain fallback line appears only for the keychain remedy (last-ditch by design).
+    @Test
+    func `claude auth states map to the reauth banner`() throws {
+        let expired = UsageMenuCardView.Model.StatusLine
+            .needsReauth(detail: "OAuth token refresh was rejected.", remedy: .signIn)
+        let expiredBanner = try #require(expired.banner)
+        #expect(expiredBanner.title == "Claude session expired")
+        #expect(!expiredBanner.showsKeychainFallback)
+        #expect(expiredBanner.helpText == "OAuth token refresh was rejected.")
+
+        let keychain = UsageMenuCardView.Model.StatusLine
+            .needsReauth(detail: "Keychain read blocked.", remedy: .keychainAccess)
+        let keychainBanner = try #require(keychain.banner)
+        #expect(keychainBanner.title == "Claude connection lost")
+        #expect(keychainBanner.showsKeychainFallback)
+        #expect(keychainBanner.helpText == "Keychain read blocked.")
+
+        let missing = UsageMenuCardView.Model.StatusLine.credentialsMissing
+        let missingBanner = try #require(missing.banner)
+        #expect(missingBanner.title == "No light on this coast yet")
+        #expect(!missingBanner.showsKeychainFallback)
+    }
+
+    @Test
+    func `non-auth status lines render no banner`() {
+        let lines: [UsageMenuCardView.Model.StatusLine] = [
+            .empty,
+            .rateLimited(until: Self.now.addingTimeInterval(90)),
+            .retrying,
+            .stale,
+            .noProvidersEnabled,
+            .codexCredentialsMissing,
+            .codexSignInRequired,
+            .codexApiKeyUnsupported,
+        ]
+        for line in lines {
+            #expect(line.banner == nil)
+        }
+    }
+
+    /// Banner presence and the fallback line both change the card height, so they must ride the
+    /// shape fingerprint (mid-open auth flips defer their re-measure to menuDidClose).
+    @Test
+    func `reauth banner rides the shape fingerprint`() {
+        func shape(auth: AuthState) -> MenuCardShape {
+            MenuCardShape(model: UsageMenuCardView.Model.make(.init(
+                snapshot: self.snapshot(primary: self.window(used: 10)),
+                auth: auth,
+                now: Self.now)))
+        }
+
+        let healthy = shape(auth: .ok)
+        let expired = shape(auth: .needsReauth(message: "expired", remedy: .signIn))
+        let keychain = shape(auth: .needsReauth(message: "blocked", remedy: .keychainAccess))
+        #expect(healthy != expired)
+        #expect(expired != keychain)
+        // Detail text changes copy, not height: equal shapes must not re-measure.
+        #expect(expired == shape(auth: .needsReauth(message: "other detail", remedy: .signIn)))
+    }
+
     @Test
     func `non-auth status lines carry no action`() {
         let retrying = UsageMenuCardView.Model.make(.init(
