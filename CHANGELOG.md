@@ -2,6 +2,11 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.3.1
+
+- When Claude needs attention, the card now shows a proper banner instead of a red status line: what happened, a "Sign in to Claude Code" button, and (only when relevant) a smaller "Still not working? Allow Keychain access" fallback. Signing in via `claude /login` is always the first remedy; the Keychain ask is reserved for when a fresh sign-in has not helped.
+- The sign-in helper now lives in `~/.sturtbar`, a folder that holds only that script, and runs `claude /login` from there. The terminal window explains in plain words what the folder is and what any Claude Code workspace prompt covers (that folder alone, never your home directory or files), then opens Claude Code after a short pause so you can read it. This also stops the macOS "access data from other apps" prompts the old Application Support location triggered; the old script is cleaned up on first use.
+
 ## 1.3.0
 
 - The settings window is reorganised into six tabs (General, Providers, Display, Cost, Notifications, Updates) instead of one tall pane, at a fraction of the height. It keeps one steady size while you switch tabs.
