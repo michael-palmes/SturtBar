@@ -15,8 +15,22 @@ struct TerminalLoginLauncherTests {
         let expected = """
         #!/bin/zsh -l
         # SturtBar sign-in helper. Generated on demand; safe to delete.
-        cd "$HOME" || exit 1
+        # Runs in SturtBar's own folder so any Claude Code workspace prompt covers nothing else.
+        cd "$(dirname "$0")" || exit 1
+        print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
+        print -P "%B%F{173}  SturtBar sign-in helper%f%b"
+        print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
+        echo ""
+        echo "  This window runs from ~/.sturtbar, SturtBar's own folder. It holds only"
+        echo "  this script."
+        echo ""
+        echo "  If Claude Code asks you to trust this workspace (first sign-in only):"
+        print -P "    %F{green}✓%f the trust covers this folder alone"
+        print -P "    %F{red}✗%f never your home directory, your files or your other projects"
+        echo ""
         if command -v claude >/dev/null 2>&1; then
+          print -P "  %F{173}Opening Claude Code (claude /login) in 3 seconds...%f"
+          sleep 3
           exec claude /login
         fi
         echo ""
@@ -27,6 +41,42 @@ struct TerminalLoginLauncherTests {
 
         """
         #expect(TerminalLoginLauncher.scriptContents(for: .claude) == expected)
+    }
+
+    /// The script must live outside ~/Library: reading it from SturtBar's Application Support
+    /// container made the terminal raise the macOS app-data prompt, and a home-directory cwd made
+    /// Claude Code ask the user to trust their entire home folder.
+    @Test
+    func `default script directory is the dedicated dot-sturtbar folder`() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        #expect(TerminalLoginLauncher.defaultScriptDirectory() == home.appendingPathComponent(
+            ".sturtbar",
+            isDirectory: true))
+        #expect(!TerminalLoginLauncher.defaultScriptDirectory().path.contains("/Library/"))
+    }
+
+    @Test
+    func `launch removes the stale legacy script`() throws {
+        let directory = self.makeTempDirectory()
+        let legacy = self.makeTempDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: legacy)
+        }
+        let legacyScript = legacy.appendingPathComponent("SturtBar Claude sign-in.command")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try Data("stale".utf8).write(to: legacyScript)
+
+        var launcher = TerminalLoginLauncher(scriptDirectory: directory, open: { _ in true })
+        launcher.legacyScriptDirectory = legacy
+        #expect(launcher.launch(.claude))
+        #expect(!FileManager.default.fileExists(atPath: legacyScript.path))
+    }
+
+    @Test
+    func `injected script directory disables legacy cleanup`() {
+        let launcher = TerminalLoginLauncher(scriptDirectory: self.makeTempDirectory(), open: { _ in true })
+        #expect(launcher.legacyScriptDirectory == nil)
     }
 
     @Test

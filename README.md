@@ -80,7 +80,7 @@ Every network call it makes:
 
 Update checks are opt-in: SturtBar asks once on first launch, and the toggle lives under Settings > Updates (turning it off wipes the lane's stored state). The check sends no identifiers. Installing verifies the download's SHA-256 checksum and its Developer ID signature against the running app's own identity before anything is replaced.
 
-When the Claude session expires, the card offers a sign-in line. Clicking it writes a small helper script under `~/Library/Application Support/SturtBar` and opens it in your default terminal; the terminal runs `claude /login`. SturtBar itself never runs the claude CLI and never touches its credential stores.
+When the Claude session expires, the card offers a sign-in button. Clicking it writes a small helper script to `~/.sturtbar` and opens it in your default terminal; the terminal runs `claude /login` from that folder, so if Claude Code asks you to trust a workspace it is only SturtBar's own folder holding that one script, never your home directory or files. SturtBar itself never runs the claude CLI and never touches its credential stores.
 
 Keychain prompts are opt-in: SturtBar never shows a macOS Keychain prompt unless you allow it, via the "Ask for Keychain access when needed" setting or the menu's reconnect line. Silent reads that macOS already permits keep working either way.
 
