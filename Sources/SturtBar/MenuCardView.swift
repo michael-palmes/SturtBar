@@ -628,7 +628,7 @@ private struct UsageMenuCardReauthBannerView: View {
     }
 
     private var fallbackLine: some View {
-        (Text(Banner.fallbackPrefix) + Text(Banner.fallbackLinkText).underline())
+        Text("\(Banner.fallbackPrefix)\(Text(Banner.fallbackLinkText).underline())")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .overlay {

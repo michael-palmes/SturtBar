@@ -53,9 +53,11 @@ check_dims "$BG_2X" 1320 800
 
 # --- Pre-flight: detach a stray volume from a crashed prior run ---------------
 if [[ -d "/Volumes/$VOL_NAME" ]]; then
+  # awk must read hdiutil to EOF: an early `exit` snaps the pipe mid-write and the
+  # SIGPIPE (exit 141) kills the whole script under pipefail.
   STRAY=$(hdiutil info | awk -v vol="/Volumes/$VOL_NAME" '
     /^\/dev\// { dev=$1 }
-    $0 ~ vol  { print dev; exit }')
+    $0 ~ vol && !found { found=1; print dev }')
   [[ -n "${STRAY:-}" ]] && hdiutil detach "$STRAY" -force >/dev/null 2>&1 || true
 fi
 
