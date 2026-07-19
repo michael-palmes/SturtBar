@@ -124,6 +124,18 @@ final class UsageStore {
     private(set) var isRefreshing = false
     private(set) var costScanState: CostScanState = .idle
 
+    #if DEBUG
+    /// STURTBAR_DEBUG_MOCK_AUTH pin: re-applied after every Claude refresh so the mocked reauth
+    /// banner survives real fetch results while its CTAs are exercised live.
+    @ObservationIgnored private var debugPinnedClaudeAuth: AuthState?
+
+    func debugPinClaudeAuth(_ state: AuthState) {
+        self.debugPinnedClaudeAuth = state
+        self.auth = state
+        Self.log.info("DEBUG auth pin active", metadata: ["state": "\(state)"])
+    }
+    #endif
+
     // Codex lane (decision 6: all of this stays empty while the provider is disabled).
     /// Last good Codex snapshot (persisted across launches; wiped on provider disable).
     private(set) var codexUsage: ProviderUsageSnapshot?
@@ -464,6 +476,10 @@ final class UsageStore {
                 "Refresh failed",
                 metadata: ["trigger": trigger.rawValue, "error": error.localizedDescription])
         }
+
+        #if DEBUG
+        if let pinned = self.debugPinnedClaudeAuth { self.auth = pinned }
+        #endif
     }
 
     private func performCodexRefresh(trigger: RefreshTrigger) async {

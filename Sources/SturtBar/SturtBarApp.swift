@@ -138,6 +138,11 @@ import SturtBarCore
             driver.start()
             self.menuDebugDriver = driver
         }
+        // Reauth-banner mock: STURTBAR_DEBUG_MOCK_AUTH=expired|keychain|missing pins the Claude
+        // auth state so the banner and its CTAs can be exercised against the live menu.
+        if let pinned = Self.debugMockAuthState() {
+            store.debugPinClaudeAuth(pinned)
+        }
         #endif
 
         // Deferred launch work: cached state first, then the scheduler + startup fetch. The
@@ -165,4 +170,19 @@ import SturtBarCore
         self.scheduler?.stop()
         self.updateStore?.shutdown()
     }
+
+    #if DEBUG
+    private static func debugMockAuthState() -> AuthState? {
+        switch ProcessInfo.processInfo.environment["STURTBAR_DEBUG_MOCK_AUTH"] {
+        case "expired":
+            .needsReauth(message: "Mocked expired session (STURTBAR_DEBUG_MOCK_AUTH).", remedy: .signIn)
+        case "keychain":
+            .needsReauth(message: "Mocked Keychain block (STURTBAR_DEBUG_MOCK_AUTH).", remedy: .keychainAccess)
+        case "missing":
+            .credentialsMissing
+        default:
+            nil
+        }
+    }
+    #endif
 }
