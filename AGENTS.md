@@ -19,7 +19,7 @@ Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar a
 Apply when a change touches credentials, network, file access or logging:
 
 - Credentials are read-only: never write to Claude Code's credential stores. Rotated OAuth tokens persist only to SturtBar's own keychain cache (`com.michaelpalmes.sturtbar.cache`).
-- **Never write under `~/.codex` and never refresh Codex tokens.** The Codex lane is a strictly read-only consumer of `~/.codex/auth.json`; a 401 surfaces as "sign in via the codex CLI" — SturtBar never calls `auth.openai.com` and never parses the `id_token` JWT.
+- **Never write under `~/.codex` and never refresh Codex tokens.** The Codex lane is a strictly read-only consumer of `~/.codex/auth.json`; a 401 surfaces as "sign in via the codex CLI". SturtBar never calls `auth.openai.com` and never parses the `id_token` JWT.
 - **A disabled provider is inert.** The provider toggles are hard privacy gates: no network, no file reads, no background work, and disabling wipes the provider's persisted snapshot. The only sanctioned pre-opt-in filesystem touch is the Settings-open `authFileExists` stat().
 - Least-privilege paths: read only the files and keychain items the feature needs.
 - Redact secrets (tokens, emails, bearer credentials) before logging.
@@ -54,6 +54,13 @@ Apply when a change touches credentials, network, file access or logging:
 - `Sources/SturtBar/` app: state layer (UsageStore, scheduler, actors), icon pipeline, menu, windows, settings
 - `Tests/SturtBarTests/` plus `Fixtures/`
 - `Scripts/` packaging, signing, lint; `Resources/` the app icon (`make_icon.sh` rebuilds the `.icns` from `AppIcon-1024.png`)
+
+## Skills
+
+Project skills live in `.agents/skills/` (Claude Code reads them via the `.claude/skills` symlink):
+
+- `sturtbar-skill-creator`: creating or updating project skills and slash commands.
+- `sturtbar-release`: cutting a signed, notarised release (DMG, updater contract, publish flow).
 
 ## Conventions
 
