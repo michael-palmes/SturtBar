@@ -9,6 +9,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import SturtBar
 
@@ -53,6 +54,23 @@ struct WindowsControllerTests {
         windows.showAbout()
         #expect(windows.aboutWindow === about)
         #expect(windows.settingsWindow == nil)
+    }
+
+    @Test
+    func `settings window opens with a non-degenerate frame`() throws {
+        let windows = self.makeController("sturtbar-windows-frame")
+        windows.showSettings()
+        let window = try #require(windows.settingsWindow)
+        let hosting = try #require(window.contentViewController as? NSHostingController<SettingsView>)
+        // A height-flexible root (macOS TabView) measures degenerate or greedy here and the
+        // window never appears on screen.
+        let natural = hosting.sizeThatFits(in: CGSize(width: 10000, height: 10000))
+        #expect(natural.width > 300 && natural.width < 1000)
+        #expect(natural.height > 200 && natural.height < 1500)
+        // Headless windows never lay out, so drive the resize path directly.
+        windows.resizeSettingsWindow(to: natural)
+        #expect(window.frame.width > 300)
+        #expect(window.frame.height > 200)
     }
 
     @Test
