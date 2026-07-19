@@ -13,8 +13,10 @@
 //    `Model.sections` is the assertable contract: its contents depend ONLY on configuration
 //    (cost-usage enabled), never on data, auth, or health. Per-slot height assumptions:
 //      .header   2 fixed lines — headline title+plan line, footnote subtitle line; lineLimit(1).
-//      .status   exactly 1 footnote line, ALWAYS rendered (a literal " " when there is nothing to
-//                say) so auth/health transitions while the menu is open never change the height.
+//      .status   one footnote line for health states, ALWAYS rendered (a literal " " when there
+//                is nothing to say); the Claude auth states render the fixed-shape reauth banner
+//                instead. Banner presence and its fallback line ride MenuCardShape, so a mid-open
+//                auth flip defers its re-measure to menuDidClose like any other shape change.
 //      .metrics  rowCount × fixed 4-element row (body title + 6pt bar + footnote percent/reset
 //                line + footnote detail line — the detail line is RESERVED, rendering " " when
 //                there is no pace text, so pace appearing/disappearing never moves the layout).
@@ -279,6 +281,51 @@ struct UsageMenuCardView: View {
                     nil
                 }
             }
+
+            /// The Claude auth states render this fixed-shape block instead of the strip: warning
+            /// title, one-line explanation, a sign-in button, and (keychain remedy only) the
+            /// subordinate fallback line. Sign-in via `claude /login` is always the primary
+            /// remedy; asking for Keychain access is strictly last-ditch.
+            struct Banner: Equatable {
+                static let buttonTitle = "Sign in to Claude Code"
+                static let buttonSymbolName = "apple.terminal"
+                static let fallbackPrefix = "Still not working? "
+                static let fallbackLinkText = "Allow Keychain access"
+
+                let title: String
+                let body: String
+                /// Keychain remedy only: shows the "Still not working?" fallback line.
+                let showsKeychainFallback: Bool
+                /// Error detail from the fetch failure, surfaced as the banner tooltip.
+                let helpText: String?
+            }
+
+            /// Non-nil for the Claude auth states; the card renders the banner in the status slot.
+            var banner: Banner? {
+                switch self {
+                case .credentialsMissing:
+                    // Canonical empty-state microcopy (BRAND.md §3.3) across the two lines.
+                    Banner(
+                        title: "No light on this coast yet",
+                        body: "Sign in to connect.",
+                        showsKeychainFallback: false,
+                        helpText: nil)
+                case let .needsReauth(detail, .signIn):
+                    Banner(
+                        title: "Claude session expired",
+                        body: "Sign in again to reconnect.",
+                        showsKeychainFallback: false,
+                        helpText: detail)
+                case let .needsReauth(detail, .keychainAccess):
+                    Banner(
+                        title: "Claude connection lost",
+                        body: "Sign in again to reconnect.",
+                        showsKeychainFallback: true,
+                        helpText: detail)
+                default:
+                    nil
+                }
+            }
         }
 
         /// Claude "Extra usage" spend block (snapshot.providerCost, usage-kind primaries only —
@@ -376,10 +423,14 @@ struct UsageMenuCardView: View {
 
             Divider()
 
-            UsageMenuCardStatusStripView(
-                status: self.model.status,
-                now: now,
-                onAction: self.onStatusAction)
+            if let banner = self.model.status.banner {
+                UsageMenuCardReauthBannerView(banner: banner, onAction: self.onStatusAction)
+            } else {
+                UsageMenuCardStatusStripView(
+                    status: self.model.status,
+                    now: now,
+                    onAction: self.onStatusAction)
+            }
 
             VStack(alignment: .leading, spacing: UsageMenuCardLayout.metricGroupSpacing) {
                 ForEach(self.model.metrics) { metric in
@@ -511,6 +562,82 @@ private struct UsageMenuCardStatusStripView: View {
             return Text(text ?? " ")
         }
         return Text("\(text)  \(Image(systemName: symbolName))")
+    }
+}
+
+// MARK: - Reauth banner (slot: fixed block — title line, body line, button, optional fallback line)
+
+/// Drawn button + ClickToLaunchOverlay because the menu's hosting view consumes real Buttons.
+/// Every line is lineLimit(1), so the height depends only on the fallback line's presence.
+private struct UsageMenuCardReauthBannerView: View {
+    private typealias Banner = UsageMenuCardView.Model.StatusLine.Banner
+
+    /// BRAND.md §4.2 `lamp` (#D97757): the shoaling state warning warmly, and the button fill.
+    private static let lamp = Color(red: 0.851, green: 0.467, blue: 0.341)
+    /// BRAND.md §4.2 `paper` (#FAF9F5): text on the lamp fill; never pure white.
+    private static let paper = Color(red: 0.980, green: 0.976, blue: 0.961)
+
+    let banner: UsageMenuCardView.Model.StatusLine.Banner
+    let onAction: ((UsageMenuCardView.Model.StatusLine.Action) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Self.lamp)
+                Text(self.banner.title)
+                    .fontWeight(.semibold)
+            }
+            .font(.footnote)
+            Text(self.banner.body)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            self.signInButton
+            if self.banner.showsKeychainFallback {
+                self.fallbackLine
+            }
+        }
+        .lineLimit(1)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Self.lamp.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Self.lamp.opacity(0.25)))
+        .padding(.vertical, 4)
+        .help(self.banner.helpText ?? "")
+    }
+
+    private var signInButton: some View {
+        HStack(spacing: 6) {
+            Image(systemName: Banner.buttonSymbolName)
+            Text(Banner.buttonTitle)
+                .fontWeight(.semibold)
+        }
+        .font(.callout)
+        .foregroundStyle(Self.paper)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Self.lamp))
+        .overlay {
+            if let onAction = self.onAction {
+                ClickToLaunchOverlay { onAction(.claudeSignIn) }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .help("Opens your terminal running claude /login to sign in.")
+    }
+
+    private var fallbackLine: some View {
+        (Text(Banner.fallbackPrefix) + Text(Banner.fallbackLinkText).underline())
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .overlay {
+                if let onAction = self.onAction {
+                    ClickToLaunchOverlay { onAction(.claudeKeychainRetry) }
+                }
+            }
+            .accessibilityAddTraits(.isButton)
+            .help("Fetches again and asks macOS for Keychain access.")
     }
 }
 

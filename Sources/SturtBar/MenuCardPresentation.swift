@@ -47,6 +47,9 @@ struct MenuCardShape: Equatable {
     /// reserves the full breakdown, so a first scan's data (≤ the reserve) never clips.
     let costRowCount: Int
     let codexCostRowCount: Int
+    /// Reauth banner structure: presence and the fallback line both change the status slot height.
+    let hasStatusBanner: Bool
+    let statusBannerHasFallback: Bool
 
     init(model: UsageMenuCardView.Model) {
         self.sections = model.sections
@@ -56,6 +59,8 @@ struct MenuCardShape: Equatable {
         self.codexMetricCount = model.codexSection?.metrics.count ?? 0
         self.costRowCount = model.costSection?.renderedRowCount ?? 0
         self.codexCostRowCount = model.codexSection?.cost?.renderedRowCount ?? 0
+        self.hasStatusBanner = model.status.banner != nil
+        self.statusBannerHasFallback = model.status.banner?.showsKeychainFallback ?? false
     }
 }
 
