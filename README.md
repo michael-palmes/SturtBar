@@ -1,4 +1,4 @@
-![SturtBar: the light that watches the passage so you don't run aground](docs/assets/social-card.png)
+[![SturtBar: the light that watches the passage so you don't run aground](docs/assets/social-card.png)](https://sturtbar.com)
 
 # SturtBar
 
@@ -22,6 +22,20 @@ It is named for the Sturt Light at Cape Willoughby, on the eastern tip of Kangar
   <img src="docs/assets/sturtbar-screenshot.png" width="600" alt="The Logbook open in the menu bar: session and weekly windows, daily routines, and spend for the period">
 </p>
 
+## Download
+
+<p align="center">
+  <a href="https://github.com/michael-palmes/SturtBar/releases/latest">
+    <img src="docs/assets/download-macos.svg" width="252" alt="Download for macOS">
+  </a>
+</p>
+
+- A signed and notarised `.dmg`; macOS 26 or later on Apple Silicon (the full list is under [Requirements](#requirements))
+- Open it and drag **SturtBar** onto the **Applications** folder, following the chart, then eject the disk image. SturtBar lives in the menu bar; it has no Dock icon.
+- A `.zip` of the app is attached alongside for scripted installs
+- Free and open source (MIT); no accounts, no telemetry, and every network call is [disclosed](#privacy)
+
+More at [sturtbar.com](https://sturtbar.com).
 
 ## What it shows
 
@@ -102,12 +116,6 @@ Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers wil
 - macOS 26 or later
 - Claude Code installed and signed in (run `claude` once so the credentials exist)
 - Optional, for the opt-in Codex provider: the codex CLI signed in via ChatGPT (run `codex` once; platform API-key accounts have no usage limits to show)
-
-## Install
-
-Download the latest notarised `SturtBar-<version>.dmg` from the [Releases](https://github.com/michael-palmes/SturtBar/releases) page. Open it and drag **SturtBar** onto the **Applications** folder, following the chart. Eject the disk image when you're done. SturtBar lives in the menu bar; it has no Dock icon.
-
-(A `.zip` of the app is also attached for scripted installs.)
 
 ## Build from source
 
