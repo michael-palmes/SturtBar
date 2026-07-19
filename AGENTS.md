@@ -11,7 +11,8 @@ Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar a
 - No network calls of any kind except to the agent providers Anthropic Claude and OpenAI Codex, and only for providers the user has enabled or connected. The one further destination is the disclosed, setting-gated pricing fetch (`models.dev`). The complete list lives in `docs/brand/BRAND.md` 6.3 and the README's Privacy section; a new destination ships with its disclosure in the same commit, or it does not ship.
 - Be clear and transparent with the user about what is accessed and how. Transparency and honesty build trust.
 - macOS 26 or later only. Apple Silicon (arm64) only.
-- No em dashes in anything you write: UI copy, docs, commit messages, code comments, error strings. Use commas, colons, parentheses or full stops. Australian English throughout.
+- **All text you write** (UI copy, docs, comments, commit messages, PR descriptions, error strings) is Australian English, short and concise, with no em dashes: use commas, colons, parentheses or full stops.
+- **IMPORTANT: comments are a last resort.** Keep them to a minimum, one line max, and only where they add context the code cannot show; remove any that do not.
 - All user-facing copy follows [`docs/brand/BRAND.md`](docs/brand/BRAND.md).
 
 ## Secure-change checklist
@@ -37,6 +38,8 @@ Apply when a change touches credentials, network, file access or logging:
 ## Git workflow
 
 - **Never commit or push directly to `main`**: a branch ruleset rejects it for everyone, including the maintainer. Work on a branch, open a PR, wait for the `build-test` check, squash merge.
+- **ALWAYS commit via the `sturtbar-commit` skill** (review, plan, then execute); never hand-roll `git commit`.
+- PR descriptions use Summary, Privacy and Testing sections: Australian English, short and concise, no em dashes.
 - Merges are squash-only; merged branches are deleted automatically.
 - Tags are pushed by `Scripts/release.sh` only (releases are manual and maintainer-only; the ruleset does not block tags).
 
@@ -59,6 +62,7 @@ Apply when a change touches credentials, network, file access or logging:
 
 Project skills live in `.agents/skills/` (Claude Code reads them via the `.claude/skills` symlink):
 
+- `sturtbar-commit`: planning and creating every commit (review, logical grouping, conventional messages).
 - `sturtbar-skill-creator`: creating or updating project skills and slash commands.
 - `sturtbar-release`: cutting a signed, notarised release (DMG, updater contract, publish flow).
 
