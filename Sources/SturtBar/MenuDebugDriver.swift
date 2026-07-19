@@ -214,6 +214,7 @@ final class MenuDebugDriver {
             "AUTOMENU windows verdict",
             metadata: [
                 "settingsShown": "\(settingsShown)",
+                "settingsFrame": "\(settings?.frame ?? .zero)",
                 "reusedAfterClose": "\(reused)",
                 "reshown": "\(reshown)",
                 "aboutShown": "\(aboutShown)",
