@@ -1,10 +1,7 @@
-// SettingsView.swift — single-pane settings form (Phase 4b).
+// SettingsView.swift: settings form, six panes behind a segmented tab strip.
 //
-// Row/section styling salvaged from legacy PreferencesComponents.swift (PreferenceToggleRow /
-// SettingsSection) and the General/Display pane structures, collapsed into ONE pane — the
-// rebuild has no tabs, no SwiftUI Settings scene and no localization layer (literals). The
-// quota-warning block trims legacy QuotaWarningSettingsViews.swift to the global (per-window)
-// shape of the rebuild's SettingsStore: per-provider overrides died with the providers.
+// A segmented Picker rather than TabView: macOS TabView has no intrinsic height, which left the
+// hosted window degenerate at 1x32 and Settings invisible.
 //
 // Every control binds straight to SettingsStore (@Observable; didSet persists to UserDefaults),
 // except Launch at Login, where SMAppService is the source of truth (see LaunchAtLoginManager).
@@ -13,110 +10,156 @@ import AppKit
 import SturtBarCore
 import SwiftUI
 
+/// The settings panes, in tab-strip order.
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case providers = "Providers"
+    case display = "Display"
+    case cost = "Cost"
+    case notifications = "Notifications"
+    case updates = "Updates"
+
+    var id: String {
+        self.rawValue
+    }
+}
+
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
     /// Update lane for the Updates section; nil in previews and tests.
     var updateStore: UpdateStore?
+    /// Reports the content's natural size so WindowsController can size the window; nil in tests.
+    var onNaturalSize: (@MainActor (CGSize) -> Void)?
+    @State private var selectedTab: SettingsTab = .general
+    /// Rendered strip width; the panes match it so edges align. 600 is the pre-layout fallback.
+    @State private var stripWidth: CGFloat = 600
     @State private var launchAtLogin = LaunchAtLoginManager.isEnabled
     /// nil until the on-appear stat() resolves; the hint only renders for a definite "absent".
     @State private var codexAuthFileDetected: Bool?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            self.providersSection
-            Divider()
-            self.generalSection
-            Divider()
-            self.menuBarSection
-            Divider()
-            self.displaySection
-            Divider()
-            self.costSection
-            Divider()
-            self.notificationsSection
-            Divider()
-            self.updatesSection
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("Section", selection: self.$selectedTab) {
+                ForEach(SettingsTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            // Natural width; the panes copy it so the window grows with the strip, never clips.
+            .fixedSize()
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                self.stripWidth = width
+            }
+
+            // Hidden panes stay laid out, so tab switches never resize the window.
+            ZStack(alignment: .topLeading) {
+                ForEach(SettingsTab.allCases) { tab in
+                    self.paneContent(for: tab)
+                        .opacity(tab == self.selectedTab ? 1 : 0)
+                        .allowsHitTesting(tab == self.selectedTab)
+                        .accessibilityHidden(tab != self.selectedTab)
+                }
+            }
         }
-        .frame(width: 460, alignment: .leading)
         .padding(20)
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            self.onNaturalSize?(size)
+        }
         .onAppear {
             self.launchAtLogin = LaunchAtLoginManager.isEnabled
-            // Decision 7: one stat() per Settings open — never reads file contents, never runs
+            // Decision 7: one stat() per Settings open: never reads file contents, never runs
             // at launch. WindowsController recreates the root view each show, so this re-probes.
             self.codexAuthFileDetected = CodexCredentialsReader.authFileExists()
         }
     }
 
+    @ViewBuilder private func paneContent(for tab: SettingsTab) -> some View {
+        switch tab {
+        case .general: self.pane { self.generalTab }
+        case .providers: self.pane { self.providersTab }
+        case .display: self.pane { self.displayTab }
+        case .cost: self.pane { self.costTab }
+        case .notifications: self.pane { self.notificationsTab }
+        case .updates: self.pane { self.updatesTab }
+        }
+    }
+
+    /// Fixed-width column with natural height, giving the form a real fitting size.
+    private func pane(@ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            content()
+        }
+        .padding(.top, 6)
+        .frame(width: self.stripWidth, alignment: .leading)
+    }
+
     // MARK: - Providers
 
-    private var providersSection: some View {
-        SettingsSection(title: "Providers") {
+    @ViewBuilder private var providersTab: some View {
+        PreferenceToggleRow(
+            title: "Claude",
+            subtitle: "Track Claude usage (api.anthropic.com, plus local Claude Code logs for cost).",
+            iconProvider: .claude,
+            isOn: self.$settings.claudeProviderEnabled)
+
+        if self.settings.claudeProviderEnabled {
             PreferenceToggleRow(
-                title: "Claude",
-                subtitle: "Track Claude usage (api.anthropic.com, plus local Claude Code logs for cost).",
-                iconProvider: .claude,
-                isOn: self.$settings.claudeProviderEnabled)
+                title: "Ask for Keychain access when needed",
+                subtitle: "Keychain prompts are needed to read Claude Code's sign-in; leaving this "
+                    + "off can leave Claude usage blank until you allow access.",
+                isOn: self.$settings.claudeKeychainPromptsEnabled)
+                .padding(.leading, 20)
+        }
 
-            if self.settings.claudeProviderEnabled {
-                PreferenceToggleRow(
-                    title: "Ask for Keychain access when needed",
-                    subtitle: "Keychain prompts are needed to read Claude Code's sign-in; leaving this "
-                        + "off can leave Claude usage blank until you allow access.",
-                    isOn: self.$settings.claudeKeychainPromptsEnabled)
-                    .padding(.leading, 20)
-            }
+        PreferenceToggleRow(
+            title: "Codex",
+            subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
+            iconProvider: .codex,
+            isOn: self.$settings.codexProviderEnabled)
 
-            PreferenceToggleRow(
-                title: "Codex",
-                subtitle: "Track Codex usage (chatgpt.com; reads ~/.codex/auth.json, never writes it).",
-                iconProvider: .codex,
-                isOn: self.$settings.codexProviderEnabled)
-
-            if self.codexAuthFileDetected == false {
-                Text("codex CLI not detected (no ~/.codex/auth.json)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+        if self.codexAuthFileDetected == false {
+            Text("codex CLI not detected (no ~/.codex/auth.json)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
     // MARK: - General
 
-    private var generalSection: some View {
-        SettingsSection(title: "General") {
-            PreferenceToggleRow(
-                title: "Launch at login",
-                subtitle: "Start SturtBar automatically when you log in.",
-                isOn: Binding(
-                    get: { self.launchAtLogin },
-                    set: { enabled in
-                        LaunchAtLoginManager.setEnabled(enabled)
-                        // SMAppService can refuse (e.g. `swift run` outside an app bundle);
-                        // reflect the actual registration state back into the toggle.
-                        self.launchAtLogin = LaunchAtLoginManager.isEnabled
-                    }))
+    @ViewBuilder private var generalTab: some View {
+        PreferenceToggleRow(
+            title: "Launch at login",
+            subtitle: "Start SturtBar automatically when you log in.",
+            isOn: Binding(
+                get: { self.launchAtLogin },
+                set: { enabled in
+                    LaunchAtLoginManager.setEnabled(enabled)
+                    // SMAppService can refuse (e.g. `swift run` outside an app bundle);
+                    // reflect the actual registration state back into the toggle.
+                    self.launchAtLogin = LaunchAtLoginManager.isEnabled
+                }))
 
-            LabeledPickerRow(
-                title: "Refresh usage",
-                subtitle: "How often SturtBar fetches usage from enabled providers.")
-            {
-                Picker("Refresh usage", selection: self.$settings.refreshFrequency) {
-                    ForEach(RefreshFrequency.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
+        LabeledPickerRow(
+            title: "Refresh usage",
+            subtitle: "How often SturtBar fetches usage from enabled providers.")
+        {
+            Picker("Refresh usage", selection: self.$settings.refreshFrequency) {
+                ForEach(RefreshFrequency.allCases) { option in
+                    Text(option.label).tag(option)
                 }
             }
-            if self.settings.refreshFrequency == .manual {
-                Text("Usage only refreshes when the menu opens or via Refresh Now.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
         }
-    }
+        if self.settings.refreshFrequency == .manual {
+            Text("Usage only refreshes when the menu opens or via Refresh Now.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
 
-    // MARK: - Menu bar
-
-    private var menuBarSection: some View {
         SettingsSection(title: "Menu bar") {
             LabeledPickerRow(
                 title: "Text next to icon",
@@ -129,7 +172,7 @@ struct SettingsView: View {
                 }
             }
 
-            // Meaningless with a single provider — the winner is always that provider.
+            // Meaningless with a single provider: the winner is always that provider.
             if self.settings.enabledProviders.count >= 2 {
                 LabeledPickerRow(
                     title: "Menu bar shows",
@@ -147,92 +190,84 @@ struct SettingsView: View {
 
     // MARK: - Display
 
-    private var displaySection: some View {
-        SettingsSection(title: "Display") {
-            PreferenceToggleRow(
-                title: "Show reset time as clock",
-                subtitle: "Display reset times as absolute clock values instead of countdowns.",
-                isOn: self.$settings.resetTimesShowAbsolute)
+    @ViewBuilder private var displayTab: some View {
+        PreferenceToggleRow(
+            title: "Show reset time as clock",
+            subtitle: "Display reset times as absolute clock values instead of countdowns.",
+            isOn: self.$settings.resetTimesShowAbsolute)
 
-            PreferenceToggleRow(
-                title: "Show usage as used",
-                subtitle: "Progress bars fill as you consume quota (instead of showing remaining).",
-                isOn: self.$settings.usageBarsShowUsed)
+        PreferenceToggleRow(
+            title: "Show usage as used",
+            subtitle: "Progress bars fill as you consume quota (instead of showing remaining).",
+            isOn: self.$settings.usageBarsShowUsed)
 
-            PreferenceToggleRow(
-                title: "5-day work week (Mon-Fri)",
-                subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
-                isOn: self.$settings.weeklyWorkWeekPacingEnabled)
+        PreferenceToggleRow(
+            title: "5-day work week (Mon-Fri)",
+            subtitle: "Pace weekly quotas across Monday to Friday and treat weekends as zero usage.",
+            isOn: self.$settings.weeklyWorkWeekPacingEnabled)
 
-            PreferenceToggleRow(
-                title: "Show model weekly limits",
-                subtitle: "Adds a row for model-specific weekly limits, such as Fable.",
-                isOn: self.$settings.showModelWeeklyLimits)
-        }
+        PreferenceToggleRow(
+            title: "Show model weekly limits",
+            subtitle: "Adds a row for model-specific weekly limits, such as Fable.",
+            isOn: self.$settings.showModelWeeklyLimits)
     }
 
     // MARK: - Cost
 
-    private var costSection: some View {
-        SettingsSection(title: "Cost") {
-            PreferenceToggleRow(
-                title: "Track local token cost",
-                subtitle: "Estimates spend per provider from your local CLI session logs "
-                    + "(Claude Code's ~/.claude and Codex's ~/.codex) and shows it in the menu. "
-                    + "Read-only, on demand, never in the background.",
-                isOn: self.$settings.costUsageEnabled)
+    @ViewBuilder private var costTab: some View {
+        PreferenceToggleRow(
+            title: "Track local token cost",
+            subtitle: "Estimates spend per provider from your local CLI session logs "
+                + "(Claude Code's ~/.claude and Codex's ~/.codex) and shows it in the menu. "
+                + "Read-only, on demand, never in the background.",
+            isOn: self.$settings.costUsageEnabled)
 
-            if self.settings.costUsageEnabled {
-                Stepper(value: self.$settings.costUsageHistoryDays, in: 1...365, step: 1) {
-                    Text("History window: \(self.settings.costUsageHistoryDays) days")
-                        .font(.footnote)
-                }
-
-                PreferenceToggleRow(
-                    title: "Include Claude Desktop sessions",
-                    subtitle: "Also scans Claude Desktop's local agent transcripts under "
-                        + "~/Library/Application Support/Claude, reading the same token counts. "
-                        + "Off by default; while off those folders are never touched.",
-                    isOn: self.$settings.claudeDesktopSessionsEnabled)
+        if self.settings.costUsageEnabled {
+            Stepper(value: self.$settings.costUsageHistoryDays, in: 1...365, step: 1) {
+                Text("History window: \(self.settings.costUsageHistoryDays) days")
+                    .font(.footnote)
             }
+
+            PreferenceToggleRow(
+                title: "Include Claude Desktop sessions",
+                subtitle: "Also scans Claude Desktop's local agent transcripts under "
+                    + "~/Library/Application Support/Claude, reading the same token counts. "
+                    + "Off by default; while off those folders are never touched.",
+                isOn: self.$settings.claudeDesktopSessionsEnabled)
         }
     }
 
     // MARK: - Notifications
 
-    private var notificationsSection: some View {
-        SettingsSection(title: "Notifications") {
-            PreferenceToggleRow(
-                title: "Session quota notifications",
-                subtitle: "Notify when the session quota runs out and when it resets.",
-                isOn: self.$settings.sessionQuotaNotificationsEnabled)
+    @ViewBuilder private var notificationsTab: some View {
+        PreferenceToggleRow(
+            title: "Session quota notifications",
+            subtitle: "Notify when the session quota runs out and when it resets.",
+            isOn: self.$settings.sessionQuotaNotificationsEnabled)
 
-            PreferenceToggleRow(
-                title: "Quota warning notifications",
-                subtitle: "Warn before a quota runs out, at the thresholds below.",
-                isOn: self.$settings.quotaWarningNotificationsEnabled)
+        PreferenceToggleRow(
+            title: "Quota warning notifications",
+            subtitle: "Warn before a quota runs out, at the thresholds below.",
+            isOn: self.$settings.quotaWarningNotificationsEnabled)
 
-            if self.settings.quotaWarningNotificationsEnabled {
-                QuotaWarningSettingsView(settings: self.settings)
-            }
+        if self.settings.quotaWarningNotificationsEnabled {
+            QuotaWarningSettingsView(settings: self.settings)
         }
     }
 
     // MARK: - Updates
 
-    private var updatesSection: some View {
-        SettingsSection(title: "Updates") {
-            PreferenceToggleRow(
-                title: "Check for updates daily",
-                subtitle: "Asks GitHub once a day whether a newer release exists (api.github.com). "
-                    + "Sends no identifiers; nothing downloads or installs without your say-so.",
-                isOn: Binding(
-                    get: { self.settings.updateChecksEnabled ?? false },
-                    set: { self.settings.updateChecksEnabled = $0 }))
+    @ViewBuilder private var updatesTab: some View {
+        PreferenceToggleRow(
+            title: "Check for updates daily",
+            subtitle: "Asks GitHub once a day whether a newer release exists (api.github.com). "
+                + "Sends no identifiers; nothing downloads or installs without your say-so.",
+            isOn: Binding(
+                get: { self.settings.updateChecksEnabled ?? false },
+                set: { self.settings.updateChecksEnabled = $0 }))
 
-            if let updateStore = self.updateStore {
-                UpdateCheckNowRow(updateStore: updateStore)
-            }
+        if let updateStore = self.updateStore {
+            UpdateCheckNowRow(updateStore: updateStore)
         }
     }
 }

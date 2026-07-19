@@ -31,7 +31,7 @@ final class WindowsController {
         // The reused window never triggers .onAppear again after the first show, so stale
         // checkbox state would persist for the lifetime of the process without this.
         if let hosting = window.contentViewController as? NSHostingController<SettingsView> {
-            hosting.rootView = SettingsView(settings: self.settings, updateStore: self.updateStore)
+            hosting.rootView = self.makeSettingsRoot()
         }
         self.present(window)
     }
@@ -50,10 +50,30 @@ final class WindowsController {
     }
 
     private func makeSettingsWindow() -> NSWindow {
-        let hosting = NSHostingController(
-            rootView: SettingsView(settings: self.settings, updateStore: self.updateStore))
+        let hosting = NSHostingController(rootView: self.makeSettingsRoot())
         hosting.sizingOptions = .preferredContentSize
         return self.makeWindow(contentViewController: hosting, title: "SturtBar Settings")
+    }
+
+    private func makeSettingsRoot() -> SettingsView {
+        var view = SettingsView(settings: self.settings, updateStore: self.updateStore)
+        // AppKit reads preferredContentSize only at creation; content changes resize via this hook.
+        view.onNaturalSize = { [weak self] size in
+            self?.resizeSettingsWindow(to: size)
+        }
+        return view
+    }
+
+    /// Top-left-anchored resize to a content size; internal so headless tests can drive it.
+    func resizeSettingsWindow(to size: CGSize) {
+        guard let window = self.settingsWindow, size.width > 1, size.height > 1 else { return }
+        let current = window.contentRect(forFrameRect: window.frame).size
+        guard abs(current.width - size.width) > 0.5 || abs(current.height - size.height) > 0.5
+        else { return }
+        var frame = window.frameRect(forContentRect: CGRect(origin: .zero, size: size))
+        frame.origin.x = window.frame.origin.x
+        frame.origin.y = window.frame.maxY - frame.height
+        window.setFrame(frame, display: true, animate: window.isVisible)
     }
 
     private func makeAboutWindow() -> NSWindow {
