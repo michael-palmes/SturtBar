@@ -14,22 +14,22 @@ concurrency:
 
 jobs:
   build-test:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Select newest Xcode
+      - name: Select Xcode 27
         run: |
           set -euo pipefail
-          for candidate in /Applications/Xcode_26*.app /Applications/Xcode.app; do
-            if [[ -d "$candidate" ]]; then
-              sudo xcode-select -s "${candidate}/Contents/Developer"
-              break
-            fi
-          done
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          version=$(xcodebuild -version | awk 'NR == 1 { print $2 }')
+          if [[ "${version%%.*}" != "27" ]]; then
+            echo "::error::Expected Xcode 27, found ${version}"
+            exit 1
+          fi
           swift --version
 
       - name: Lint
