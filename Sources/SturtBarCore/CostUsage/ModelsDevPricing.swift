@@ -566,7 +566,7 @@ enum ModelsDevPricingPipeline {
         client: ModelsDevClient = ModelsDevClient()) async
     {
         let key = ModelsDevCache.cacheFileURL(cacheRoot: cacheRoot).path
-        await ModelsDevRefreshCoordinator.shared.run(key: key) {
+        await ModelsDevRefreshCoordinator.shared.run(key: key, eager: eager) { eager in
             await Self.refreshNow(now: now, cacheRoot: cacheRoot, eager: eager, client: client)
         }
     }
@@ -591,19 +591,31 @@ enum ModelsDevPricingPipeline {
 }
 
 /// Joins concurrent refreshes of the same cache file, so the Claude and Codex scans fetch once.
+/// An eager request that joins a normal refresh runs again afterwards, so it is never dropped.
 actor ModelsDevRefreshCoordinator {
     static let shared = ModelsDevRefreshCoordinator()
 
-    private var inFlight: [String: Task<Void, Never>] = [:]
+    private struct Flight {
+        let id: UUID
+        let eager: Bool
+        let task: Task<Void, Never>
+    }
 
-    func run(key: String, _ operation: @escaping @Sendable () async -> Void) async {
-        if let existing = self.inFlight[key] {
-            await existing.value
-            return
+    private var inFlight: [String: Flight] = [:]
+
+    func run(key: String, eager: Bool, _ operation: @escaping @Sendable (Bool) async -> Void) async {
+        while let existing = self.inFlight[key] {
+            await existing.task.value
+            self.finish(key: key, id: existing.id)
+            if !eager || existing.eager { return }
         }
-        let task = Task { await operation() }
-        self.inFlight[key] = task
-        await task.value
-        self.inFlight[key] = nil
+        let flight = Flight(id: UUID(), eager: eager, task: Task { await operation(eager) })
+        self.inFlight[key] = flight
+        await flight.task.value
+        self.finish(key: key, id: flight.id)
+    }
+
+    private func finish(key: String, id: UUID) {
+        if self.inFlight[key]?.id == id { self.inFlight[key] = nil }
     }
 }

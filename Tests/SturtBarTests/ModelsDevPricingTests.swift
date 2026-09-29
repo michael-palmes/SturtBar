@@ -339,6 +339,29 @@ struct ModelsDevPricingTests {
     }
 
     @Test
+    func `coordinator joins concurrent refreshes of the same file`() async {
+        let coordinator = ModelsDevRefreshCoordinator()
+        let runs = RunRecorder()
+        async let first: Void = coordinator.run(key: "k", eager: false) { eager in await runs.record(eager) }
+        async let second: Void = coordinator.run(key: "k", eager: false) { eager in await runs.record(eager) }
+        _ = await (first, second)
+
+        #expect(await runs.flags == [false])
+    }
+
+    @Test
+    func `coordinator reruns an eager request that joined a normal refresh`() async {
+        let coordinator = ModelsDevRefreshCoordinator()
+        let runs = RunRecorder()
+        let normal = Task { await coordinator.run(key: "k", eager: false) { eager in await runs.record(eager) } }
+        await runs.waitForStart()
+        await coordinator.run(key: "k", eager: true) { eager in await runs.record(eager) }
+        await normal.value
+
+        #expect(await runs.flags == [false, true])
+    }
+
+    @Test
     func `saving the v2 cache removes the v1 file`() throws {
         let root = try Self.cacheRoot()
         let legacy = ModelsDevCache.cacheFileURL(cacheRoot: root, version: 1)
@@ -565,5 +588,22 @@ private final class TrackingTransport: ModelsDevHTTPTransport, @unchecked Sendab
         self.lock.withLock { self.count += 1 }
         try await Task.sleep(for: .milliseconds(20))
         return try self.result.get()
+    }
+}
+
+private actor RunRecorder {
+    private(set) var flags: [Bool] = []
+    private var started = false
+
+    func record(_ eager: Bool) async {
+        self.started = true
+        self.flags.append(eager)
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+
+    func waitForStart() async {
+        while !self.started {
+            await Task.yield()
+        }
     }
 }
