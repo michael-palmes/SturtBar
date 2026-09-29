@@ -71,14 +71,9 @@ struct CostUsageClaudeProxyTests {
     }
 
     @Test
-    func `a preliminary proxy estimate gives way to the final row`() throws {
+    func `a preliminary proxy estimate never replaces the final row`() throws {
         let iso = try Self.iso()
         let rows = try Self.parse([
-            Self.entry(
-                iso: iso,
-                messageId: "msg_c",
-                stopReason: NSNull(),
-                usage: ["input_tokens": 5000, "output_tokens": 0]),
             Self.entry(
                 iso: iso,
                 messageId: "msg_c",
@@ -88,6 +83,11 @@ struct CostUsageClaudeProxyTests {
                     "cache_creation_input_tokens": 0,
                     "output_tokens": 60,
                 ]),
+            Self.entry(
+                iso: iso,
+                messageId: "msg_c",
+                stopReason: NSNull(),
+                usage: ["input_tokens": 5000, "output_tokens": 0]),
         ])
 
         #expect(rows.count == 1)
