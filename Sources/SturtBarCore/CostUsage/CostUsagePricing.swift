@@ -294,23 +294,33 @@ enum CostUsagePricing {
         return trimmed
     }
 
+    /// OpenAI's long-context tier applies to a single turn whose input exceeds this many tokens.
+    static let codexLongContextThresholdTokens = 272_000
+
     /// Estimated Codex cost in USD: built-in table first, then models.dev at base rates (a catalog
     /// tier cannot be trusted to match OpenAI's). Priority pricing is not applied.
+    /// `isLongContextTurn` says whether these tokens came from over-threshold turns; nil treats
+    /// the tokens as one turn.
     static func codexCostUSD(
         model: String,
         inputTokens: Int,
         cachedInputTokens: Int,
         outputTokens: Int,
+        isLongContextTurn: Bool? = nil,
         modelsDevCatalog: ModelsDevCatalog? = nil) -> Double?
     {
         let key = self.normalizeCodexModel(model)
 
         if let pricing = self.codexTable[key] {
+            let longContext = isLongContextTurn
+                ?? pricing.thresholdTokens.map { max(0, inputTokens) > $0 }
+                ?? false
             return self.codexCostUSD(
                 pricing: pricing,
                 inputTokens: inputTokens,
                 cachedInputTokens: cachedInputTokens,
-                outputTokens: outputTokens)
+                outputTokens: outputTokens,
+                usesLongContextRates: longContext && pricing.thresholdTokens != nil)
         }
 
         guard let lookup = self.modelsDevLookup(
@@ -329,13 +339,13 @@ enum CostUsagePricing {
         pricing: CodexPricing,
         inputTokens: Int,
         cachedInputTokens: Int,
-        outputTokens: Int) -> Double
+        outputTokens: Int,
+        usesLongContextRates: Bool = false) -> Double
     {
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
         let nonCached = max(0, inputTokens - cached)
         let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
 
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
         let inputRate = usesLongContextRates
             ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken
             : pricing.inputCostPerToken

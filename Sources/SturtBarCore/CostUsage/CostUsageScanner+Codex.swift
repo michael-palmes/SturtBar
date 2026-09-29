@@ -36,8 +36,15 @@ extension CostUsageScanner {
 
     // MARK: - Per-file parse
 
-    /// Parses one Codex session file into a `dayKey -> model -> [input, cached, output]`
-    /// aggregate, summing each turn's token delta. Out-of-range days are skipped.
+    /// Day/model aggregate slots: turns at or under the long-context threshold, then turns over it.
+    private enum CodexSlot {
+        static let count = 6
+        static let longContextOffset = 3
+    }
+
+    /// Parses one Codex session file into a `dayKey -> model -> [input, cached, output,
+    /// lcInput, lcCached, lcOutput]` aggregate, summing each turn's token delta into the standard
+    /// or long-context slots by that turn's own input. Out-of-range days are skipped.
     static func parseCodexFile(
         fileURL: URL,
         range: CostUsageDayRange,
@@ -47,7 +54,9 @@ extension CostUsageScanner {
             guard let dict = value as? [String: Any] else { return nil }
             return (
                 input: CostUsageMath.tokenCount(dict["input_tokens"]),
-                cached: CostUsageMath.tokenCount(dict["cached_input_tokens"] ?? dict["cache_read_input_tokens"]),
+                cached: max(
+                    CostUsageMath.tokenCount(dict["cached_input_tokens"]),
+                    CostUsageMath.tokenCount(dict["cache_read_input_tokens"])),
                 output: CostUsageMath.tokenCount(dict["output_tokens"]))
         }
 
@@ -63,10 +72,11 @@ extension CostUsageScanner {
             else { return }
             let normModel = CostUsagePricing.normalizeCodexModel(model)
             var dayModels = days[dayKey] ?? [:]
-            var packed = dayModels[normModel] ?? [0, 0, 0]
-            packed[0] = CostUsageMath.add(packed[safe: 0] ?? 0, input)
-            packed[1] = CostUsageMath.add(packed[safe: 1] ?? 0, cached)
-            packed[2] = CostUsageMath.add(packed[safe: 2] ?? 0, output)
+            var packed = dayModels[normModel] ?? Array(repeating: 0, count: CodexSlot.count)
+            let base = input > CostUsagePricing.codexLongContextThresholdTokens ? CodexSlot.longContextOffset : 0
+            packed[base] = CostUsageMath.add(packed[safe: base] ?? 0, input)
+            packed[base + 1] = CostUsageMath.add(packed[safe: base + 1] ?? 0, cached)
+            packed[base + 2] = CostUsageMath.add(packed[safe: base + 2] ?? 0, output)
             dayModels[normModel] = packed
             days[dayKey] = dayModels
         }
@@ -259,10 +269,10 @@ extension CostUsageScanner {
             for (day, models) in usage.days {
                 for (model, packed) in models {
                     var dayModels = days[day] ?? [:]
-                    var merged = dayModels[model] ?? [0, 0, 0]
-                    merged[0] = CostUsageMath.add(merged[safe: 0] ?? 0, packed[safe: 0] ?? 0)
-                    merged[1] = CostUsageMath.add(merged[safe: 1] ?? 0, packed[safe: 1] ?? 0)
-                    merged[2] = CostUsageMath.add(merged[safe: 2] ?? 0, packed[safe: 2] ?? 0)
+                    var merged = dayModels[model] ?? Array(repeating: 0, count: CodexSlot.count)
+                    for slot in 0..<CodexSlot.count {
+                        merged[slot] = CostUsageMath.add(merged[safe: slot] ?? 0, packed[safe: slot] ?? 0)
+                    }
                     dayModels[model] = merged
                     days[day] = dayModels
                 }
@@ -360,10 +370,14 @@ extension CostUsageScanner {
             var dayUnpricedTokens = 0
 
             for model in modelNames {
-                let packed = models[model] ?? [0, 0, 0]
-                let input = packed[safe: 0] ?? 0
-                let cached = packed[safe: 1] ?? 0
-                let output = packed[safe: 2] ?? 0
+                let packed = models[model] ?? []
+                func slot(_ index: Int) -> Int {
+                    packed[safe: index] ?? 0
+                }
+                let lc = CodexSlot.longContextOffset
+                let input = CostUsageMath.add(slot(0), slot(lc))
+                let cached = CostUsageMath.add(slot(1), slot(lc + 1))
+                let output = CostUsageMath.add(slot(2), slot(lc + 2))
 
                 dayInput.addSaturating(input)
                 dayCached.addSaturating(cached)
@@ -372,12 +386,21 @@ extension CostUsageScanner {
                 // Codex input_tokens already includes the cached subset, so distinct
                 // tokens = input + output.
                 let modelTokens = CostUsageMath.add(input, output)
-                let cost = CostUsagePricing.codexCostUSD(
+                let standardCost = CostUsagePricing.codexCostUSD(
                     model: model,
-                    inputTokens: input,
-                    cachedInputTokens: cached,
-                    outputTokens: output,
+                    inputTokens: slot(0),
+                    cachedInputTokens: slot(1),
+                    outputTokens: slot(2),
+                    isLongContextTurn: false,
                     modelsDevCatalog: modelsDevCatalog)
+                let longContextCost = CostUsagePricing.codexCostUSD(
+                    model: model,
+                    inputTokens: slot(lc),
+                    cachedInputTokens: slot(lc + 1),
+                    outputTokens: slot(lc + 2),
+                    isLongContextTurn: true,
+                    modelsDevCatalog: modelsDevCatalog)
+                let cost = standardCost.flatMap { standard in longContextCost.map { standard + $0 } }
                 breakdown.append(CostUsageDailyReport.ModelBreakdown(
                     modelName: model,
                     costUSD: cost,

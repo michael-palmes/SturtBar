@@ -10,7 +10,7 @@ enum CostUsageCacheProvider {
     var fileName: String {
         switch self {
         case .claude: "claude-v5.json"
-        case .codex: "codex-v1.json"
+        case .codex: "codex-v2.json"
         }
     }
 
@@ -18,7 +18,7 @@ enum CostUsageCacheProvider {
     var legacyFileNames: [String] {
         switch self {
         case .claude: ["claude-v4.json"]
-        case .codex: []
+        case .codex: ["codex-v1.json"]
         }
     }
 }
