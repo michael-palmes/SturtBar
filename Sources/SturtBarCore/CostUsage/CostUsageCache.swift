@@ -52,6 +52,20 @@ enum CostUsageCacheIO {
         return decoded
     }
 
+    /// Saves only when the scan changed something beyond its timestamp, sparing a multi-megabyte rewrite.
+    static func saveIfChanged(
+        cache: CostUsageCache,
+        loaded: CostUsageCache,
+        cacheRoot: URL? = nil,
+        provider: CostUsageCacheProvider = .claude)
+    {
+        var unchanged = cache
+        unchanged.lastScanUnixMs = loaded.lastScanUnixMs
+        unchanged.timeZoneIdentifier = loaded.timeZoneIdentifier
+        guard unchanged != loaded || loaded.timeZoneIdentifier == nil else { return }
+        self.save(cache: cache, cacheRoot: cacheRoot, provider: provider)
+    }
+
     static func save(cache: CostUsageCache, cacheRoot: URL? = nil, provider: CostUsageCacheProvider = .claude) {
         let url = self.cacheFileURL(cacheRoot: cacheRoot, provider: provider)
         let dir = url.deletingLastPathComponent()
@@ -77,7 +91,7 @@ enum CostUsageCacheIO {
     }
 }
 
-struct CostUsageCache: Codable {
+struct CostUsageCache: Codable, Equatable {
     var version: Int = 1
     var lastScanUnixMs: Int64 = 0
     var scanSinceKey: String?
@@ -95,7 +109,7 @@ struct CostUsageCache: Codable {
     var timeZoneIdentifier: String?
 }
 
-struct CostUsageFileUsage: Codable {
+struct CostUsageFileUsage: Codable, Equatable {
     var mtimeUnixMs: Int64
     var size: Int64
     var days: [String: [String: [Int]]]

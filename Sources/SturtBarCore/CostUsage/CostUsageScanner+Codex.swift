@@ -288,6 +288,7 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
         var cache = CostUsageCacheIO.load(cacheRoot: options.cacheRoot, provider: .codex)
+        let loadedCache = cache
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
 
         let refreshMs = Int64(max(0, options.refreshMinIntervalSeconds) * 1000)
@@ -328,7 +329,11 @@ extension CostUsageScanner {
             cache.scanUntilKey = range.scanUntilKey
             cache.lastScanUnixMs = nowMs
             try checkCancellation?()
-            CostUsageCacheIO.save(cache: cache, cacheRoot: options.cacheRoot, provider: .codex)
+            CostUsageCacheIO.saveIfChanged(
+                cache: cache,
+                loaded: loadedCache,
+                cacheRoot: options.cacheRoot,
+                provider: .codex)
         }
 
         return try Self.buildCodexReportFromCache(

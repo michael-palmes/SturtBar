@@ -137,3 +137,52 @@ struct CostUsageCacheTests {
         return root
     }
 }
+
+struct CostUsageCacheWriteTests {
+    @Test
+    func `a scan that finds nothing new leaves the cache file alone`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 9, day: 25)
+        let iso = env.isoString(for: day)
+        func entry(_ id: String) -> [String: Any] {
+            [
+                "message": [
+                    "model": "claude-opus-5",
+                    "id": id,
+                    "usage": [
+                        "input_tokens": 10,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                        "output_tokens": 1,
+                    ],
+                ],
+                "requestId": "req_\(id)",
+                "type": "assistant",
+                "timestamp": iso,
+                "sessionId": "session_write",
+            ]
+        }
+        let log = try env.writeClaudeProjectFile(relativePath: "p/write.jsonl", contents: env.jsonl([entry("msg_1")]))
+        var options = CostUsageScanner.Options(claudeProjectsRoots: [env.claudeProjectsRoot], cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        _ = CostUsageScanner.loadDailyReport(since: day, until: day, now: day, options: options)
+
+        let cacheURL = CostUsageCacheIO.cacheFileURL(cacheRoot: env.cacheRoot)
+        let pinned = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: pinned], ofItemAtPath: cacheURL.path)
+
+        _ = CostUsageScanner.loadDailyReport(since: day, until: day, now: day.addingTimeInterval(120), options: options)
+        let afterIdle = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
+        #expect(afterIdle == pinned)
+
+        let handle = try FileHandle(forWritingTo: log)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(env.jsonl([entry("msg_2")]).utf8))
+        try handle.close()
+        _ = CostUsageScanner.loadDailyReport(since: day, until: day, now: day.addingTimeInterval(240), options: options)
+        let afterAppend = try FileManager.default.attributesOfItem(atPath: cacheURL.path)[.modificationDate] as? Date
+        #expect(afterAppend != pinned)
+    }
+}
