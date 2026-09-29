@@ -15,6 +15,17 @@ public struct CostUsageTokenSnapshot: Sendable, Equatable, Codable {
     public let historyLabel: String?
     public let daily: [CostUsageDailyReport.Entry]
     public let updatedAt: Date
+    /// Models in the window with usage but no known price; their tokens are excluded from the costs.
+    public let unpricedModels: [CostUsageUnpricedModel]?
+    public let sessionUnpricedTokens: Int?
+
+    public var isPartial: Bool {
+        !(self.unpricedModels ?? []).isEmpty
+    }
+
+    public var isSessionPartial: Bool {
+        (self.sessionUnpricedTokens ?? 0) > 0
+    }
 
     public init(
         sessionTokens: Int?,
@@ -27,7 +38,9 @@ public struct CostUsageTokenSnapshot: Sendable, Equatable, Codable {
         historyDays: Int = 30,
         historyLabel: String? = nil,
         daily: [CostUsageDailyReport.Entry],
-        updatedAt: Date)
+        updatedAt: Date,
+        unpricedModels: [CostUsageUnpricedModel]? = nil,
+        sessionUnpricedTokens: Int? = nil)
     {
         self.sessionTokens = sessionTokens
         self.sessionCostUSD = sessionCostUSD
@@ -42,6 +55,18 @@ public struct CostUsageTokenSnapshot: Sendable, Equatable, Codable {
         self.historyLabel = historyLabel
         self.daily = daily
         self.updatedAt = updatedAt
+        self.unpricedModels = unpricedModels
+        self.sessionUnpricedTokens = sessionUnpricedTokens
+    }
+}
+
+public struct CostUsageUnpricedModel: Sendable, Equatable, Codable {
+    public let modelName: String
+    public let tokens: Int
+
+    public init(modelName: String, tokens: Int) {
+        self.modelName = modelName
+        self.tokens = tokens
     }
 }
 
@@ -55,6 +80,8 @@ public struct CostUsageDailyReport: Sendable, Decodable {
         public let priorityCostUSD: Double?
         public let standardTokens: Int?
         public let priorityTokens: Int?
+        /// Tokens with no known price; `costUSD` covers only the priced remainder.
+        public let unpricedTokens: Int?
 
         private enum CodingKeys: String, CodingKey {
             case modelName
@@ -67,6 +94,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             case priorityCostUSD
             case standardTokens
             case priorityTokens
+            case unpricedTokens
         }
 
         public init(from decoder: Decoder) throws {
@@ -83,6 +111,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             self.priorityCostUSD = try container.decodeIfPresent(Double.self, forKey: .priorityCostUSD)
             self.standardTokens = try container.decodeIfPresent(Int.self, forKey: .standardTokens)
             self.priorityTokens = try container.decodeIfPresent(Int.self, forKey: .priorityTokens)
+            self.unpricedTokens = try container.decodeIfPresent(Int.self, forKey: .unpricedTokens)
         }
 
         public init(
@@ -93,7 +122,8 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             standardCostUSD: Double? = nil,
             priorityCostUSD: Double? = nil,
             standardTokens: Int? = nil,
-            priorityTokens: Int? = nil)
+            priorityTokens: Int? = nil,
+            unpricedTokens: Int? = nil)
         {
             self.modelName = modelName
             self.costUSD = costUSD
@@ -103,6 +133,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             self.priorityCostUSD = priorityCostUSD
             self.standardTokens = standardTokens
             self.priorityTokens = priorityTokens
+            self.unpricedTokens = unpricedTokens.flatMap { $0 > 0 ? $0 : nil }
         }
     }
 
@@ -117,6 +148,8 @@ public struct CostUsageDailyReport: Sendable, Decodable {
         public let costUSD: Double?
         public let modelsUsed: [String]?
         public let modelBreakdowns: [ModelBreakdown]?
+        /// Tokens with no known price; `costUSD` covers only the priced remainder.
+        public let unpricedTokens: Int?
 
         private enum CodingKeys: String, CodingKey {
             case date
@@ -134,6 +167,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             case modelsUsed
             case models
             case modelBreakdowns
+            case unpricedTokens
         }
 
         public init(from decoder: Decoder) throws {
@@ -156,6 +190,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
                 ?? container.decodeIfPresent(Double.self, forKey: .totalCost)
             self.modelsUsed = Self.decodeModelsUsed(from: container)
             self.modelBreakdowns = try container.decodeIfPresent([ModelBreakdown].self, forKey: .modelBreakdowns)
+            self.unpricedTokens = try container.decodeIfPresent(Int.self, forKey: .unpricedTokens)
         }
 
         public init(
@@ -168,7 +203,8 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             requestCount: Int? = nil,
             costUSD: Double?,
             modelsUsed: [String]?,
-            modelBreakdowns: [ModelBreakdown]?)
+            modelBreakdowns: [ModelBreakdown]?,
+            unpricedTokens: Int? = nil)
         {
             self.date = date
             self.inputTokens = inputTokens
@@ -180,6 +216,7 @@ public struct CostUsageDailyReport: Sendable, Decodable {
             self.costUSD = costUSD
             self.modelsUsed = modelsUsed
             self.modelBreakdowns = modelBreakdowns
+            self.unpricedTokens = unpricedTokens.flatMap { $0 > 0 ? $0 : nil }
         }
 
         private static func decodeModelsUsed(from container: KeyedDecodingContainer<CodingKeys>) -> [String]? {
@@ -310,6 +347,7 @@ extension CostUsageDailyReport.ModelBreakdown: Encodable {
         try container.encodeIfPresent(self.priorityCostUSD, forKey: .priorityCostUSD)
         try container.encodeIfPresent(self.standardTokens, forKey: .standardTokens)
         try container.encodeIfPresent(self.priorityTokens, forKey: .priorityTokens)
+        try container.encodeIfPresent(self.unpricedTokens, forKey: .unpricedTokens)
     }
 }
 
@@ -326,6 +364,7 @@ extension CostUsageDailyReport.Entry: Encodable {
         try container.encodeIfPresent(self.costUSD, forKey: .costUSD)
         try container.encodeIfPresent(self.modelsUsed, forKey: .modelsUsed)
         try container.encodeIfPresent(self.modelBreakdowns, forKey: .modelBreakdowns)
+        try container.encodeIfPresent(self.unpricedTokens, forKey: .unpricedTokens)
     }
 }
 
@@ -343,8 +382,10 @@ extension CostUsageDailyReport {
         var sawStandardTokens = false
         var priorityTokens: Int = 0
         var sawPriorityTokens = false
+        var unpricedTokens: Int = 0
 
         mutating func add(_ breakdown: ModelBreakdown) {
+            self.unpricedTokens.addSaturating(breakdown.unpricedTokens ?? 0)
             if let totalTokens = breakdown.totalTokens {
                 self.totalTokens.addSaturating(totalTokens)
                 self.sawTotalTokens = true
@@ -379,7 +420,8 @@ extension CostUsageDailyReport {
                 standardCostUSD: self.sawStandardCost ? self.standardCostUSD : nil,
                 priorityCostUSD: self.sawPriorityCost ? self.priorityCostUSD : nil,
                 standardTokens: self.sawStandardTokens ? self.standardTokens : nil,
-                priorityTokens: self.sawPriorityTokens ? self.priorityTokens : nil)
+                priorityTokens: self.sawPriorityTokens ? self.priorityTokens : nil,
+                unpricedTokens: self.unpricedTokens)
         }
     }
 
@@ -399,8 +441,10 @@ extension CostUsageDailyReport {
         var sawCost = false
         var modelsUsed: Set<String> = []
         var breakdowns: [String: BreakdownAccumulator] = [:]
+        var unpricedTokens: Int = 0
 
         mutating func add(_ entry: Entry) {
+            self.unpricedTokens.addSaturating(entry.unpricedTokens ?? 0)
             let entryDerivedTotalTokens = CostUsageMath.sum(
                 entry.inputTokens ?? 0,
                 entry.cacheReadTokens ?? 0,
@@ -476,7 +520,8 @@ extension CostUsageDailyReport {
                 totalTokens: totalTokens,
                 costUSD: self.sawCost ? self.costUSD : nil,
                 modelsUsed: modelsUsed,
-                modelBreakdowns: modelBreakdowns)
+                modelBreakdowns: modelBreakdowns,
+                unpricedTokens: self.unpricedTokens)
         }
     }
 

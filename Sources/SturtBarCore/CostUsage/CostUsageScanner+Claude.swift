@@ -26,7 +26,8 @@ extension CostUsageScanner {
     private struct ClaudeRepricedCost {
         var total: Double = 0
         var sampleCount: Int = 0
-        var unresolved = false
+        var pricedCount: Int = 0
+        var unpricedTokens: Int = 0
     }
 
     private static func defaultClaudeProjectsRoots(options: Options) -> [URL] {
@@ -764,8 +765,10 @@ extension CostUsageScanner {
             }
             if let cost {
                 aggregate.total += cost
+                aggregate.pricedCount += 1
             } else {
-                aggregate.unresolved = true
+                aggregate.unpricedTokens.addSaturating(
+                    CostUsageMath.sum(row.input, row.cacheRead, row.cacheCreate, row.output))
             }
             repricedCosts[key] = aggregate
         }
@@ -786,6 +789,7 @@ extension CostUsageScanner {
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
             var dayCostSeen = false
+            var dayUnpricedTokens = 0
 
             for model in modelNames {
                 let packed = models[model] ?? [0, 0, 0, 0]
@@ -802,25 +806,22 @@ extension CostUsageScanner {
                 dayCacheCreate.addSaturating(cacheCreate)
                 dayOutput.addSaturating(output)
 
-                let repricedCost = repricedCosts[ClaudeDayModelKey(day: day, model: model)]
-                let currentPricingCost: Double? = if let repricedCost,
-                                                     repricedCost.sampleCount == sampleCount,
-                                                     !repricedCost.unresolved
-                {
-                    repricedCost.total
-                } else {
-                    nil
-                }
-                let cost = currentPricingCost
+                // A row-count mismatch means the day aggregate and rows disagree; price nothing rather than guess.
+                let repriced = repricedCosts[ClaudeDayModelKey(day: day, model: model)]
+                    .flatMap { $0.sampleCount == sampleCount ? $0 : nil }
+                let cost = repriced.flatMap { $0.pricedCount > 0 ? $0.total : nil }
+                let unpricedTokens = repriced?.unpricedTokens ?? totalTokens
                 breakdown.append(
                     CostUsageDailyReport.ModelBreakdown(
                         modelName: model,
                         costUSD: cost,
-                        totalTokens: totalTokens))
+                        totalTokens: totalTokens,
+                        unpricedTokens: unpricedTokens))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
                 }
+                dayUnpricedTokens.addSaturating(unpricedTokens)
             }
 
             let sortedBreakdown = Self.sortedModelBreakdowns(breakdown)
@@ -836,7 +837,8 @@ extension CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: sortedBreakdown))
+                modelBreakdowns: sortedBreakdown,
+                unpricedTokens: dayUnpricedTokens))
 
             totalInput.addSaturating(dayInput)
             totalOutput.addSaturating(dayOutput)

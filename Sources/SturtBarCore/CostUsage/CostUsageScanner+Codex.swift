@@ -357,6 +357,7 @@ extension CostUsageScanner {
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
             var dayCostSeen = false
+            var dayUnpricedTokens = 0
 
             for model in modelNames {
                 let packed = models[model] ?? [0, 0, 0]
@@ -380,10 +381,13 @@ extension CostUsageScanner {
                 breakdown.append(CostUsageDailyReport.ModelBreakdown(
                     modelName: model,
                     costUSD: cost,
-                    totalTokens: modelTokens))
+                    totalTokens: modelTokens,
+                    unpricedTokens: cost == nil ? modelTokens : nil))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
+                } else {
+                    dayUnpricedTokens.addSaturating(modelTokens)
                 }
             }
 
@@ -399,7 +403,8 @@ extension CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: sortedBreakdown))
+                modelBreakdowns: sortedBreakdown,
+                unpricedTokens: dayUnpricedTokens))
 
             totalInput.addSaturating(dayInput)
             totalOutput.addSaturating(dayOutput)
