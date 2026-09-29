@@ -263,6 +263,12 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.tokenCountString(15000) == "15K")
         #expect(UsageFormatter.tokenCountString(2_500_000) == "2.5M")
         #expect(UsageFormatter.tokenCountString(3_000_000_000) == "3B")
+        #expect(UsageFormatter.tokenCountString(999_499) == "999K")
+        #expect(UsageFormatter.tokenCountString(999_999) == "1M")
+        #expect(UsageFormatter.tokenCountString(999_999_999) == "1B")
+        #expect(UsageFormatter.tokenCountString(-2_500_000) == "-2.5M")
+        #expect(UsageFormatter.tokenCountString(Int.min) == "-9223372037B")
+        #expect(UsageFormatter.tokenCountString(Int.max) == "9223372037B")
         #expect(UsageFormatter.tokenCountString(-1200) == "-1.2K")
     }
 
