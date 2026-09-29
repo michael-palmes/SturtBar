@@ -364,7 +364,7 @@ enum CostUsagePricing {
         let cacheCreation1h = min(max(0, tokens.cacheCreation1h), cacheCreationTotal)
         let cacheCreation5m = cacheCreationTotal - cacheCreation1h
         let usesLongContextRates = pricing.thresholdTokens.map {
-            input + cacheRead + cacheCreationTotal > $0
+            CostUsageMath.sum(input, cacheRead, cacheCreationTotal) > $0
         } ?? false
         let inputRate = usesLongContextRates
             ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken

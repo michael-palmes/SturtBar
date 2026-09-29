@@ -346,7 +346,7 @@ extension CostUsageDailyReport {
 
         mutating func add(_ breakdown: ModelBreakdown) {
             if let totalTokens = breakdown.totalTokens {
-                self.totalTokens += totalTokens
+                self.totalTokens.addSaturating(totalTokens)
                 self.sawTotalTokens = true
             }
             if let costUSD = breakdown.costUSD {
@@ -362,11 +362,11 @@ extension CostUsageDailyReport {
                 self.sawPriorityCost = true
             }
             if let standardTokens = breakdown.standardTokens {
-                self.standardTokens += standardTokens
+                self.standardTokens.addSaturating(standardTokens)
                 self.sawStandardTokens = true
             }
             if let priorityTokens = breakdown.priorityTokens {
-                self.priorityTokens += priorityTokens
+                self.priorityTokens.addSaturating(priorityTokens)
                 self.sawPriorityTokens = true
             }
         }
@@ -401,31 +401,32 @@ extension CostUsageDailyReport {
         var breakdowns: [String: BreakdownAccumulator] = [:]
 
         mutating func add(_ entry: Entry) {
-            let entryDerivedTotalTokens = (entry.inputTokens ?? 0)
-                + (entry.cacheReadTokens ?? 0)
-                + (entry.cacheCreationTokens ?? 0)
-                + (entry.outputTokens ?? 0)
+            let entryDerivedTotalTokens = CostUsageMath.sum(
+                entry.inputTokens ?? 0,
+                entry.cacheReadTokens ?? 0,
+                entry.cacheCreationTokens ?? 0,
+                entry.outputTokens ?? 0)
             if let inputTokens = entry.inputTokens {
-                self.inputTokens += inputTokens
+                self.inputTokens.addSaturating(inputTokens)
                 self.sawInputTokens = true
             }
             if let cacheReadTokens = entry.cacheReadTokens {
-                self.cacheReadTokens += cacheReadTokens
+                self.cacheReadTokens.addSaturating(cacheReadTokens)
                 self.sawCacheReadTokens = true
             }
             if let cacheCreationTokens = entry.cacheCreationTokens {
-                self.cacheCreationTokens += cacheCreationTokens
+                self.cacheCreationTokens.addSaturating(cacheCreationTokens)
                 self.sawCacheCreationTokens = true
             }
             if let outputTokens = entry.outputTokens {
-                self.outputTokens += outputTokens
+                self.outputTokens.addSaturating(outputTokens)
                 self.sawOutputTokens = true
             }
             if let totalTokens = entry.totalTokens {
-                self.totalTokens += totalTokens
+                self.totalTokens.addSaturating(totalTokens)
                 self.sawTotalTokens = true
             } else if entryDerivedTotalTokens > 0 {
-                self.derivedTotalTokensWithoutExplicitTotal += entryDerivedTotalTokens
+                self.derivedTotalTokensWithoutExplicitTotal.addSaturating(entryDerivedTotalTokens)
             }
             if let costUSD = entry.costUSD {
                 self.costUSD += costUSD
@@ -445,12 +446,13 @@ extension CostUsageDailyReport {
         }
 
         func build(date: String) -> Entry {
-            let derivedTotalTokens = self.inputTokens
-                + self.cacheReadTokens
-                + self.cacheCreationTokens
-                + self.outputTokens
+            let derivedTotalTokens = CostUsageMath.sum(
+                self.inputTokens,
+                self.cacheReadTokens,
+                self.cacheCreationTokens,
+                self.outputTokens)
             let totalTokens: Int? = if self.sawTotalTokens {
-                self.totalTokens + self.derivedTotalTokensWithoutExplicitTotal
+                CostUsageMath.add(self.totalTokens, self.derivedTotalTokensWithoutExplicitTotal)
             } else if derivedTotalTokens > 0 {
                 derivedTotalTokens
             } else {
@@ -522,23 +524,23 @@ extension CostUsageDailyReport {
 
         for entry in entries {
             if let inputTokens = entry.inputTokens {
-                totalInputTokens += inputTokens
+                totalInputTokens.addSaturating(inputTokens)
                 sawTotalInputTokens = true
             }
             if let outputTokens = entry.outputTokens {
-                totalOutputTokens += outputTokens
+                totalOutputTokens.addSaturating(outputTokens)
                 sawTotalOutputTokens = true
             }
             if let cacheReadTokens = entry.cacheReadTokens {
-                totalCacheReadTokens += cacheReadTokens
+                totalCacheReadTokens.addSaturating(cacheReadTokens)
                 sawTotalCacheReadTokens = true
             }
             if let cacheCreationTokens = entry.cacheCreationTokens {
-                totalCacheCreationTokens += cacheCreationTokens
+                totalCacheCreationTokens.addSaturating(cacheCreationTokens)
                 sawTotalCacheCreationTokens = true
             }
             if let entryTotalTokens = entry.totalTokens {
-                totalTokens += entryTotalTokens
+                totalTokens.addSaturating(entryTotalTokens)
                 sawTotalTokens = true
             }
             if let costUSD = entry.costUSD {

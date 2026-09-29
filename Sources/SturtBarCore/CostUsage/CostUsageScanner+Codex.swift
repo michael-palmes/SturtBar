@@ -43,16 +43,12 @@ extension CostUsageScanner {
         range: CostUsageDayRange,
         checkCancellation: CancellationCheck? = nil) throws -> [String: [String: [Int]]]
     {
-        func toInt(_ value: Any?) -> Int {
-            (value as? NSNumber)?.intValue ?? 0
-        }
-
         func totals(_ value: Any?) -> (input: Int, cached: Int, output: Int)? {
             guard let dict = value as? [String: Any] else { return nil }
             return (
-                input: max(0, toInt(dict["input_tokens"])),
-                cached: max(0, toInt(dict["cached_input_tokens"] ?? dict["cache_read_input_tokens"])),
-                output: max(0, toInt(dict["output_tokens"])))
+                input: CostUsageMath.tokenCount(dict["input_tokens"]),
+                cached: CostUsageMath.tokenCount(dict["cached_input_tokens"] ?? dict["cache_read_input_tokens"]),
+                output: CostUsageMath.tokenCount(dict["output_tokens"]))
         }
 
         var days: [String: [String: [Int]]] = [:]
@@ -68,9 +64,9 @@ extension CostUsageScanner {
             let normModel = CostUsagePricing.normalizeCodexModel(model)
             var dayModels = days[dayKey] ?? [:]
             var packed = dayModels[normModel] ?? [0, 0, 0]
-            packed[0] = (packed[safe: 0] ?? 0) + input
-            packed[1] = (packed[safe: 1] ?? 0) + cached
-            packed[2] = (packed[safe: 2] ?? 0) + output
+            packed[0] = CostUsageMath.add(packed[safe: 0] ?? 0, input)
+            packed[1] = CostUsageMath.add(packed[safe: 1] ?? 0, cached)
+            packed[2] = CostUsageMath.add(packed[safe: 2] ?? 0, output)
             dayModels[normModel] = packed
             days[dayKey] = dayModels
         }
@@ -264,9 +260,9 @@ extension CostUsageScanner {
                 for (model, packed) in models {
                     var dayModels = days[day] ?? [:]
                     var merged = dayModels[model] ?? [0, 0, 0]
-                    merged[0] = (merged[safe: 0] ?? 0) + (packed[safe: 0] ?? 0)
-                    merged[1] = (merged[safe: 1] ?? 0) + (packed[safe: 1] ?? 0)
-                    merged[2] = (merged[safe: 2] ?? 0) + (packed[safe: 2] ?? 0)
+                    merged[0] = CostUsageMath.add(merged[safe: 0] ?? 0, packed[safe: 0] ?? 0)
+                    merged[1] = CostUsageMath.add(merged[safe: 1] ?? 0, packed[safe: 1] ?? 0)
+                    merged[2] = CostUsageMath.add(merged[safe: 2] ?? 0, packed[safe: 2] ?? 0)
                     dayModels[model] = merged
                     days[day] = dayModels
                 }
@@ -368,13 +364,13 @@ extension CostUsageScanner {
                 let cached = packed[safe: 1] ?? 0
                 let output = packed[safe: 2] ?? 0
 
-                dayInput += input
-                dayCached += cached
-                dayOutput += output
+                dayInput.addSaturating(input)
+                dayCached.addSaturating(cached)
+                dayOutput.addSaturating(output)
 
                 // Codex input_tokens already includes the cached subset, so distinct
                 // tokens = input + output.
-                let modelTokens = input + output
+                let modelTokens = CostUsageMath.add(input, output)
                 let cost = CostUsagePricing.codexCostUSD(
                     model: model,
                     inputTokens: input,
@@ -392,7 +388,7 @@ extension CostUsageScanner {
             }
 
             let sortedBreakdown = Self.sortedModelBreakdowns(breakdown)
-            let dayTotal = dayInput + dayOutput
+            let dayTotal = CostUsageMath.add(dayInput, dayOutput)
             let entryCost = dayCostSeen ? dayCost : nil
             entries.append(CostUsageDailyReport.Entry(
                 date: day,
@@ -405,10 +401,10 @@ extension CostUsageScanner {
                 modelsUsed: modelNames,
                 modelBreakdowns: sortedBreakdown))
 
-            totalInput += dayInput
-            totalOutput += dayOutput
-            totalCacheRead += dayCached
-            totalTokens += dayTotal
+            totalInput.addSaturating(dayInput)
+            totalOutput.addSaturating(dayOutput)
+            totalCacheRead.addSaturating(dayCached)
+            totalTokens.addSaturating(dayTotal)
             if let entryCost {
                 totalCost += entryCost
                 costSeen = true
