@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Claude and Codex cost estimates. The built-in tables (pinned by tests to published rates) are
 /// authoritative; the models.dev catalog only prices models a build does not know yet. Call sites
@@ -47,18 +48,38 @@ enum CostUsagePricing {
         (try? NSRegularExpression(pattern: pattern)) ?? self.fallbackRegex
     }
 
-    static func normalizeClaudeModel(_ raw: String) -> String {
-        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tagRange = NSRange(trimmed.startIndex..., in: trimmed)
-        if let tag = contextTagRegex.firstMatch(in: trimmed, range: tagRange),
-           let range = Range(tag.range, in: trimmed)
-        {
-            trimmed.removeSubrange(range)
+    /// Scans normalise the same few model names on every row; the regex work runs once per name.
+    private static let normalizedKeyMemo = Mutex<[String: String]>([:])
+
+    private static func memoised(_ raw: String, provider: String, _ compute: (String) -> String) -> String {
+        let memoKey = "\(provider)\u{0}\(raw)"
+        if let hit = self.normalizedKeyMemo.withLock({ $0[memoKey] }) { return hit }
+        let key = compute(raw)
+        self.normalizedKeyMemo.withLock { memo in
+            if memo.count >= 512 { memo.removeAll(keepingCapacity: true) }
+            memo[memoKey] = key
         }
+        return key
+    }
+
+    static func normalizeClaudeModel(_ raw: String) -> String {
+        self.memoised(raw, provider: "claude", self.computeClaudeKey)
+    }
+
+    private static func computeClaudeKey(_ raw: String) -> String {
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Fast path: if the trimmed form already is a known key, return immediately.
         if self.claudeTable[trimmed] != nil || self.claudeHistoricalLongContextTable[trimmed] != nil {
             return trimmed
+        }
+
+        if trimmed.hasSuffix("]"),
+           let tag = contextTagRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+           let range = Range(tag.range, in: trimmed)
+        {
+            trimmed.removeSubrange(range)
+            if self.claudeTable[trimmed] != nil { return trimmed }
         }
 
         if trimmed.hasPrefix("anthropic.") {
@@ -267,6 +288,10 @@ enum CostUsagePricing {
     static let codexModelsDevProviderID = "openai"
 
     static func normalizeCodexModel(_ raw: String) -> String {
+        self.memoised(raw, provider: "codex", self.computeCodexKey)
+    }
+
+    private static func computeCodexKey(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Fast path: already a known key.
