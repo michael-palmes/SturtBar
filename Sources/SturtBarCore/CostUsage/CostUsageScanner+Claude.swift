@@ -13,6 +13,12 @@ extension CostUsageScanner {
         let model: String
     }
 
+    /// One response's identity: streamed chunks and repeated proxy snapshots share it, so the last wins.
+    private enum ClaudeRowKey: Hashable, Comparable {
+        case request(messageId: String, requestId: String)
+        case session(sessionId: String, messageId: String)
+    }
+
     private struct ClaudeRepricedCost {
         var total: Double = 0
         var sampleCount: Int = 0
@@ -82,7 +88,7 @@ extension CostUsageScanner {
         modelsDevCatalog: ModelsDevCatalog? = nil) throws -> ClaudeParseResult
     {
         let pathRole = Self.claudePathRole(fileURL: fileURL)
-        var keyedRows: [String: ClaudeUsageRow] = [:]
+        var keyedRows: [ClaudeRowKey: ClaudeUsageRow] = [:]
         var unkeyedRows: [ClaudeUsageRow] = []
 
         let maxLineBytes = 512 * 1024
@@ -113,13 +119,8 @@ extension CostUsageScanner {
                                 providerFilter: providerFilter,
                                 modelsDevCatalog: modelsDevCatalog)
                         else { return }
-                        let messageId = row.messageId
-                        let requestId = row.requestId
 
-                        // Streaming chunks share message.id + requestId inside a file.
-                        // Keep overwriting so the final cumulative chunk wins.
-                        if let messageId, let requestId {
-                            let key = "\(messageId):\(requestId)"
+                        if let key = Self.claudeRowKey(row) {
                             keyedRows[key] = row
                         } else {
                             // Older logs omit IDs; treat each line as distinct to avoid dropping usage.
@@ -164,6 +165,10 @@ extension CostUsageScanner {
         let cacheRead = CostUsageMath.tokenCount(usage["cache_read_input_tokens"])
         let output = CostUsageMath.tokenCount(usage["output_tokens"])
         if input == 0, cacheCreate == 0, cacheRead == 0, output == 0 { return nil }
+        // Proxies can log a cache-unaware estimate before the response ends; the final row replaces it.
+        let isPreliminaryProxyRow = message["stop_reason"] is NSNull && input > 0 && output == 0
+            && usage["cache_read_input_tokens"] == nil && usage["cache_creation_input_tokens"] == nil
+        if isPreliminaryProxyRow { return nil }
         guard CostUsageDayRange.isInRange(dayKey: dayKey, since: range.scanSinceKey, until: range.scanUntilKey)
         else { return nil }
 
@@ -210,26 +215,23 @@ extension CostUsageScanner {
         fileURL.path.contains("/subagents/") ? .subagent : .parent
     }
 
-    private static func claudeCanonicalRowKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else {
-            return nil
+    private static func claudeRowKey(_ row: ClaudeUsageRow) -> ClaudeRowKey? {
+        guard let messageId = row.messageId, !messageId.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        if let requestId = row.requestId {
+            return .request(messageId: messageId, requestId: requestId)
         }
-        return "\(messageId):\(requestId)"
+        guard let sessionId = row.sessionId, !sessionId.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        return .session(sessionId: sessionId, messageId: messageId)
     }
 
     private static func mergeClaudeRows(existing: [ClaudeUsageRow], delta: [ClaudeUsageRow]) -> [ClaudeUsageRow] {
-        var keyedRows: [String: ClaudeUsageRow] = [:]
+        var keyedRows: [ClaudeRowKey: ClaudeUsageRow] = [:]
         var unkeyedRows: [ClaudeUsageRow] = []
 
-        for row in existing {
-            if let key = Self.claudeInFileKey(row) {
-                keyedRows[key] = row
-            } else {
-                unkeyedRows.append(row)
-            }
-        }
-        for row in delta {
-            if let key = Self.claudeInFileKey(row) {
+        for row in existing + delta {
+            if let key = Self.claudeRowKey(row) {
                 keyedRows[key] = row
             } else {
                 unkeyedRows.append(row)
@@ -237,11 +239,6 @@ extension CostUsageScanner {
         }
 
         return keyedRows.keys.sorted().compactMap { keyedRows[$0] } + unkeyedRows
-    }
-
-    private static func claudeInFileKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else { return nil }
-        return "\(messageId):\(requestId)"
     }
 
     private static func claudeRowWins(
@@ -262,7 +259,7 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck? = nil) throws -> [ClaudeUsageRow]
     {
         var rows: [ClaudeUsageRow] = []
-        var winners: [String: (path: String, row: ClaudeUsageRow)] = [:]
+        var winners: [ClaudeRowKey: (path: String, row: ClaudeUsageRow)] = [:]
         var rowCount = 0
 
         for path in cache.files.keys.sorted() {
@@ -271,7 +268,7 @@ extension CostUsageScanner {
                 rowCount += 1
                 if rowCount & 4095 == 0 { try checkCancellation?() }
 
-                guard let canonicalKey = Self.claudeCanonicalRowKey(row) else {
+                guard let canonicalKey = Self.claudeRowKey(row) else {
                     rows.append(row)
                     continue
                 }
