@@ -32,187 +32,13 @@ enum CostUsagePricing {
         let output: Int
     }
 
-    private static let claude: [String: ClaudePricing] = [
-        "claude-fable-5": ClaudePricing(
-            inputCostPerToken: 1e-5,
-            outputCostPerToken: 5e-5,
-            cacheCreationInputCostPerToken: 1.25e-5,
-            cacheReadInputCostPerToken: 1e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-haiku-4-5-20251001": ClaudePricing(
-            inputCostPerToken: 1e-6,
-            outputCostPerToken: 5e-6,
-            cacheCreationInputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 1e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-haiku-4-5": ClaudePricing(
-            inputCostPerToken: 1e-6,
-            outputCostPerToken: 5e-6,
-            cacheCreationInputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 1e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-5-20251101": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-5": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-6-20260205": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-6": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-7": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-8": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-5": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-        "claude-sonnet-4-6": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-5-20250929": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-        "claude-opus-4-20250514": ClaudePricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 7.5e-5,
-            cacheCreationInputCostPerToken: 1.875e-5,
-            cacheReadInputCostPerToken: 1.5e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-1": ClaudePricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 7.5e-5,
-            cacheCreationInputCostPerToken: 1.875e-5,
-            cacheReadInputCostPerToken: 1.5e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-20250514": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-    ]
-
-    private static let claudeFullContextStandardPricingCutoff = Date(timeIntervalSince1970: 1_773_360_000)
-    private static let claudeHistoricalLongContext: [String: ClaudePricing] = [
-        "claude-opus-4-6": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 1e-5,
-            outputCostPerTokenAboveThreshold: 3.75e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 1.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 1e-6),
-        "claude-sonnet-4-6": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-    ]
-
     /// Precompiled regex for vertex version suffix (-v1:0 style) and date suffix (-20250514 style).
     private static let vertexVersionRegex = makeRegex(pattern: #"-v\d+:\d+$"#)
 
     private static let dateSuffixRegex = makeRegex(pattern: #"-\d{8}$"#)
+
+    /// Claude Code tags extended-context sessions, e.g. `claude-opus-5[1m]`; the price is the base model's.
+    private static let contextTagRegex = makeRegex(pattern: #"\[\d+[a-z]\]$"#)
 
     private static let fallbackRegex: NSRegularExpression = {
         do {
@@ -230,9 +56,15 @@ enum CostUsagePricing {
 
     static func normalizeClaudeModel(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tagRange = NSRange(trimmed.startIndex..., in: trimmed)
+        if let tag = contextTagRegex.firstMatch(in: trimmed, range: tagRange),
+           let range = Range(tag.range, in: trimmed)
+        {
+            trimmed.removeSubrange(range)
+        }
 
         // Fast path: if the trimmed form already is a known key, return immediately.
-        if self.claude[trimmed] != nil || self.claudeHistoricalLongContext[trimmed] != nil {
+        if self.claudeTable[trimmed] != nil || self.claudeHistoricalLongContextTable[trimmed] != nil {
             return trimmed
         }
 
@@ -259,7 +91,7 @@ enum CostUsagePricing {
         if let dateMatch = dateSuffixRegex.firstMatch(in: trimmed, range: range2) {
             let matchRange = Range(dateMatch.range, in: trimmed)!
             let base = String(trimmed[..<matchRange.lowerBound])
-            if self.claude[base] != nil {
+            if self.claudeTable[base] != nil {
                 return base
             }
         }
@@ -292,8 +124,8 @@ enum CostUsagePricing {
         //    tables only — models.dev may carry the post-cutover flat rates, which would be wrong
         //    for historical rows.
         if let pricingDate,
-           let historicalPricing = self.claudeHistoricalLongContext[key],
-           let currentPricing = self.claude[key]
+           let historicalPricing = self.claudeHistoricalLongContextTable[key],
+           let currentPricing = self.claudeTable[key]
         {
             return self.claudeCostUSD(
                 pricing: pricingDate < self.claudeFullContextStandardPricingCutoff
@@ -312,7 +144,7 @@ enum CostUsagePricing {
         }
 
         // 3. Built-in table fallback.
-        guard let pricing = self.claude[key] else { return nil }
+        guard let pricing = self.claudeTable[key] else { return nil }
         return self.claudeCostUSD(
             pricing: pricing,
             tokens: tokens)
@@ -433,126 +265,6 @@ enum CostUsagePricing {
         }
     }
 
-    private static let codex: [String: CodexPricing] = [
-        "gpt-5": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5-codex": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5-mini": CodexPricing(
-            inputCostPerToken: 2.5e-7,
-            outputCostPerToken: 2e-6,
-            cacheReadInputCostPerToken: 2.5e-8,
-            displayLabel: nil),
-        "gpt-5-nano": CodexPricing(
-            inputCostPerToken: 5e-8,
-            outputCostPerToken: 4e-7,
-            cacheReadInputCostPerToken: 5e-9,
-            displayLabel: nil),
-        "gpt-5-pro": CodexPricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 1.2e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.1": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex-max": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex-mini": CodexPricing(
-            inputCostPerToken: 2.5e-7,
-            outputCostPerToken: 2e-6,
-            cacheReadInputCostPerToken: 2.5e-8,
-            displayLabel: nil),
-        "gpt-5.2": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.2-codex": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.2-pro": CodexPricing(
-            inputCostPerToken: 2.1e-5,
-            outputCostPerToken: 1.68e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.3-codex": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.3-codex-spark": CodexPricing(
-            inputCostPerToken: 0,
-            outputCostPerToken: 0,
-            cacheReadInputCostPerToken: 0,
-            displayLabel: "Research Preview"),
-        "gpt-5.4": CodexPricing(
-            inputCostPerToken: 2.5e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheReadInputCostPerToken: 2.5e-7,
-            displayLabel: nil,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 5e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 5e-7,
-            priorityInputCostPerToken: 5e-6,
-            priorityOutputCostPerToken: 3e-5,
-            priorityCacheReadInputCostPerToken: 5e-7),
-        "gpt-5.4-mini": CodexPricing(
-            inputCostPerToken: 7.5e-7,
-            outputCostPerToken: 4.5e-6,
-            cacheReadInputCostPerToken: 7.5e-8,
-            displayLabel: nil,
-            priorityInputCostPerToken: 1.5e-6,
-            priorityOutputCostPerToken: 9e-6,
-            priorityCacheReadInputCostPerToken: 1.5e-7),
-        "gpt-5.4-nano": CodexPricing(
-            inputCostPerToken: 2e-7,
-            outputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 2e-8,
-            displayLabel: nil),
-        "gpt-5.4-pro": CodexPricing(
-            inputCostPerToken: 3e-5,
-            outputCostPerToken: 1.8e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.5": CodexPricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 3e-5,
-            cacheReadInputCostPerToken: 5e-7,
-            displayLabel: nil,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 1e-5,
-            outputCostPerTokenAboveThreshold: 4.5e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 1e-6,
-            priorityInputCostPerToken: 1.25e-5,
-            priorityOutputCostPerToken: 7.5e-5,
-            priorityCacheReadInputCostPerToken: 1.25e-6),
-        "gpt-5.5-pro": CodexPricing(
-            inputCostPerToken: 3e-5,
-            outputCostPerToken: 1.8e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-    ]
-
     /// Precompiled regex for Codex date suffixes (-YYYY-MM-DD style).
     private static let codexDateSuffixRegex = makeRegex(pattern: #"-\d{4}-\d{2}-\d{2}$"#)
 
@@ -563,7 +275,7 @@ enum CostUsagePricing {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Fast path: already a known key.
-        if self.codex[trimmed] != nil {
+        if self.codexTable[trimmed] != nil {
             return trimmed
         }
 
@@ -571,7 +283,7 @@ enum CostUsagePricing {
             trimmed = String(trimmed.dropFirst("openai/".count))
         }
 
-        if self.codex[trimmed] != nil {
+        if self.codexTable[trimmed] != nil {
             return trimmed
         }
 
@@ -579,7 +291,7 @@ enum CostUsagePricing {
         if let dateMatch = codexDateSuffixRegex.firstMatch(in: trimmed, range: range) {
             let matchRange = Range(dateMatch.range, in: trimmed)!
             let base = String(trimmed[..<matchRange.lowerBound])
-            if self.codex[base] != nil {
+            if self.codexTable[base] != nil {
                 return base
             }
         }
@@ -609,14 +321,14 @@ enum CostUsagePricing {
         {
             return self.codexCostUSD(
                 pricing: lookup.pricing,
-                thresholdTokens: self.codex[key]?.thresholdTokens,
+                thresholdTokens: self.codexTable[key]?.thresholdTokens,
                 inputTokens: inputTokens,
                 cachedInputTokens: cachedInputTokens,
                 outputTokens: outputTokens)
         }
 
         // 2. Built-in table fallback.
-        guard let pricing = self.codex[key] else { return nil }
+        guard let pricing = self.codexTable[key] else { return nil }
         return self.codexCostUSD(
             pricing: pricing,
             inputTokens: inputTokens,

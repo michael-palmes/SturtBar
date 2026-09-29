@@ -263,7 +263,10 @@ enum ModelsDevModelIDNormalizer {
             candidates.append(normalized)
         }
 
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let contextTag = trimmed.range(of: #"\[\d+[a-z]\]$"#, options: .regularExpression) {
+            trimmed.removeSubrange(contextTag)
+        }
         append(trimmed)
 
         if trimmed.hasPrefix("openai/") {
