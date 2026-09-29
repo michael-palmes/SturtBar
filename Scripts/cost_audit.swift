@@ -24,7 +24,7 @@ let claudeRates: [String: Rates] = [
     "claude-fable-5": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
     "claude-opus-5-5": Rates(input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2, fastMultiplier: 2),
     "claude-opus-5": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5, fastMultiplier: 2),
-    "claude-opus-4-8": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
+    "claude-opus-4-8": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5, fastMultiplier: 2),
     "claude-opus-4-7": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
     "claude-opus-4-6": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
     "claude-sonnet-5": Rates(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),

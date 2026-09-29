@@ -14,9 +14,10 @@ struct CostUsageClaudeFastModeTests {
     }
 
     @Test
-    func `fast mode doubles opus 5 and opus 5 5`() {
+    func `fast mode doubles opus 5, opus 5 5 and opus 4 8`() {
         #expect(Self.cost("claude-opus-5", isFast: true) == 60)
         #expect(Self.cost("claude-opus-5-5", isFast: true) == 48)
+        #expect(Self.cost("claude-opus-4-8", isFast: true) == 60)
         #expect(Self.cost("claude-opus-5", isFast: false) == 30)
     }
 

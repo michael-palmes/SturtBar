@@ -46,6 +46,7 @@ extension CostUsagePricing {
     static let claudeFastMultiplier: [String: Double] = [
         "claude-opus-5": 2,
         "claude-opus-5-5": 2,
+        "claude-opus-4-8": 2,
     ]
 
     /// Models with no public price anywhere; never worth an early catalog refresh.
