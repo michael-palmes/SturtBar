@@ -150,6 +150,26 @@ func claudeModelKey(_ raw: String) -> String {
     return model
 }
 
+/// Same rule as the app: any "vertex"/"gcp" key, or a provider-style field whose value mentions vertex.
+func mentionsVertex(_ value: Any) -> Bool {
+    let providerKeys: Set<String> = [
+        "provider", "platform", "backend", "api_provider", "apiprovider",
+        "api_type", "apitype", "source", "vendor", "client",
+    ]
+    if let dict = value as? [String: Any] {
+        return dict.contains { key, nested in
+            let lower = key.lowercased()
+            if lower.contains("vertex") || lower.contains("gcp") { return true }
+            if providerKeys.contains(lower), let text = nested as? String, text.lowercased().contains("vertex") {
+                return true
+            }
+            return mentionsVertex(nested)
+        }
+    }
+    if let array = value as? [Any] { return array.contains(where: mentionsVertex) }
+    return false
+}
+
 func auditClaude(until: Date) -> [String: Tally] {
     var latest: [String: (model: String, day: String, tokens: Int, cost: Double?)] = [:]
     var anonymous: [(model: String, day: String, tokens: Int, cost: Double?)] = []
@@ -164,7 +184,9 @@ func auditClaude(until: Date) -> [String: Tally] {
             else { return }
             let messageID = message["id"] as? String
             let requestID = object["requestId"] as? String
-            if rawModel.contains("@") || (messageID ?? "").contains("_vrtx_") || (requestID ?? "").contains("_vrtx_") {
+            if rawModel.contains("@") || (messageID ?? "").contains("_vrtx_") || (requestID ?? "").contains("_vrtx_")
+                || mentionsVertex(object)
+            {
                 return
             }
             let input = count(usage["input_tokens"])
@@ -187,6 +209,9 @@ func auditClaude(until: Date) -> [String: Tally] {
             }
             let row = (model, day, input + write + read + output, cost)
             let session = object["sessionId"] as? String
+                ?? object["session_id"] as? String
+                ?? (object["metadata"] as? [String: Any])?["sessionId"] as? String
+                ?? (message["metadata"] as? [String: Any])?["sessionId"] as? String
             if let messageID, let requestID {
                 latest["r|\(messageID)|\(requestID)"] = row
             } else if let messageID, let session {
