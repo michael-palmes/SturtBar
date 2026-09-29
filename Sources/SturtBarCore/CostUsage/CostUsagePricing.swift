@@ -1,15 +1,8 @@
 import Foundation
 
-/// Claude pricing tables + models.dev catalog lookup (Phase 2b).
-///
-/// Lookup order for claudeCostUSD:
-///  1. Historical-tariff check (uses built-in tables; short-circuits for models
-///     that have pre-cutover long-context pricing).
-///  2. models.dev catalog (injected or loaded from cache) — covers new models
-///     not yet in the built-in tables.
-///  3. Built-in table fallback — offline safety net, pinned by tests.
-///
-/// Call sites pass the catalog explicitly to avoid a per-row file load.
+/// Claude and Codex cost estimates. The built-in tables (pinned by tests to published rates) are
+/// authoritative; the models.dev catalog only prices models a build does not know yet. Call sites
+/// pass the catalog explicitly to avoid a per-row file load.
 enum CostUsagePricing {
     struct ClaudePricing {
         let inputCostPerToken: Double
@@ -120,9 +113,6 @@ enum CostUsagePricing {
             output: outputTokens)
         let key = self.normalizeClaudeModel(model)
 
-        // 1. Historical-tariff check: models with a pre-cutover long-context tier use built-in
-        //    tables only — models.dev may carry the post-cutover flat rates, which would be wrong
-        //    for historical rows.
         if let pricingDate,
            let historicalPricing = self.claudeHistoricalLongContextTable[key],
            let currentPricing = self.claudeTable[key]
@@ -134,20 +124,16 @@ enum CostUsagePricing {
                 tokens: tokens)
         }
 
-        // 2. models.dev catalog lookup — covers models added after this binary shipped.
-        if let lookup = self.modelsDevLookup(
+        if let pricing = self.claudeTable[key] {
+            return self.claudeCostUSD(pricing: pricing, tokens: tokens)
+        }
+
+        guard let lookup = self.modelsDevLookup(
             providerID: self.claudeModelsDevProviderID,
             model: model,
             catalog: modelsDevCatalog)
-        {
-            return self.claudeCostUSD(pricing: lookup.pricing, tokens: tokens)
-        }
-
-        // 3. Built-in table fallback.
-        guard let pricing = self.claudeTable[key] else { return nil }
-        return self.claudeCostUSD(
-            pricing: pricing,
-            tokens: tokens)
+        else { return nil }
+        return self.claudeCostUSD(pricing: lookup.pricing, tokens: tokens)
     }
 
     static func modelsDevCatalog(now: Date = Date(), cacheRoot: URL? = nil) -> ModelsDevCatalog? {
@@ -176,8 +162,9 @@ enum CostUsagePricing {
             pricing: ClaudePricing(
                 inputCostPerToken: pricing.inputCostPerToken,
                 outputCostPerToken: pricing.outputCostPerToken,
-                cacheCreationInputCostPerToken: pricing.cacheCreationInputCostPerToken ?? pricing.inputCostPerToken,
-                cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken,
+                cacheCreationInputCostPerToken: pricing.cacheCreationInputCostPerToken
+                    ?? pricing.inputCostPerToken * 1.25,
+                cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken * 0.1,
                 thresholdTokens: pricing.thresholdTokens,
                 inputCostPerTokenAboveThreshold: pricing.inputCostPerTokenAboveThreshold,
                 outputCostPerTokenAboveThreshold: pricing.outputCostPerTokenAboveThreshold,
@@ -299,11 +286,8 @@ enum CostUsagePricing {
         return trimmed
     }
 
-    /// Estimated Codex cost in USD. Lookup order mirrors `claudeCostUSD`:
-    ///  1. models.dev catalog (injected) — covers models added after this binary shipped, with the
-    ///     built-in long-context threshold layered on top.
-    ///  2. Built-in table fallback — offline safety net, pinned by tests.
-    /// Priority pricing is intentionally not applied (SturtBar reads no priority metadata).
+    /// Estimated Codex cost in USD: built-in table first, then models.dev at base rates (a catalog
+    /// tier cannot be trusted to match OpenAI's). Priority pricing is not applied.
     static func codexCostUSD(
         model: String,
         inputTokens: Int,
@@ -313,24 +297,21 @@ enum CostUsagePricing {
     {
         let key = self.normalizeCodexModel(model)
 
-        // 1. models.dev catalog lookup — keep the built-in threshold so long-context tiers still apply.
-        if let lookup = self.modelsDevLookup(
-            providerID: self.codexModelsDevProviderID,
-            model: model,
-            catalog: modelsDevCatalog)
-        {
+        if let pricing = self.codexTable[key] {
             return self.codexCostUSD(
-                pricing: lookup.pricing,
-                thresholdTokens: self.codexTable[key]?.thresholdTokens,
+                pricing: pricing,
                 inputTokens: inputTokens,
                 cachedInputTokens: cachedInputTokens,
                 outputTokens: outputTokens)
         }
 
-        // 2. Built-in table fallback.
-        guard let pricing = self.codexTable[key] else { return nil }
+        guard let lookup = self.modelsDevLookup(
+            providerID: self.codexModelsDevProviderID,
+            model: model,
+            catalog: modelsDevCatalog)
+        else { return nil }
         return self.codexCostUSD(
-            pricing: pricing,
+            pricing: lookup.pricing,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens)
@@ -364,7 +345,6 @@ enum CostUsagePricing {
 
     private static func codexCostUSD(
         pricing: ModelsDevPricingInfo,
-        thresholdTokens: Int? = nil,
         inputTokens: Int,
         cachedInputTokens: Int,
         outputTokens: Int) -> Double
@@ -374,11 +354,7 @@ enum CostUsagePricing {
                 inputCostPerToken: pricing.inputCostPerToken,
                 outputCostPerToken: pricing.outputCostPerToken,
                 cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken,
-                displayLabel: nil,
-                thresholdTokens: thresholdTokens ?? pricing.thresholdTokens,
-                inputCostPerTokenAboveThreshold: pricing.inputCostPerTokenAboveThreshold,
-                outputCostPerTokenAboveThreshold: pricing.outputCostPerTokenAboveThreshold,
-                cacheReadInputCostPerTokenAboveThreshold: pricing.cacheReadInputCostPerTokenAboveThreshold),
+                displayLabel: nil),
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens)
