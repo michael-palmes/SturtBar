@@ -42,6 +42,16 @@ extension CostUsagePricing {
         ]
     }()
 
+    /// Models with no public price anywhere; never worth an early catalog refresh.
+    static let knownUnpricedModels: Set<String> = ["codex-auto-review"]
+
+    /// True when neither built-in table lists the model, so only a newer catalog could price it.
+    static func isUnlistedModel(_ model: String) -> Bool {
+        !self.knownUnpricedModels.contains(model)
+            && self.claudeTable[self.normalizeClaudeModel(model)] == nil
+            && self.codexTable[self.normalizeCodexModel(model)] == nil
+    }
+
     static let claudeFullContextStandardPricingCutoff = Date(timeIntervalSince1970: 1_773_360_000)
 
     /// Pre-cutoff long-context tiers; rows dated before the cutoff use these instead of the flat rates.

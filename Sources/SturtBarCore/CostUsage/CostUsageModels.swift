@@ -27,6 +27,11 @@ public struct CostUsageTokenSnapshot: Sendable, Equatable, Codable {
         (self.sessionUnpricedTokens ?? 0) > 0
     }
 
+    /// An unpriced model that no built-in table lists: a newer pricing catalog might know it.
+    public var hasUnlistedModels: Bool {
+        (self.unpricedModels ?? []).contains { CostUsagePricing.isUnlistedModel($0.modelName) }
+    }
+
     public init(
         sessionTokens: Int?,
         sessionCostUSD: Double?,

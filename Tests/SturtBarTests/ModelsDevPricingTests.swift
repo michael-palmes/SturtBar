@@ -265,6 +265,59 @@ struct ModelsDevPricingTests {
     }
 
     @Test
+    func `eager refresh fetches a fresh catalog at most every six hours`() async throws {
+        let root = try Self.cacheRoot()
+        let fetchedAt = Date(timeIntervalSince1970: 1_000_000)
+        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: fetchedAt, cacheRoot: root)
+        let transport = TrackingTransport(result: .failure(MockError.failed))
+        let client = ModelsDevClient(transport: transport)
+
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: fetchedAt.addingTimeInterval(60 * 60),
+            cacheRoot: root,
+            client: client)
+        #expect(transport.calls == 0)
+
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: fetchedAt.addingTimeInterval(60 * 60),
+            cacheRoot: root,
+            eager: true,
+            client: client)
+        #expect(transport.calls == 0)
+
+        let afterEagerBackoff = fetchedAt.addingTimeInterval(ModelsDevPricingPipeline.eagerAttemptBackoffSeconds + 1)
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: afterEagerBackoff,
+            cacheRoot: root,
+            eager: true,
+            client: client)
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: afterEagerBackoff.addingTimeInterval(60),
+            cacheRoot: root,
+            eager: true,
+            client: client)
+        #expect(transport.calls == 1)
+    }
+
+    @Test
+    func `only models no table lists count as unlisted`() {
+        func snapshot(_ model: String) -> CostUsageTokenSnapshot {
+            CostUsageTokenSnapshot(
+                sessionTokens: nil,
+                sessionCostUSD: nil,
+                last30DaysTokens: nil,
+                last30DaysCostUSD: nil,
+                daily: [],
+                updatedAt: Date(),
+                unpricedModels: [CostUsageUnpricedModel(modelName: model, tokens: 1)])
+        }
+        #expect(snapshot("claude-mystery-9").hasUnlistedModels)
+        #expect(!snapshot("codex-auto-review").hasUnlistedModels)
+        #expect(!snapshot("claude-opus-4-8").hasUnlistedModels)
+        #expect(!snapshot("gpt-5.5").hasUnlistedModels)
+    }
+
+    @Test
     func `concurrent refreshes fetch once`() async throws {
         let root = try Self.cacheRoot()
         let transport = TrackingTransport(result: .success((

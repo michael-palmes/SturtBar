@@ -36,9 +36,9 @@ public struct ClaudeCostFetcher: Sendable {
     /// Callers (the Phase 3 actor) schedule this on their own cadence BEFORE
     /// loadTokenSnapshot when they want fresh pricing. Offline/no-op safe:
     /// the pipeline is best-effort and never throws.
-    public func refreshPricingCatalogIfNeeded(now: Date = Date()) async {
+    public func refreshPricingCatalogIfNeeded(now: Date = Date(), eager: Bool = false) async {
         let cacheRoot = self.scannerOptions?.cacheRoot
-        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot)
+        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot, eager: eager)
     }
 
     /// Internal overload used by tests to inject a transport without making ModelsDevClient public.

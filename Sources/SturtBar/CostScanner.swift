@@ -13,8 +13,8 @@
 //   - Concurrent requests join the in-flight scan (single-flight); a joining bypass request does
 //     not restart the scan — the in-flight result is at most seconds old.
 //   - Pricing: `refreshPricingCatalogIfNeeded` runs before every gate-passing scan. It is the ONLY
-//     network access in the cost subsystem, is best-effort/non-throwing, and self-limits with its
-//     own TTL, so per-scan invocation is the actor's "own cadence".
+//     network access in the cost subsystem, is best-effort/non-throwing, and self-limits (daily, or
+//     every 6h while the last scan found a model no built-in table lists).
 //
 // Priority: callers (UsageStore) invoke this from `Task(priority: .utility)`; the actor inherits
 // that priority for the scan work.
@@ -39,10 +39,11 @@ actor CostScanner {
         _ includeClaudeDesktopSessions: Bool) async throws(CancellationError) -> CostUsageTokenSnapshot?
 
     private let scanOperation: ScanOperation
-    private let refreshPricing: @Sendable (_ now: Date) async -> Void
+    private let refreshPricing: @Sendable (_ now: Date, _ eager: Bool) async -> Void
     private let minimumGap: TimeInterval
     private var lastScanStartedAt: Date?
     private var inFlight: Task<CostScanResult, Never>?
+    private var lastScanFoundUnlistedModels = false
 
     private static let log = SturtBarLog.logger("cost-scanner")
     /// Default 60s minimum gap between scans (measured from scan START, not completion).
@@ -58,8 +59,8 @@ actor CostScanner {
                 historyDays: historyDays,
                 includeClaudeDesktopSessions: includeClaudeDesktopSessions)
         }
-        self.refreshPricing = { now in
-            await fetcher.refreshPricingCatalogIfNeeded(now: now)
+        self.refreshPricing = { now, eager in
+            await fetcher.refreshPricingCatalogIfNeeded(now: now, eager: eager)
         }
         self.minimumGap = minimumGap
     }
@@ -72,8 +73,8 @@ actor CostScanner {
                 bypassScanGate: bypassScanGate,
                 historyDays: historyDays)
         }
-        self.refreshPricing = { now in
-            await codexFetcher.refreshPricingCatalogIfNeeded(now: now)
+        self.refreshPricing = { now, eager in
+            await codexFetcher.refreshPricingCatalogIfNeeded(now: now, eager: eager)
         }
         self.minimumGap = minimumGap
     }
@@ -81,7 +82,7 @@ actor CostScanner {
     /// Test seam: injects the scan implementation; pricing refresh becomes a no-op unless provided.
     init(
         minimumGap: TimeInterval = defaultMinimumGapSeconds,
-        refreshPricing: @escaping @Sendable (_ now: Date) async -> Void = { _ in },
+        refreshPricing: @escaping @Sendable (_ now: Date, _ eager: Bool) async -> Void = { _, _ in },
         scanOperation: @escaping ScanOperation)
     {
         self.scanOperation = scanOperation
@@ -115,6 +116,7 @@ actor CostScanner {
         self.lastScanStartedAt = now
         let operation = self.scanOperation
         let refreshPricing = self.refreshPricing
+        let eagerPricing = self.lastScanFoundUnlistedModels
         // Same self-clearing pattern as ClaudeUsageClient: the slot empties before the result is
         // observable, so joiners can never re-join a completed scan.
         let task = Task {
@@ -123,7 +125,7 @@ actor CostScanner {
             let signpostState = Signposts.scan.beginInterval("scan", id: signpostID)
             defer { Signposts.scan.endInterval("scan", signpostState) }
 
-            await refreshPricing(now)
+            await refreshPricing(now, eagerPricing)
             do throws(CancellationError) {
                 let snapshot = try await operation(now, bypassGate, historyDays, includeClaudeDesktopSessions)
                 return CostScanResult.scanned(snapshot)
@@ -133,7 +135,11 @@ actor CostScanner {
             }
         }
         self.inFlight = task
-        return await task.value
+        let result = await task.value
+        if case let .scanned(snapshot) = result {
+            self.lastScanFoundUnlistedModels = snapshot?.hasUnlistedModels ?? false
+        }
+        return result
     }
 
     /// Cancels the in-flight scan, if any (app shutdown). The scan surfaces as `.cancelled` to

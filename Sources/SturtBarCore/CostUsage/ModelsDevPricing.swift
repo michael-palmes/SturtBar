@@ -556,24 +556,28 @@ enum ModelsDevPricingPipeline {
         CostUsagePricing.codexModelsDevProviderID,
     ]
     static let attemptBackoffSeconds: TimeInterval = 24 * 60 * 60
+    static let eagerAttemptBackoffSeconds: TimeInterval = 6 * 60 * 60
 
+    /// `eager` (a scan met a model no table lists) fetches even a fresh catalog, at most every 6h.
     static func refreshIfNeeded(
         now: Date = Date(),
         cacheRoot: URL? = nil,
+        eager: Bool = false,
         client: ModelsDevClient = ModelsDevClient()) async
     {
         let key = ModelsDevCache.cacheFileURL(cacheRoot: cacheRoot).path
         await ModelsDevRefreshCoordinator.shared.run(key: key) {
-            await Self.refreshNow(now: now, cacheRoot: cacheRoot, client: client)
+            await Self.refreshNow(now: now, cacheRoot: cacheRoot, eager: eager, client: client)
         }
     }
 
-    private static func refreshNow(now: Date, cacheRoot: URL?, client: ModelsDevClient) async {
+    private static func refreshNow(now: Date, cacheRoot: URL?, eager: Bool, client: ModelsDevClient) async {
         let load = ModelsDevCache.load(now: now, cacheRoot: cacheRoot)
-        guard load.isStale else { return }
+        guard eager || load.isStale else { return }
+        let backoff = eager ? Self.eagerAttemptBackoffSeconds : Self.attemptBackoffSeconds
         if let lastAttempt = load.artifact?.lastAttemptAt,
            now >= lastAttempt,
-           now.timeIntervalSince(lastAttempt) < Self.attemptBackoffSeconds
+           now.timeIntervalSince(lastAttempt) < backoff
         {
             return
         }
