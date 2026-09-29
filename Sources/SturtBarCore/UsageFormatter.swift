@@ -138,6 +138,20 @@ public enum UsageFormatter {
         self.currencyString(value, currencyCode: "USD")
     }
 
+    /// A trailing "+" marks a total that excludes usage with no known price.
+    public static func costString(_ value: Double?, currencyCode: String, isPartial: Bool) -> String? {
+        guard value != nil || isPartial else { return nil }
+        let text = self.currencyString(value ?? 0, currencyCode: currencyCode)
+        return isPartial ? "\(text)+" : text
+    }
+
+    public static func unpricedHelpText(modelCount: Int) -> String? {
+        guard modelCount > 0 else { return nil }
+        return modelCount == 1
+            ? "Excludes 1 model with no known price"
+            : "Excludes \(modelCount) models with no known price"
+    }
+
     public static let costEstimateHint =
         "Estimated from local logs at API rates; token totals include cached tokens and may differ " +
         "from each tool's reported usage."
@@ -227,9 +241,13 @@ public enum UsageFormatter {
         _ model: String,
         costUSD: Double?,
         totalTokens: Int? = nil,
-        currencyCode: String = "USD") -> String?
+        currencyCode: String = "USD",
+        unpricedTokens: Int? = nil) -> String?
     {
-        let costDetail = costUSD.map { self.currencyString($0, currencyCode: currencyCode) }
+        let isPartial = (unpricedTokens ?? 0) > 0
+        let costDetail = costUSD == nil && isPartial
+            ? "no price"
+            : self.costString(costUSD, currencyCode: currencyCode, isPartial: isPartial)
         let tokenDetail = totalTokens.map(self.tokenCountString)
         let parts = [costDetail, tokenDetail].compactMap(\.self)
         guard !parts.isEmpty else { return nil }

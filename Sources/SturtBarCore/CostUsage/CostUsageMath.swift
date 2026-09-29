@@ -1,14 +1,14 @@
 import Foundation
 
 /// Overflow-safe arithmetic for token tallies read from local logs, which may hold any number.
-enum CostUsageMath {
-    static func add(_ lhs: Int, _ rhs: Int) -> Int {
+public enum CostUsageMath {
+    public static func add(_ lhs: Int, _ rhs: Int) -> Int {
         let (sum, overflow) = lhs.addingReportingOverflow(rhs)
         guard overflow else { return sum }
         return rhs > 0 ? Int.max : Int.min
     }
 
-    static func sum(_ values: Int...) -> Int {
+    public static func sum(_ values: Int...) -> Int {
         values.reduce(0, self.add)
     }
 

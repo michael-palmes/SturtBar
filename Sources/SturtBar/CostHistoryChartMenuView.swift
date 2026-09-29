@@ -22,12 +22,14 @@ struct CostHistoryChartMenuView: View {
         let costUSD: Double
         let totalTokens: Int?
         let requestCount: Int?
+        let isPartial: Bool
 
-        init(date: Date, costUSD: Double, totalTokens: Int?, requestCount: Int?) {
+        init(date: Date, costUSD: Double, totalTokens: Int?, requestCount: Int?, isPartial: Bool = false) {
             self.date = date
             self.costUSD = costUSD
             self.totalTokens = totalTokens
             self.requestCount = requestCount
+            self.isPartial = isPartial
             self.id = "\(Int(date.timeIntervalSince1970))-\(costUSD)"
         }
     }
@@ -47,6 +49,7 @@ struct CostHistoryChartMenuView: View {
 
     private let daily: [DailyEntry]
     private let totalCostUSD: Double?
+    private let unpricedModelCount: Int
     private let currencyCode: String
     private let historyDays: Int
     private let windowLabel: String?
@@ -56,6 +59,7 @@ struct CostHistoryChartMenuView: View {
     init(
         daily: [DailyEntry],
         totalCostUSD: Double?,
+        unpricedModelCount: Int = 0,
         currencyCode: String = "USD",
         historyDays: Int = 30,
         windowLabel: String? = nil,
@@ -63,6 +67,7 @@ struct CostHistoryChartMenuView: View {
     {
         self.daily = daily
         self.totalCostUSD = totalCostUSD
+        self.unpricedModelCount = unpricedModelCount
         self.currencyCode = currencyCode
         self.historyDays = max(1, min(365, historyDays))
         self.windowLabel = windowLabel
@@ -73,6 +78,7 @@ struct CostHistoryChartMenuView: View {
         self.init(
             daily: snapshot.daily,
             totalCostUSD: snapshot.last30DaysCostUSD,
+            unpricedModelCount: snapshot.unpricedModels?.count ?? 0,
             currencyCode: snapshot.currencyCode,
             historyDays: snapshot.historyDays,
             windowLabel: snapshot.historyLabel,
@@ -198,13 +204,17 @@ struct CostHistoryChartMenuView: View {
                     alignment: .topLeading)
             }
 
-            if let total = self.totalCostUSD {
-                Text("Est. total (\(self.windowLabel ?? Self.windowLabel(days: self.historyDays))): " +
-                    self.costString(total))
+            if let total = UsageFormatter.costString(
+                self.totalCostUSD,
+                currencyCode: self.currencyCode,
+                isPartial: self.unpricedModelCount > 0)
+            {
+                Text("Est. total (\(self.windowLabel ?? Self.windowLabel(days: self.historyDays))): \(total)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
+                    .help(UsageFormatter.unpricedHelpText(modelCount: self.unpricedModelCount) ?? "")
             }
         }
         .padding(.horizontal, 16)
@@ -282,13 +292,16 @@ struct CostHistoryChartMenuView: View {
         var maxRenderedBreakdownRows = 0
         var detailRowMetrics: [(count: Int, height: CGFloat)] = []
         for entry in sorted {
-            guard let costUSD = entry.costUSD, costUSD >= 0 else { continue }
+            let isPartial = (entry.unpricedTokens ?? 0) > 0
+            // A day with only unpriced usage plots at zero so it stays hoverable.
+            guard let costUSD = entry.costUSD ?? (isPartial ? 0 : nil), costUSD >= 0 else { continue }
             guard let date = self.dateFromDayKey(entry.date) else { continue }
             let point = Point(
                 date: date,
                 costUSD: costUSD,
                 totalTokens: entry.totalTokens,
-                requestCount: entry.requestCount)
+                requestCount: entry.requestCount,
+                isPartial: isPartial)
             points.append(point)
             pointsByKey[entry.date] = point
             entriesByKey[entry.date] = entry
@@ -461,7 +474,10 @@ struct CostHistoryChartMenuView: View {
         }
 
         let dayLabel = date.formatted(.dateTime.month(.abbreviated).day())
-        let cost = self.costString(point.costUSD)
+        let cost = UsageFormatter.costString(
+            point.costUSD,
+            currencyCode: self.currencyCode,
+            isPartial: point.isPartial) ?? self.costString(point.costUSD)
         var parts = [cost]
         if let tokens = point.totalTokens {
             parts.append("\(UsageFormatter.tokenCountString(tokens)) tokens")
@@ -511,7 +527,8 @@ struct CostHistoryChartMenuView: View {
             item.modelName,
             costUSD: item.costUSD,
             totalTokens: item.totalTokens,
-            currencyCode: self.currencyCode)
+            currencyCode: self.currencyCode,
+            unpricedTokens: item.unpricedTokens)
     }
 
     private func modelBreakdownModeSubtitle(_ item: CostUsageDailyReport.ModelBreakdown) -> String? {

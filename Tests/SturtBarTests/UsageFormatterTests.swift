@@ -269,6 +269,21 @@ struct UsageFormatterTests {
         #expect(UsageFormatter.tokenCountString(-2_500_000) == "-2.5M")
         #expect(UsageFormatter.tokenCountString(Int.min) == "-9223372037B")
         #expect(UsageFormatter.tokenCountString(Int.max) == "9223372037B")
+    }
+
+    @Test
+    func `partial cost wording`() {
+        #expect(UsageFormatter.costString(4458.2, currencyCode: "USD", isPartial: true) == "$4,458.20+")
+        #expect(UsageFormatter.costString(1.5, currencyCode: "USD", isPartial: false) == "$1.50")
+        #expect(UsageFormatter.costString(nil, currencyCode: "USD", isPartial: true) == "$0.00+")
+        #expect(UsageFormatter.costString(nil, currencyCode: "USD", isPartial: false) == nil)
+        #expect(UsageFormatter.unpricedHelpText(modelCount: 0) == nil)
+        #expect(UsageFormatter.unpricedHelpText(modelCount: 1) == "Excludes 1 model with no known price")
+        #expect(UsageFormatter.unpricedHelpText(modelCount: 2) == "Excludes 2 models with no known price")
+        #expect(UsageFormatter.modelCostDetail("m", costUSD: nil, totalTokens: 1_200_000, unpricedTokens: 1_200_000)
+            == "no price · 1.2M")
+        #expect(UsageFormatter.modelCostDetail("m", costUSD: 12.34, totalTokens: 2_000_000, unpricedTokens: 5)
+            == "$12.34+ · 2M")
         #expect(UsageFormatter.tokenCountString(-1200) == "-1.2K")
     }
 
