@@ -814,7 +814,8 @@ extension CostUsageScanner {
                     .flatMap { $0.sampleCount == sampleCount ? $0 : nil }
                 let cost = repriced.flatMap { $0.pricedCount > 0 ? $0.total : nil }
                 let unpricedTokens = repriced?.unpricedTokens ?? totalTokens
-                let fast = repriced.flatMap { $0.sawFast ? $0 : nil }
+                // Split Std/Fast only when every turn has a price; otherwise the "no price" row says it.
+                let fast = repriced.flatMap { $0.sawFast && $0.unpricedTokens == 0 ? $0 : nil }
                 breakdown.append(
                     CostUsageDailyReport.ModelBreakdown(
                         modelName: model,

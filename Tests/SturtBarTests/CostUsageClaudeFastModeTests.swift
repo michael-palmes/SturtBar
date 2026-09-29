@@ -70,4 +70,40 @@ struct CostUsageClaudeFastModeTests {
         #expect(breakdown.priorityTokens == 1_000_000)
         #expect(breakdown.standardTokens == 1_000_000)
     }
+
+    @Test
+    func `an unpriced fast turn hides the std and fast split`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2026, month: 9, day: 23)
+        let entry: [String: Any] = [
+            "message": [
+                "model": "claude-fable-5-1",
+                "id": "msg_fast_unpriced",
+                "usage": [
+                    "input_tokens": 1000,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "output_tokens": 10,
+                    "speed": "fast",
+                ],
+            ],
+            "requestId": "req_fast_unpriced",
+            "type": "assistant",
+            "timestamp": env.isoString(for: day),
+            "sessionId": "session_fast",
+        ]
+        _ = try env.writeClaudeProjectFile(relativePath: "project-a/fast-unpriced.jsonl", contents: env.jsonl([entry]))
+
+        var options = CostUsageScanner.Options(claudeProjectsRoots: [env.claudeProjectsRoot], cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+        let report = CostUsageScanner.loadDailyReport(since: day, until: day, now: day, options: options)
+
+        let breakdown = try #require(report.data.first?.modelBreakdowns?.first)
+        #expect(breakdown.costUSD == nil)
+        #expect(breakdown.unpricedTokens == 1010)
+        #expect(breakdown.priorityCostUSD == nil)
+        #expect(breakdown.standardCostUSD == nil)
+    }
 }
