@@ -121,91 +121,6 @@ struct ModelsDevPricingTests {
     }
 
     @Test
-    func `refresh preserves cache when fetched catalog drops cached provider`() async throws {
-        let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: old, cacheRoot: root)
-
-        let partialCatalog = Data("""
-        {
-          "openai": { "id": 7, "models": [] },
-          "anthropic": {
-            "id": "anthropic",
-            "models": {
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
-        await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
-            cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((partialCatalog, Self.response(status: 200))))))
-
-        let lookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "openai",
-            modelID: "gpt-4o-mini",
-            cacheRoot: root))
-
-        #expect(lookup.pricing.inputCostPerToken == 0.15 / 1_000_000.0)
-    }
-
-    @Test
-    func `refresh preserves cache when fetched catalog drops cached model`() async throws {
-        let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: old, cacheRoot: root)
-
-        let partialCatalog = Data("""
-        {
-          "openai": {
-            "id": "openai",
-            "models": {
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "anthropic": {
-            "id": "anthropic",
-            "models": {
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "google-vertex-anthropic": {
-            "id": "google-vertex-anthropic",
-            "models": {
-              "claude-sonnet-4-6@default": {
-                "id": "claude-sonnet-4-6@default",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
-        await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
-            cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((partialCatalog, Self.response(status: 200))))))
-
-        let lookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "openai",
-            modelID: "gpt-4o-mini",
-            cacheRoot: root))
-
-        #expect(lookup.pricing.inputCostPerToken == 0.15 / 1_000_000.0)
-    }
-
-    @Test
     func `refresh updates cache when fetched catalog renames model key but keeps id`() async throws {
         let root = try Self.cacheRoot()
         let old = Date(timeIntervalSince1970: 1)
@@ -266,221 +181,122 @@ struct ModelsDevPricingTests {
     }
 
     @Test
-    func `refresh preserves cache when fetched matching model is not priceable`() async throws {
+    func `refresh accepts a catalog that dropped unrelated models`() async throws {
         let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: old, cacheRoot: root)
+        try ModelsDevCache.save(
+            catalog: Self.fixtureCatalog(),
+            fetchedAt: Date(timeIntervalSince1970: 1),
+            cacheRoot: root)
 
-        let partialCatalog = Data("""
-        {
-          "openai": {
-            "id": "openai",
-            "models": {
-              "gpt-4o-mini": {
-                "id": "gpt-4o-mini",
-                "cost": { "input": 99 }
-              },
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "anthropic": {
-            "id": "anthropic",
-            "models": {
-              "claude-sonnet-4-6": {
-                "id": "claude-sonnet-4-6",
-                "cost": { "input": 99, "output": 99 }
-              },
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "google-vertex-anthropic": {
-            "id": "google-vertex-anthropic",
-            "models": {
-              "claude-sonnet-4-6@default": {
-                "id": "claude-sonnet-4-6@default",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
         await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
+            now: Self.afterTTL,
             cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((partialCatalog, Self.response(status: 200))))))
+            client: Self.client(Self.freshCatalogJSON))
+
+        #expect(ModelsDevPricingPipeline.lookup(providerID: "openai", modelID: "gpt-4o-mini", cacheRoot: root) == nil)
+        let opus = try #require(ModelsDevPricingPipeline.lookup(
+            providerID: "anthropic",
+            modelID: "claude-opus-5-5",
+            cacheRoot: root))
+        #expect(opus.pricing.inputCostPerToken == 4 / 1_000_000.0)
+    }
+
+    @Test
+    func `refresh keeps only the anthropic and openai providers`() async throws {
+        let root = try Self.cacheRoot()
+
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL,
+            cacheRoot: root,
+            client: Self.client(Self.freshCatalogJSON))
+
+        let catalog = try #require(ModelsDevCache.load(now: Self.afterTTL, cacheRoot: root).artifact?.catalog)
+        #expect(Set(catalog.providers.keys) == ["anthropic", "openai"])
+    }
+
+    @Test
+    func `refresh rejects a catalog without priced models for both providers`() async throws {
+        let root = try Self.cacheRoot()
+        try ModelsDevCache.save(
+            catalog: Self.fixtureCatalog(),
+            fetchedAt: Date(timeIntervalSince1970: 1),
+            cacheRoot: root)
+
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL,
+            cacheRoot: root,
+            client: Self.client("""
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "models": { "claude-opus-5-5": { "id": "claude-opus-5-5", "cost": { "input": 4, "output": 20 } } }
+              },
+              "openai": { "id": "openai", "models": { "gpt-9": { "id": "gpt-9" } } }
+            }
+            """))
 
         let lookup = try #require(ModelsDevPricingPipeline.lookup(
             providerID: "openai",
             modelID: "gpt-4o-mini",
             cacheRoot: root))
-
         #expect(lookup.pricing.inputCostPerToken == 0.15 / 1_000_000.0)
     }
 
     @Test
-    func `refresh updates cache when fetched catalog canonicalizes alias model id`() async throws {
+    func `refresh backs off for a day after any attempt`() async throws {
         let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: old, cacheRoot: root)
+        let failing = TrackingTransport(result: .failure(MockError.failed))
 
-        let canonicalizedCatalog = Data("""
-        {
-          "openai": {
-            "id": "openai",
-            "models": {
-              "gpt-4o-mini": {
-                "id": "gpt-4o-mini",
-                "cost": { "input": 99, "output": 99 }
-              },
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "anthropic": {
-            "id": "anthropic",
-            "models": {
-              "claude-sonnet-4-6": {
-                "id": "claude-sonnet-4-6",
-                "cost": { "input": 99, "output": 99 }
-              },
-              "shared-model": {
-                "id": "shared-model",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          },
-          "google-vertex-anthropic": {
-            "id": "google-vertex-anthropic",
-            "models": {
-              "claude-sonnet-4-6": {
-                "id": "claude-sonnet-4-6",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
         await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
+            now: Self.afterTTL,
             cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((canonicalizedCatalog, Self.response(status: 200))))))
+            client: ModelsDevClient(transport: failing))
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL.addingTimeInterval(60 * 60),
+            cacheRoot: root,
+            client: ModelsDevClient(transport: failing))
+        #expect(failing.calls == 1)
 
-        let defaultLookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "google-vertex-anthropic",
-            modelID: "claude-sonnet-4-6@default",
-            cacheRoot: root))
-        let baseLookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "google-vertex-anthropic",
-            modelID: "claude-sonnet-4-6",
-            cacheRoot: root))
-
-        #expect(defaultLookup.pricing.inputCostPerToken == 99 / 1_000_000.0)
-        #expect(baseLookup.pricing.inputCostPerToken == 99 / 1_000_000.0)
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL.addingTimeInterval(ModelsDevPricingPipeline.attemptBackoffSeconds + 1),
+            cacheRoot: root,
+            client: ModelsDevClient(transport: failing))
+        #expect(failing.calls == 2)
     }
 
     @Test
-    func `refresh preserves cache when fetched catalog only has different pinned snapshot`() async throws {
+    func `concurrent refreshes fetch once`() async throws {
         let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        let cachedCatalog = try Self.catalog("""
-        {
-          "google-vertex-anthropic": {
-            "id": "google-vertex-anthropic",
-            "models": {
-              "claude-sonnet-4@20250101": {
-                "id": "claude-sonnet-4@20250101",
-                "cost": { "input": 3, "output": 15 }
-              }
-            }
-          }
-        }
-        """)
-        ModelsDevCache.save(catalog: cachedCatalog, fetchedAt: old, cacheRoot: root)
+        let transport = TrackingTransport(result: .success((
+            Data(Self.freshCatalogJSON.utf8),
+            Self.response(status: 200))))
+        let client = ModelsDevClient(transport: transport)
 
-        let fetchedCatalog = Data("""
-        {
-          "google-vertex-anthropic": {
-            "id": "google-vertex-anthropic",
-            "models": {
-              "claude-sonnet-4@20250201": {
-                "id": "claude-sonnet-4@20250201",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
-        await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
+        async let first: Void = ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL,
             cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((fetchedCatalog, Self.response(status: 200))))))
+            client: client)
+        async let second: Void = ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL,
+            cacheRoot: root,
+            client: client)
+        _ = await (first, second)
 
-        let lookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "google-vertex-anthropic",
-            modelID: "claude-sonnet-4@20250101",
-            cacheRoot: root))
-
-        #expect(lookup.pricing.inputCostPerToken == 3 / 1_000_000.0)
+        #expect(transport.calls == 1)
     }
 
     @Test
-    func `refresh ignores unpriceable models in old cache continuity check`() async throws {
+    func `saving the v2 cache removes the v1 file`() throws {
         let root = try Self.cacheRoot()
-        let old = Date(timeIntervalSince1970: 1)
-        let cachedCatalog = try Self.catalog("""
-        {
-          "openai": {
-            "id": "openai",
-            "models": {
-              "gpt-4o-mini": {
-                "id": "gpt-4o-mini",
-                "cost": { "input": 0.15, "output": 0.6 }
-              },
-              "unpriced-preview": {
-                "id": "unpriced-preview"
-              }
-            }
-          }
-        }
-        """)
-        ModelsDevCache.save(catalog: cachedCatalog, fetchedAt: old, cacheRoot: root)
+        let legacy = ModelsDevCache.cacheFileURL(cacheRoot: root, version: 1)
+        try FileManager.default.createDirectory(
+            at: legacy.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: legacy)
 
-        let fetchedCatalog = Data("""
-        {
-          "openai": {
-            "id": "openai",
-            "models": {
-              "gpt-4o-mini": {
-                "id": "gpt-4o-mini",
-                "cost": { "input": 99, "output": 99 }
-              }
-            }
-          }
-        }
-        """.utf8)
-        await ModelsDevPricingPipeline.refreshIfNeeded(
-            now: Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1),
-            cacheRoot: root,
-            client: ModelsDevClient(transport: MockTransport(
-                result: .success((fetchedCatalog, Self.response(status: 200))))))
+        try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: Date(), cacheRoot: root)
 
-        let lookup = try #require(ModelsDevPricingPipeline.lookup(
-            providerID: "openai",
-            modelID: "gpt-4o-mini",
-            cacheRoot: root))
-
-        #expect(lookup.pricing.inputCostPerToken == 99 / 1_000_000.0)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
 
     @Test
@@ -541,14 +357,14 @@ struct ModelsDevPricingTests {
     func `saving a new catalog invalidates the memo`() throws {
         let root = try Self.cacheRoot()
         try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: Date(), cacheRoot: root)
-        #expect(ModelsDevCache.load(cacheRoot: root).artifact?.catalog.providers["openai"] != nil)
+        #expect(ModelsDevCache.load(cacheRoot: root).artifact?.catalog?.providers["openai"] != nil)
 
         // Overwriting the cache must drop the memo so the next load reflects the freshly written catalog.
         ModelsDevCache.save(catalog: ModelsDevCatalog(providers: [:]), fetchedAt: Date(), cacheRoot: root)
         let reloaded = ModelsDevCache.load(cacheRoot: root)
 
         #expect(reloaded.error == nil)
-        #expect(reloaded.artifact?.catalog.providers.isEmpty == true)
+        #expect(reloaded.artifact?.catalog?.providers.isEmpty == true)
     }
 
     @Test
@@ -599,6 +415,31 @@ struct ModelsDevPricingTests {
     }
 
     // MARK: - Helpers
+
+    private static let afterTTL = Date(timeIntervalSince1970: 1 + ModelsDevCache.ttlSeconds + 1)
+
+    private static let freshCatalogJSON = """
+    {
+      "openai": {
+        "id": "openai",
+        "models": { "gpt-6-astra": { "id": "gpt-6-astra", "cost": { "input": 10, "output": 50 } } }
+      },
+      "anthropic": {
+        "id": "anthropic",
+        "models": { "claude-opus-5-5": { "id": "claude-opus-5-5", "cost": { "input": 4, "output": 20 } } }
+      },
+      "google-vertex-anthropic": {
+        "id": "google-vertex-anthropic",
+        "models": {
+          "claude-opus-5-5@default": { "id": "claude-opus-5-5@default", "cost": { "input": 4, "output": 20 } }
+        }
+      }
+    }
+    """
+
+    private static func client(_ json: String) -> ModelsDevClient {
+        ModelsDevClient(transport: MockTransport(result: .success((Data(json.utf8), self.response(status: 200)))))
+    }
 
     private static func fixtureData() throws -> Data {
         let url = try #require(Bundle.module.url(
@@ -655,15 +496,21 @@ private struct MockTransport: ModelsDevHTTPTransport {
 }
 
 private final class TrackingTransport: ModelsDevHTTPTransport, @unchecked Sendable {
-    private(set) var calls = 0
+    private let lock = NSLock()
+    private var count = 0
     let result: Result<(Data, URLResponse), Error>
 
     init(result: Result<(Data, URLResponse), Error>) {
         self.result = result
     }
 
+    var calls: Int {
+        self.lock.withLock { self.count }
+    }
+
     func data(for _: URLRequest) async throws -> (Data, URLResponse) {
-        self.calls += 1
+        self.lock.withLock { self.count += 1 }
+        try await Task.sleep(for: .milliseconds(20))
         return try self.result.get()
     }
 }
