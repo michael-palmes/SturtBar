@@ -4,10 +4,10 @@ import Testing
 
 struct CostUsageCacheTests {
     @Test
-    func `cache file URL uses claude artifact version 4`() {
+    func `cache file URL uses claude artifact version 5`() {
         let root = URL(fileURLWithPath: "/tmp/sturtbar-cost-cache", isDirectory: true)
         let url = CostUsageCacheIO.cacheFileURL(cacheRoot: root)
-        #expect(url.lastPathComponent == "claude-v4.json")
+        #expect(url.lastPathComponent == "claude-v5.json")
     }
 
     @Test
@@ -92,7 +92,42 @@ struct CostUsageCacheTests {
         let url = CostUsageCacheIO.cacheFileURL()
         #expect(url.path.contains("SturtBar"))
         #expect(url.path.contains("cost-usage"))
-        #expect(url.lastPathComponent == "claude-v4.json")
+        #expect(url.lastPathComponent == "claude-v5.json")
+    }
+
+    @Test
+    func `saving the claude cache removes the superseded v4 file`() throws {
+        let root = try self.makeTemporaryCacheRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("cost-usage", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = dir.appendingPathComponent("claude-v4.json")
+        let codex = dir.appendingPathComponent("codex-v1.json")
+        try Data("{}".utf8).write(to: legacy)
+        try Data("{}".utf8).write(to: codex)
+
+        CostUsageCacheIO.save(cache: CostUsageCache(), cacheRoot: root)
+
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(FileManager.default.fileExists(atPath: codex.path))
+    }
+
+    @Test
+    func `a cache built in another time zone is discarded`() throws {
+        let root = try self.makeTemporaryCacheRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var cache = CostUsageCache()
+        cache.lastScanUnixMs = 42
+        CostUsageCacheIO.save(cache: cache, cacheRoot: root)
+        #expect(CostUsageCacheIO.load(cacheRoot: root).lastScanUnixMs == 42)
+
+        let url = CostUsageCacheIO.cacheFileURL(cacheRoot: root)
+        var stored = try JSONDecoder().decode(CostUsageCache.self, from: Data(contentsOf: url))
+        let otherZone = TimeZone.current.identifier == "Pacific/Chatham" ? "Asia/Kolkata" : "Pacific/Chatham"
+        stored.timeZoneIdentifier = otherZone
+        try JSONEncoder().encode(stored).write(to: url)
+
+        #expect(CostUsageCacheIO.load(cacheRoot: root).lastScanUnixMs == 0)
     }
 
     private func makeTemporaryCacheRoot() throws -> URL {
