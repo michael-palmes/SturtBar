@@ -278,6 +278,10 @@ enum CostUsagePricing {
             trimmed = String(trimmed.dropFirst("openai/".count))
         }
 
+        if let alias = self.codexAliases[trimmed] {
+            return alias
+        }
+
         if self.codexTable[trimmed] != nil {
             return trimmed
         }

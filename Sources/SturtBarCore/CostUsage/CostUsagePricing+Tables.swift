@@ -49,7 +49,10 @@ extension CostUsagePricing {
     ]
 
     /// Models with no public price anywhere; never worth an early catalog refresh.
-    static let knownUnpricedModels: Set<String> = ["codex-auto-review"]
+    static let knownUnpricedModels: Set<String> = ["codex-auto-review", "gpt-reserve"]
+
+    /// Unsuffixed names that OpenAI routes to a specific model.
+    static let codexAliases: [String: String] = ["gpt-5.6": "gpt-5.6-sol"]
 
     /// True when neither built-in table lists the model, so only a newer catalog could price it.
     static func isUnlistedModel(_ model: String) -> Bool {
@@ -188,6 +191,19 @@ extension CostUsagePricing {
             outputCostPerToken: 1.8e-4,
             cacheReadInputCostPerToken: nil,
             displayLabel: nil),
+        // Per million tokens, from OpenAI's pricing page (cross-checked with models.dev, Sep 2026).
+        "gpt-5.6-sol": CodexPricing
+            .perMillion(input: 4, output: 20, cacheRead: 0.4)
+            .withLongContext(threshold: 272_000, input: 8, output: 30, cacheRead: 0.8),
+        "gpt-5.6-terra": CodexPricing
+            .perMillion(input: 2, output: 12, cacheRead: 0.2)
+            .withLongContext(threshold: 272_000, input: 4, output: 18, cacheRead: 0.4),
+        "gpt-5.6-luna": CodexPricing
+            .perMillion(input: 0.2, output: 1.2, cacheRead: 0.02)
+            .withLongContext(threshold: 272_000, input: 0.4, output: 1.8, cacheRead: 0.04),
+        "gpt-6-astra": CodexPricing
+            .perMillion(input: 10, output: 50, cacheRead: 1)
+            .withLongContext(threshold: 272_000, input: 20, output: 75, cacheRead: 2),
     ]
 }
 
@@ -221,6 +237,28 @@ extension CostUsagePricing.ClaudePricing {
             inputCostPerTokenAboveThreshold: input / 1_000_000,
             outputCostPerTokenAboveThreshold: output / 1_000_000,
             cacheCreationInputCostPerTokenAboveThreshold: cacheWrite / 1_000_000,
+            cacheReadInputCostPerTokenAboveThreshold: cacheRead / 1_000_000)
+    }
+}
+
+extension CostUsagePricing.CodexPricing {
+    static func perMillion(input: Double, output: Double, cacheRead: Double) -> Self {
+        Self(
+            inputCostPerToken: input / 1_000_000,
+            outputCostPerToken: output / 1_000_000,
+            cacheReadInputCostPerToken: cacheRead / 1_000_000,
+            displayLabel: nil)
+    }
+
+    func withLongContext(threshold: Int, input: Double, output: Double, cacheRead: Double) -> Self {
+        Self(
+            inputCostPerToken: self.inputCostPerToken,
+            outputCostPerToken: self.outputCostPerToken,
+            cacheReadInputCostPerToken: self.cacheReadInputCostPerToken,
+            displayLabel: self.displayLabel,
+            thresholdTokens: threshold,
+            inputCostPerTokenAboveThreshold: input / 1_000_000,
+            outputCostPerTokenAboveThreshold: output / 1_000_000,
             cacheReadInputCostPerTokenAboveThreshold: cacheRead / 1_000_000)
     }
 }
