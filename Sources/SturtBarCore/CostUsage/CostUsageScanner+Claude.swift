@@ -24,6 +24,9 @@ extension CostUsageScanner {
         var sampleCount: Int = 0
         var pricedCount: Int = 0
         var unpricedTokens: Int = 0
+        var fastCost: Double = 0
+        var fastTokens: Int = 0
+        var sawFast = false
     }
 
     private static func defaultClaudeProjectsRoots(options: Options) -> [URL] {
@@ -172,6 +175,7 @@ extension CostUsageScanner {
         guard CostUsageDayRange.isInRange(dayKey: dayKey, since: range.scanSinceKey, until: range.scanUntilKey)
         else { return nil }
 
+        let isFast = usage["speed"] as? String == "fast"
         let cost = CostUsagePricing.claudeCostUSD(
             model: model,
             inputTokens: input,
@@ -180,6 +184,7 @@ extension CostUsageScanner {
             cacheCreationInputTokens1h: cacheCreate1h,
             outputTokens: output,
             pricingDate: timestamp,
+            isFast: isFast,
             modelsDevCatalog: modelsDevCatalog)
         let costNanos = cost.flatMap(CostUsageMath.nanos(fromUSD:))
         let sessionId = obj["sessionId"] as? String
@@ -203,7 +208,8 @@ extension CostUsageScanner {
             cacheCreate1h: cacheCreate1h,
             output: output,
             costNanos: costNanos ?? 0,
-            costPriced: costNanos != nil)
+            costPriced: costNanos != nil,
+            isFast: isFast ? true : nil)
     }
 
     private static func claudeOneHourCacheCreationTokens(usage: [String: Any], total: Int) -> Int {
@@ -742,6 +748,7 @@ extension CostUsageScanner {
                 pricingDate: row.timestampUnixMs.map {
                     Date(timeIntervalSince1970: Double($0) / 1000)
                 },
+                isFast: row.isFast ?? false,
                 modelsDevCatalog: modelsDevCatalog)
             let cost: Double? = if isPriced, row.costNanos == 0 {
                 0
@@ -751,6 +758,12 @@ extension CostUsageScanner {
                 Double(row.costNanos) / costScale
             } else {
                 nil
+            }
+            if row.isFast == true {
+                aggregate.sawFast = true
+                aggregate.fastTokens.addSaturating(
+                    CostUsageMath.sum(row.input, row.cacheRead, row.cacheCreate, row.output))
+                aggregate.fastCost += cost ?? 0
             }
             if let cost {
                 aggregate.total += cost
@@ -800,11 +813,16 @@ extension CostUsageScanner {
                     .flatMap { $0.sampleCount == sampleCount ? $0 : nil }
                 let cost = repriced.flatMap { $0.pricedCount > 0 ? $0.total : nil }
                 let unpricedTokens = repriced?.unpricedTokens ?? totalTokens
+                let fast = repriced.flatMap { $0.sawFast ? $0 : nil }
                 breakdown.append(
                     CostUsageDailyReport.ModelBreakdown(
                         modelName: model,
                         costUSD: cost,
                         totalTokens: totalTokens,
+                        standardCostUSD: fast.map { $0.total - $0.fastCost },
+                        priorityCostUSD: fast?.fastCost,
+                        standardTokens: fast.map { max(0, totalTokens - $0.fastTokens) },
+                        priorityTokens: fast?.fastTokens,
                         unpricedTokens: unpricedTokens))
                 if let cost {
                     dayCost += cost

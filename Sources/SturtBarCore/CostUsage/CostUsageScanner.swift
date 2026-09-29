@@ -76,6 +76,7 @@ enum CostUsageScanner {
         let output: Int
         let costNanos: Int
         let costPriced: Bool?
+        var isFast: Bool?
     }
 
     /// Convenience wrapper that silently swallows any thrown error — including

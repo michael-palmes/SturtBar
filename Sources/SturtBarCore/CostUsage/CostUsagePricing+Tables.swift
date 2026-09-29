@@ -42,6 +42,12 @@ extension CostUsagePricing {
         ]
     }()
 
+    /// Fast mode (`usage.speed == "fast"`) as a multiple of the standard rates.
+    static let claudeFastMultiplier: [String: Double] = [
+        "claude-opus-5": 2,
+        "claude-opus-5-5": 2,
+    ]
+
     /// Models with no public price anywhere; never worth an early catalog refresh.
     static let knownUnpricedModels: Set<String> = ["codex-auto-review"]
 

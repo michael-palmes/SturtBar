@@ -103,6 +103,7 @@ enum CostUsagePricing {
         cacheCreationInputTokens1h: Int = 0,
         outputTokens: Int,
         pricingDate: Date? = nil,
+        isFast: Bool = false,
         modelsDevCatalog: ModelsDevCatalog? = nil) -> Double?
     {
         let tokens = ClaudeCostTokens(
@@ -112,6 +113,13 @@ enum CostUsagePricing {
             cacheCreation1h: cacheCreationInputTokens1h,
             output: outputTokens)
         let key = self.normalizeClaudeModel(model)
+
+        // Fast mode has published rates for a few models only; anywhere else the turn stays unpriced.
+        if isFast {
+            guard let multiplier = self.claudeFastMultiplier[key], let pricing = self.claudeTable[key]
+            else { return nil }
+            return self.claudeCostUSD(pricing: pricing, tokens: tokens) * multiplier
+        }
 
         if let pricingDate,
            let historicalPricing = self.claudeHistoricalLongContextTable[key],
