@@ -32,11 +32,12 @@ Ship a signed, notarised, stapled `.app` and DMG that open on any Mac with no Ga
 
 ## Cutting a release
 
-1. **Bump `version.env`** (`MARKETING_VERSION` and `BUILD_NUMBER`) on a branch, open a PR, squash merge. The ruleset rejects direct pushes to main for everyone; tags are exempt and pushed by `release.sh` only. An already-tagged version is refused.
-2. From a clean, up-to-date main checkout, run **`make release`**. It runs: guards (gh installed, clean tree, untagged version, `swift test -q`), then `sign-and-notarize.sh` (Developer ID package, signature verify, notarise, staple and Gatekeeper-check the app, then build the styled DMG and notarise, staple and Gatekeeper-check it separately), then zip + `.sha256` + dSYM zip, then the annotated tag `v<version>` pushed, then a draft GitHub release with DMG (listed first: the human installer), zip, sha256 and dSYM.
+1. **Check prices are current.** Open SturtBar and let a cost scan finish, then run `make cost-audit`. It reprices your local logs from its own rate table and diffs every model against the app's snapshot. Any `MISMATCH` or unpriced model means a new model or price change: add it to both `CostUsagePricing+Tables.swift` and the audit's table from the Anthropic and OpenAI pricing pages (never from models.dev or CodexBar alone; CodexBar had gpt-5.6-sol wrong), then rerun. A `+` on the app's cost line is the same signal.
+2. **Bump `version.env`** (`MARKETING_VERSION` and `BUILD_NUMBER`) on a branch, open a PR, squash merge. The ruleset rejects direct pushes to main for everyone; tags are exempt and pushed by `release.sh` only. An already-tagged version is refused.
+3. From a clean, up-to-date main checkout, run **`make release`**. It runs: guards (gh installed, clean tree, untagged version, `swift test -q`), then `sign-and-notarize.sh` (Developer ID package, signature verify, notarise, staple and Gatekeeper-check the app, then build the styled DMG and notarise, staple and Gatekeeper-check it separately), then zip + `.sha256` + dSYM zip, then the annotated tag `v<version>` pushed, then a draft GitHub release with DMG (listed first: the human installer), zip, sha256 and dSYM.
    - **Needs a GUI session.** Finder styles the DMG, so this cannot run headless or over SSH, and the first run prompts once for Finder automation permission.
    - Budget time for two notarisation waits (app, then DMG), mostly waiting on Apple.
-3. **Publish the draft on GitHub.** This step is load-bearing: the in-app updater reads `releases/latest`, which excludes drafts and pre-releases, so a draft is invisible to every installed copy until published.
+4. **Publish the draft on GitHub.** This step is load-bearing: the in-app updater reads `releases/latest`, which excludes drafts and pre-releases, so a draft is invisible to every installed copy until published.
 
 Partial flows:
 
