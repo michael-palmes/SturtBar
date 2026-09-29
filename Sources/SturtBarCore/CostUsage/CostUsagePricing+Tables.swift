@@ -55,9 +55,11 @@ extension CostUsagePricing {
     /// Unsuffixed names that OpenAI routes to a specific model.
     static let codexAliases: [String: String] = ["gpt-5.6": "gpt-5.6-sol"]
 
-    /// True when neither built-in table lists the model, so only a newer catalog could price it.
+    /// True for a Claude or GPT model neither built-in table lists, so a newer catalog could price it.
+    /// Other vendors' models (e.g. via a proxy) never qualify: the catalog keeps only these two.
     static func isUnlistedModel(_ model: String) -> Bool {
-        !self.knownUnpricedModels.contains(model)
+        (model.hasPrefix("claude-") || model.hasPrefix("gpt-"))
+            && !self.knownUnpricedModels.contains(model)
             && self.claudeTable[self.normalizeClaudeModel(model)] == nil
             && self.codexTable[self.normalizeCodexModel(model)] == nil
     }

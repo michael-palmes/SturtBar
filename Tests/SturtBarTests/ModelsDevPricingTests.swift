@@ -312,6 +312,8 @@ struct ModelsDevPricingTests {
                 unpricedModels: [CostUsageUnpricedModel(modelName: model, tokens: 1)])
         }
         #expect(snapshot("claude-mystery-9").hasUnlistedModels)
+        #expect(snapshot("gpt-7").hasUnlistedModels)
+        #expect(!snapshot("kimi-k3").hasUnlistedModels)
         #expect(!snapshot("codex-auto-review").hasUnlistedModels)
         #expect(!snapshot("claude-opus-4-8").hasUnlistedModels)
         #expect(!snapshot("gpt-5.5").hasUnlistedModels)
