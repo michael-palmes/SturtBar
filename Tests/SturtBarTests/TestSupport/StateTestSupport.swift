@@ -203,7 +203,6 @@ func makeTestStore(
     scanner: CostScanner? = nil,
     codexScanner: CostScanner? = nil,
     persistence: StatePersistence? = nil,
-    blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = { nil },
     codexFetch: @escaping CodexUsageClient.FetchOperation = { throw CodexUsageError.credentialsMissing },
     fetch: @escaping ClaudeUsageClient.FetchOperation) -> TestStore
 {
@@ -224,7 +223,6 @@ func makeTestStore(
         scanner: scanner ?? makeIdleScanner(),
         codexScanner: codexScanner ?? makeIdleScanner(),
         persistence: persistence,
-        now: { clock.now },
-        blockStatus: blockStatus)
+        now: { clock.now })
     return TestStore(store: store, settings: settings, clock: clock, recorder: recorder)
 }

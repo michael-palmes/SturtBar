@@ -19,8 +19,7 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
     /// user-action state: the user must sign in again via `claude /login` (a `setup-token` token lacks
     /// `user:profile`, so that advice would loop).
     case scopeUnsatisfied(message: String)
-    /// Typed pass-through of credential store failures. Needs-reauth is derived from
-    /// `.noRefreshToken` / `.refreshFailed(kind: .terminal, _)` — never from message strings.
+    /// Typed pass-through of credential store failures; needs-reauth is derived from the typed cases, never strings.
     case credentials(ClaudeOAuthCredentialsError)
     /// Typed pass-through of usage endpoint failures (401/403/429/5xx/network).
     case fetch(ClaudeOAuthFetchError)
@@ -40,21 +39,14 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
         }
     }
 
-    /// True when the underlying failure means the user must re-authenticate in Claude Code.
-    /// Phase 3 maps this → `needsReauth` UX.
-    /// Callers should additionally consult `ClaudeOAuthRefreshFailureGate.currentBlockStatus()`,
-    /// which is the persistent needs-reauth authority across fetch attempts.
+    /// True when the underlying failure means the user must re-authenticate in Claude Code (`needsReauth`).
     public var indicatesAuthenticationRequired: Bool {
         switch self {
         case .scopeUnsatisfied:
             true
         case let .credentials(error):
             switch error {
-            case .noRefreshToken:
-                true
-            case .refreshFailed(kind: .terminal, message: _):
-                true
-            case .claudeKeychainAccessRequired:
+            case .tokenExpired, .claudeKeychainAccessRequired:
                 true
             default:
                 false
@@ -339,7 +331,7 @@ public struct ClaudeUsageService: Sendable {
             return try await override(environment, allowKeychainPrompt, respectKeychainPromptCooldown)
         }
         #endif
-        return try await ClaudeOAuthCredentialsStore.loadWithAutoRefresh(
+        return try ClaudeOAuthCredentialsStore.loadForUsage(
             environment: environment,
             allowKeychainPrompt: allowKeychainPrompt,
             respectKeychainPromptCooldown: respectKeychainPromptCooldown)

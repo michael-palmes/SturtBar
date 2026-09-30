@@ -128,7 +128,7 @@ System moments:
 
 Trust moments (the claims are literal; see section 6):
 
-- Keychain pre-prompt (the macOS keychain dialog itself cannot be customised; this is the consent explainer shown first, with Continue and Not now buttons; Not now skips the OS dialog entirely and is never punished): "Claude Code stores its sign-in token in the macOS Keychain. SturtBar is about to ask macOS for read access to that item so it can fetch your Claude usage and limits. If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant ongoing read access, or Deny to refuse. If Claude Code signs in again later, macOS will ask again. SturtBar only reads the token and uses it with Anthropic's API to fetch usage and refresh the token. It keeps its own refreshed copy in SturtBar's own Keychain item. It never changes Claude Code's sign-in and never sends the token anywhere else."
+- Keychain pre-prompt (the macOS keychain dialog itself cannot be customised; this is the consent explainer shown first, with Continue and Not now buttons; Not now skips the OS dialog entirely and is never punished): "Claude Code stores its sign-in token in the macOS Keychain. SturtBar is about to ask macOS for read access to that item so it can fetch your Claude usage and limits. If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant ongoing read access, or Deny to refuse. Claude Code replaces this Keychain item each time it renews its sign-in, which clears Always Allow, so macOS may ask again after that. SturtBar only reads the token and uses it with Anthropic's API to fetch usage. It keeps a copy in its own Keychain item so it asks less often. It never refreshes the token, never changes Claude Code's sign-in and never sends the token anywhere else."
 - Auth error (popover status line, plain and clickable; opens the default terminal running `claude /login`; the error detail lives in the tooltip): "Sign in to Claude Code"
 - Empty state, Claude enabled but never signed in (same click action): "No light on this coast yet. Sign in to connect."
 - Keychain permission stuck (clickable; shows the consent explainer first, and while prompts are off the Continue button also turns them on, then retries the fetch with user-initiated rights): "Allow Keychain access to reconnect"
@@ -251,7 +251,7 @@ Marketing surfaces only (README, landing page, About box). It means exactly what
 ### 6.2 The posture
 
 - SturtBar reads Claude Code's credentials read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
-- If an expired token must be refreshed, the rotated token persists only to SturtBar's own keychain item, `com.michaelpalmes.sturtbar.cache` (the key safe). Claude Code's stores are never touched.
+- SturtBar never refreshes Claude tokens. It keeps a copy of the token it read in its own keychain item, `com.michaelpalmes.sturtbar.cache` (the key safe), so it asks for Keychain access less often. When the token expires, it waits for Claude Code to renew it. Claude Code's stores are never touched.
 - Session logs under `~/.claude/projects` are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded.
 - Codex is opt-in and inert until enabled. While the Codex provider is on, SturtBar reads its sign-in read-only from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`): it never writes the file, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`. The only filesystem touch before opt-in is a single existence check (stat) on that path while the Settings window is open, to drive the "codex CLI not detected" hint; it reads no contents.
 - While the Codex provider and local cost tracking are both on, Codex session logs under `~/.codex` (`sessions` and `archived_sessions`, or `$CODEX_HOME`) are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded. SturtBar never writes anything under `~/.codex`.
@@ -267,7 +267,6 @@ The complete list of network destinations. Anything not on this list does not ha
 | Destination | What and when |
 |---|---|
 | `api.anthropic.com/api/oauth/usage` | Reads your usage numbers, authenticated with the OAuth token, on each refresh |
-| `platform.claude.com/v1/oauth/token` | Refreshes the OAuth token, only when a stored token has expired |
 | `chatgpt.com/backend-api/wham/usage` | Reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled |
 | `models.dev/api.json` | Fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled |
 | `api.github.com/repos/michael-palmes/SturtBar/releases/latest` | Reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually |

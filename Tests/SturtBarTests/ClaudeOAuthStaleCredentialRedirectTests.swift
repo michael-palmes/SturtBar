@@ -2,28 +2,19 @@ import Foundation
 import Testing
 @testable import SturtBarCore
 
-/// Covers the recovery path for the "re-authenticated in Claude Code but SturtBar still asks to
-/// re-authenticate" loop: when the only loadable credentials are stale and a Claude keychain item
-/// exists that SturtBar cannot read silently, errors must redirect the user to grant Keychain
-/// access instead of dead-ending on the stale record.
+/// Pins what an expired record means once SturtBar stops refreshing: when Claude Code's keychain item
+/// changed since SturtBar last read it but cannot be read silently, the renewed token is there and the
+/// remedy is Keychain access; when the item is unchanged, SturtBar waits for Claude Code to renew it.
 @Suite(.serialized)
 struct ClaudeOAuthStaleCredentialRedirectTests {
-    private func makeCredentialsData(
-        accessToken: String,
-        expiresAt: Date,
-        refreshToken: String? = nil) -> Data
-    {
+    private func makeCredentialsData(accessToken: String, expiresAt: Date) -> Data {
         let millis = Int(expiresAt.timeIntervalSince1970 * 1000)
-        let refreshField: String = {
-            guard let refreshToken else { return "" }
-            return ",\n            \"refreshToken\": \"\(refreshToken)\""
-        }()
         let json = """
         {
           "claudeAiOauth": {
             "accessToken": "\(accessToken)",
             "expiresAt": \(millis),
-            "scopes": ["user:profile"]\(refreshField)
+            "scopes": ["user:profile"]
           }
         }
         """
@@ -33,6 +24,7 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
     private func withStaleFileHarness<T>(
         fileData: Data,
         keychainFingerprint: ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint?,
+        storedFingerprint: ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint?,
         operation: () throws -> T) throws -> T
     {
         let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
@@ -61,12 +53,17 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
                                     try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(
                                         .onlyOnUserAction)
                                     {
-                                        try ClaudeOAuthCredentialsStore.withClaudeKeychainOverridesForTesting(
-                                            data: nil,
-                                            fingerprint: keychainFingerprint)
-                                        {
-                                            try operation()
-                                        }
+                                        try ClaudeOAuthCredentialsStore
+                                            .withClaudeKeychainFingerprintStoreOverrideForTesting(
+                                                .init(fingerprint: storedFingerprint))
+                                            {
+                                                try ClaudeOAuthCredentialsStore.withClaudeKeychainOverridesForTesting(
+                                                    data: nil,
+                                                    fingerprint: keychainFingerprint)
+                                                {
+                                                    try operation()
+                                                }
+                                            }
                                     }
                                 }
                             }
@@ -78,16 +75,24 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
     }
 
     @Test
-    func `expired file without refresh token redirects to keychain access when claude keychain item exists`() throws {
-        let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
+    func `expired file redirects to keychain access when claude keychain item changed`() throws {
+        let renewed = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
             modifiedAt: 200,
             createdAt: 200,
             persistentRefHash: "new-item")
+        let lastRead = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
+            modifiedAt: 100,
+            createdAt: 100,
+            persistentRefHash: "old-item")
         let staleFile = self.makeCredentialsData(
             accessToken: "stale",
             expiresAt: Date(timeIntervalSinceNow: -3600))
 
-        try self.withStaleFileHarness(fileData: staleFile, keychainFingerprint: fingerprint) {
+        try self.withStaleFileHarness(
+            fileData: staleFile,
+            keychainFingerprint: renewed,
+            storedFingerprint: lastRead)
+        {
             do {
                 _ = try ClaudeOAuthCredentialsStore.loadRecord(
                     environment: [:],
@@ -95,134 +100,65 @@ struct ClaudeOAuthStaleCredentialRedirectTests {
                     respectKeychainPromptCooldown: true)
                 Issue.record("Expected ClaudeOAuthCredentialsError.claudeKeychainAccessRequired")
             } catch let error as ClaudeOAuthCredentialsError {
-                guard case .claudeKeychainAccessRequired = error else {
+                guard case let .claudeKeychainAccessRequired(_, reason) = error else {
                     Issue.record("Expected .claudeKeychainAccessRequired, got \(error)")
                     return
                 }
-            }
-        }
-    }
-
-    @Test
-    func `expired file without refresh token is still returned when no claude keychain item exists`() throws {
-        let staleFile = self.makeCredentialsData(
-            accessToken: "stale",
-            expiresAt: Date(timeIntervalSinceNow: -3600))
-
-        try self.withStaleFileHarness(fileData: staleFile, keychainFingerprint: nil) {
-            let record = try ClaudeOAuthCredentialsStore.loadRecord(
-                environment: [:],
-                allowKeychainPrompt: false,
-                respectKeychainPromptCooldown: true)
-            #expect(record.credentials.accessToken == "stale")
-            #expect(record.source == .credentialsFile)
-        }
-    }
-
-    @Test
-    func `expired file with refresh token is returned for refresh even when keychain item exists`() throws {
-        let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
-            modifiedAt: 200,
-            createdAt: 200,
-            persistentRefHash: "new-item")
-        let staleFile = self.makeCredentialsData(
-            accessToken: "stale",
-            expiresAt: Date(timeIntervalSinceNow: -3600),
-            refreshToken: "refresh-1")
-
-        try self.withStaleFileHarness(fileData: staleFile, keychainFingerprint: fingerprint) {
-            let record = try ClaudeOAuthCredentialsStore.loadRecord(
-                environment: [:],
-                allowKeychainPrompt: false,
-                respectKeychainPromptCooldown: true)
-            #expect(record.credentials.refreshToken == "refresh-1")
-            #expect(record.source == .credentialsFile)
-        }
-    }
-
-    /// Disables real Claude keychain access so item presence comes only from the fingerprint
-    /// override (DEBUG overrides are consulted before the access guard).
-    private func withIsolatedClaudeKeychain<T>(
-        fingerprint: ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint?,
-        operation: () throws -> T) rethrows -> T
-    {
-        try ClaudeOAuthCredentialsStore.withKeychainAccessOverrideForTesting(true) {
-            try ClaudeOAuthCredentialsStore.withClaudeKeychainOverridesForTesting(
-                data: nil,
-                fingerprint: fingerprint)
-            {
-                try operation()
-            }
-        }
-    }
-
-    @Test
-    func `terminal refresh failure redirects to keychain access when claude keychain item exists`() throws {
-        let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
-            modifiedAt: 300,
-            createdAt: 300,
-            persistentRefHash: "new-item")
-        try self.withIsolatedClaudeKeychain(fingerprint: fingerprint) {
-            try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(.onlyOnUserAction) {
-                let original = ClaudeOAuthCredentialsError.refreshFailed(
-                    kind: .terminal,
-                    message: "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
-                let redirected = ClaudeOAuthCredentialsStore
-                    .redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
-                        original,
-                        recordSource: .credentialsFile)
-                guard case let .claudeKeychainAccessRequired(underlying, reason) = redirected else {
-                    Issue.record("Expected .claudeKeychainAccessRequired, got \(redirected)")
-                    return
-                }
-                #expect(underlying == "HTTP 400 invalid_grant. Run `claude` to re-authenticate.")
                 #expect(reason == .accessLost)
             }
         }
     }
 
     @Test
-    func `terminal refresh failure is unchanged without keychain item or for keychain-sourced records`() throws {
-        let original = ClaudeOAuthCredentialsError.refreshFailed(
-            kind: .terminal,
-            message: "HTTP 400 invalid_grant.")
-
-        // No Claude keychain item visible → keep the original error.
-        try self.withIsolatedClaudeKeychain(fingerprint: nil) {
-            let unchanged = ClaudeOAuthCredentialsStore.redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
-                original,
-                recordSource: .credentialsFile)
-            guard case .refreshFailed(kind: .terminal, message: _) = unchanged else {
-                Issue.record("Expected unchanged .refreshFailed, got \(unchanged)")
-                return
-            }
-        }
-
-        // Credentials already came from the Claude keychain → access is not the blocker.
+    func `expired file waits for claude code when claude keychain item is unchanged`() throws {
         let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
-            modifiedAt: 300,
-            createdAt: 300,
-            persistentRefHash: "item")
-        try self.withIsolatedClaudeKeychain(fingerprint: fingerprint) {
-            let unchanged = ClaudeOAuthCredentialsStore.redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
-                original,
-                recordSource: .claudeKeychain)
-            guard case .refreshFailed(kind: .terminal, message: _) = unchanged else {
-                Issue.record("Expected unchanged .refreshFailed, got \(unchanged)")
-                return
+            modifiedAt: 200,
+            createdAt: 200,
+            persistentRefHash: "same-item")
+        let staleFile = self.makeCredentialsData(
+            accessToken: "stale",
+            expiresAt: Date(timeIntervalSinceNow: -3600))
+
+        try self.withStaleFileHarness(
+            fileData: staleFile,
+            keychainFingerprint: fingerprint,
+            storedFingerprint: fingerprint)
+        {
+            let record = try ClaudeOAuthCredentialsStore.loadRecord(
+                environment: [:],
+                allowKeychainPrompt: false,
+                respectKeychainPromptCooldown: true)
+            #expect(record.credentials.accessToken == "stale")
+            #expect(record.source == .credentialsFile)
+
+            do {
+                _ = try ClaudeOAuthCredentialsStore.loadForUsage(
+                    environment: [:],
+                    allowKeychainPrompt: false,
+                    respectKeychainPromptCooldown: true)
+                Issue.record("Expected ClaudeOAuthCredentialsError.tokenExpired")
+            } catch let error as ClaudeOAuthCredentialsError {
+                guard case .tokenExpired(source: .credentialsFile) = error else {
+                    Issue.record("Expected .tokenExpired(.credentialsFile), got \(error)")
+                    return
+                }
             }
         }
+    }
 
-        // Transient failures must never be redirected.
-        let transient = ClaudeOAuthCredentialsError.refreshFailed(kind: .transient, message: "HTTP 500")
-        try self.withIsolatedClaudeKeychain(fingerprint: fingerprint) {
-            let unchanged = ClaudeOAuthCredentialsStore.redirectTerminalRefreshFailureToKeychainAccessIfApplicable(
-                transient,
-                recordSource: .credentialsFile)
-            guard case .refreshFailed(kind: .transient, message: _) = unchanged else {
-                Issue.record("Expected unchanged transient .refreshFailed, got \(unchanged)")
-                return
-            }
+    @Test
+    func `expired file is still returned when no claude keychain item exists`() throws {
+        let staleFile = self.makeCredentialsData(
+            accessToken: "stale",
+            expiresAt: Date(timeIntervalSinceNow: -3600))
+
+        try self.withStaleFileHarness(fileData: staleFile, keychainFingerprint: nil, storedFingerprint: nil) {
+            let record = try ClaudeOAuthCredentialsStore.loadRecord(
+                environment: [:],
+                allowKeychainPrompt: false,
+                respectKeychainPromptCooldown: true)
+            #expect(record.credentials.accessToken == "stale")
+            #expect(record.source == .credentialsFile)
         }
     }
 

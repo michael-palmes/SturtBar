@@ -908,9 +908,7 @@ struct ClaudeUsageServiceFlowTests {
         do {
             _ = try await withOAuthSeams(
                 load: { _, _, _ in
-                    throw ClaudeOAuthCredentialsError.refreshFailed(
-                        kind: .terminal,
-                        message: "invalid_grant")
+                    throw ClaudeOAuthCredentialsError.tokenExpired(source: .environment)
                 },
                 fetch: { _ in try Self.makeOAuthUsageResponse() },
                 operation: {
@@ -918,10 +916,8 @@ struct ClaudeUsageServiceFlowTests {
                 })
             Issue.record("Expected ClaudeUsageError.credentials")
         } catch let error as ClaudeUsageError {
-            guard case let .credentials(credentialsError) = error,
-                  case .refreshFailed(kind: .terminal, message: _) = credentialsError
-            else {
-                Issue.record("Expected .credentials(.refreshFailed(kind: .terminal)), got \(error)")
+            guard case .credentials(.tokenExpired(source: .environment)) = error else {
+                Issue.record("Expected .credentials(.tokenExpired(.environment)), got \(error)")
                 return
             }
             #expect(error.indicatesAuthenticationRequired == true)
@@ -933,15 +929,10 @@ struct ClaudeUsageServiceFlowTests {
     @Test
     func `needs reauth derives from typed cases only`() {
         // indicatesAuthenticationRequired matrix
-        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesAuthenticationRequired == true)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "invalid_grant"))
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .environment))
             .indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope")
             .indicatesAuthenticationRequired == true)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .transient, message: "http 503"))
-            .indicatesAuthenticationRequired == false)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .suppressed, message: "gate"))
-            .indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.credentials(.notFound).indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.fetch(.unauthorized).indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.parseFailed("missing session data").indicatesAuthenticationRequired == false)
@@ -952,8 +943,7 @@ struct ClaudeUsageServiceFlowTests {
         #expect(ClaudeUsageError.credentials(.missingOAuth).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.missingAccessToken).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.decodeFailed).indicatesCredentialsMissing == true)
-        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesCredentialsMissing == false)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "x"))
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain))
             .indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope").indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.fetch(.unauthorized).indicatesCredentialsMissing == false)

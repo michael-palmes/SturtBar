@@ -51,7 +51,7 @@ Spend is read locally by scanning the session logs under `~/.claude/projects` (t
 
 Refresh runs on a hybrid schedule: whenever you open the menu, plus a background interval you choose (manual, 1, 2, 5, 15, or 30 minutes; 5 is the default). Cost scans run on demand.
 
-**On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
+**On token expiry:** SturtBar never refreshes Claude tokens. When one expires, it keeps your last reading, says it is waiting, and picks up the new token once Claude Code renews it.
 
 If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
 
@@ -72,7 +72,6 @@ What it reads:
 Every network call it makes:
 
 - `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
-- `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
 - `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
 - `api.github.com/repos/michael-palmes/SturtBar/releases/latest`: reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually.

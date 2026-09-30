@@ -1,10 +1,14 @@
 # Troubleshooting
 
-## "Re-authenticate in Claude Code: …" won't go away
+## "Waiting for Claude Code to refresh its sign-in"
 
-You re-logged into Claude Code, but SturtBar still shows a red line like
-`Re-authenticate in Claude Code: Claude OAuth refresh token missing…` or
-`…token refresh failed [terminal]…`.
+Claude's sign-in token has expired. SturtBar never refreshes it; Claude Code renews it the
+next time it runs. Run `claude` and SturtBar picks up the new token on its next refresh.
+
+## "Sign in to Claude Code" won't go away
+
+You re-logged into Claude Code, but SturtBar still asks you to sign in or to allow Keychain
+access.
 
 This usually isn't a login problem: it's SturtBar being unable to *read* your new login.
 When Claude Code re-authenticates it recreates its keychain item, which resets the permission
@@ -47,12 +51,12 @@ An old `~/.claude/.credentials.json` can shadow your fresh keychain login:
 
 ```sh
 ls -la ~/.claude/.credentials.json 2>/dev/null
-python3 -c "import json,os,datetime;o=json.load(open(os.path.expanduser('~/.claude/.credentials.json'))).get('claudeAiOauth',{});print('hasRefreshToken:',bool(o.get('refreshToken')),'expires:',datetime.datetime.fromtimestamp((o.get('expiresAt') or 0)/1000))"
+python3 -c "import json,os,datetime;o=json.load(open(os.path.expanduser('~/.claude/.credentials.json'))).get('claudeAiOauth',{});print('expires:',datetime.datetime.fromtimestamp((o.get('expiresAt') or 0)/1000))"
 security find-generic-password -s "Claude Code-credentials" 2>/dev/null | head -3
 ```
 
-If the file shows `hasRefreshToken: False` or an expiry in the past, **and** the keychain
-item exists, move the file aside and confirm Claude Code still works:
+If the file shows an expiry in the past **and** the keychain item exists, move the file aside
+and confirm Claude Code still works:
 
 ```sh
 mv ~/.claude/.credentials.json ~/.claude/.credentials.json.bak
@@ -61,16 +65,12 @@ claude   # should start without asking you to log in; if not, restore the .bak f
 
 Then open the SturtBar menu and press ⌘R.
 
-### 5. Reset SturtBar's remembered auth state
+### 5. Clear SturtBar's cached copy
 
-SturtBar remembers a hard authentication failure until it sees your credentials change.
-If it's stuck, clear that memory: quit SturtBar, then run:
+SturtBar keeps a copy of the token it last read so it asks for Keychain access less often.
+If it's stuck, clear that copy: quit SturtBar, then run:
 
 ```sh
-for k in claudeOAuthRefreshTerminalBlockedV1 claudeOAuthRefreshTerminalReasonV1 \
-         claudeOAuthRefreshBackoffFingerprintV2 claudeOAuthRefreshBackoffFailureCountV1 \
-         claudeOAuthRefreshTransientBlockedUntilV1 claudeOAuthRefreshTransientFailureCountV1 \
-         claudeOAuthRefreshBackoffBlockedUntilV1; do defaults delete com.michaelpalmes.sturtbar "$k" 2>/dev/null; done
 security delete-generic-password -s "com.michaelpalmes.sturtbar.cache" 2>/dev/null
 ```
 

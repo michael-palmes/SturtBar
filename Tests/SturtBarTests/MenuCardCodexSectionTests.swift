@@ -289,7 +289,7 @@ struct MenuCardCodexSectionTests {
                 == "API-key accounts have no usage limits to show.")
 
         input.codexAuth = .ok
-        input.codexHealth = .degraded(until: nil)
+        input.codexHealth = .degraded
         model = UsageMenuCardView.Model.make(input)
         #expect(model.codexSection?.status == .retrying)
 

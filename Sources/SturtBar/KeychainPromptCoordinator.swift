@@ -51,11 +51,12 @@ enum KeychainPromptCoordinator {
         "macOS for read access to that item so it can fetch your Claude usage and limits.\n\n" +
         "If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant " +
         "ongoing read access, or Deny to refuse. If that dialog asks for your Mac login password, " +
-        "the entry is handled by macOS itself; SturtBar never sees what you type. If Claude Code " +
-        "signs in again later, macOS will ask again.\n\n" +
-        "SturtBar only reads the token and uses it with Anthropic's API to fetch usage and " +
-        "refresh the token. It keeps its own refreshed copy in SturtBar's own Keychain item. " +
-        "It never changes Claude Code's sign-in and never sends the token anywhere else."
+        "the entry is handled by macOS itself; SturtBar never sees what you type. Claude Code " +
+        "replaces this Keychain item each time it renews its sign-in, which clears Always Allow, " +
+        "so macOS may ask again after that.\n\n" +
+        "SturtBar only reads the token and uses it with Anthropic's API to fetch usage. It keeps " +
+        "a copy in its own Keychain item so it asks less often. It never refreshes the token, " +
+        "never changes Claude Code's sign-in and never sends the token anywhere else."
     private static let continueButtonTitle = "Continue"
     private static let notNowButtonTitle = "Not now"
 

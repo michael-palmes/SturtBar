@@ -27,10 +27,10 @@
 //                ClaudeOAuthUsageRateLimitGate would fail the attempt anyway.
 //
 // Health/auth mapping (typed — never string-matched):
-//   .ok               ← snapshot (gates self-heal on success; the store only READS gates)
+//   .ok               ← snapshot
 //   .rateLimited      ← .fetch(.rateLimited(retryAfter:)) (authoritative until-date)
-//   .degraded(until:) ← any other failure; until = refresh-failure gate's transient block, if any
-//   needsReauth       ← error.indicatesAuthenticationRequired OR gate .terminal
+//   .degraded         ← any other failure
+//   needsReauth       ← error.indicatesAuthenticationRequired
 //   credentialsMissing← error.indicatesCredentialsMissing
 //   auth is sticky across unrelated failures: a network blip never clears needs-reauth; only a
 //   successful fetch resets auth to .ok.
@@ -72,7 +72,7 @@ enum CodexAuthState: Equatable {
 
 enum FetchHealth: Equatable {
     case ok
-    case degraded(until: Date?)
+    case degraded
     case rateLimited(until: Date)
 }
 
@@ -225,9 +225,8 @@ final class UsageStore {
     @ObservationIgnored private let scanner: CostScanner
     @ObservationIgnored private let codexScanner: CostScanner
     @ObservationIgnored private let persistence: StatePersistence?
-    // Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the injected clock.
+    /// Internal (not private): UsageStore+ResetBoundaryRefresh.swift reads the injected clock.
     @ObservationIgnored let now: @Sendable () -> Date
-    @ObservationIgnored private let blockStatus: @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus?
 
     /// Wall-clock time of the last successful usage fetch.
     ///
@@ -277,13 +276,7 @@ final class UsageStore {
         scanner: CostScanner,
         codexScanner: CostScanner,
         persistence: StatePersistence?,
-        now: @escaping @Sendable () -> Date = { Date() },
-        blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = {
-            // Gate init-ordering contract: register the credential fingerprint provider before
-            // consulting the gate, so a persisted terminal block can self-heal on re-auth.
-            ClaudeOAuthCredentialsStore.ensureRefreshFailureGateFingerprintProvider()
-            return ClaudeOAuthRefreshFailureGate.currentBlockStatus()
-        })
+        now: @escaping @Sendable () -> Date = { Date() })
     {
         self.settings = settings
         self.client = client
@@ -292,7 +285,6 @@ final class UsageStore {
         self.codexScanner = codexScanner
         self.persistence = persistence
         self.now = now
-        self.blockStatus = blockStatus
     }
 
     // MARK: - Persisted state
@@ -560,7 +552,7 @@ final class UsageStore {
             // The until-date is the gate; the failure streak stays untouched.
             self.codexHealth = .rateLimited(until: retryAfter)
         } else {
-            self.codexHealth = .degraded(until: nil)
+            self.codexHealth = .degraded
             self.codexFailureStreak += 1
         }
     }
@@ -569,17 +561,14 @@ final class UsageStore {
         guard self.settings.claudeProviderEnabled else { return }
         self.lastAttemptAt = self.now()
         let usageError = error as? ClaudeUsageError
-        let gateStatus = self.blockStatus()
 
-        // Auth state — typed predicates plus the cross-launch gate authority. Sticky otherwise.
+        // Auth state from typed predicates only; sticky otherwise.
         if let usageError, usageError.indicatesCredentialsMissing {
             self.auth = .credentialsMissing
         } else if let usageError, usageError.indicatesAuthenticationRequired {
             self.auth = .needsReauth(
                 message: usageError.errorDescription,
                 remedy: usageError.indicatesKeychainAccessRequired ? .keychainAccess : .signIn)
-        } else if case let .terminal(reason, _) = gateStatus {
-            self.auth = .needsReauth(message: reason, remedy: .signIn)
         }
 
         // Fetch health.
@@ -587,8 +576,7 @@ final class UsageStore {
             // The until-date is the gate; the failure streak stays untouched.
             self.health = .rateLimited(until: retryAfter)
         } else {
-            let until: Date? = if case let .transient(date, _) = gateStatus { date } else { nil }
-            self.health = .degraded(until: until)
+            self.health = .degraded
             self.failureStreak += 1
         }
     }

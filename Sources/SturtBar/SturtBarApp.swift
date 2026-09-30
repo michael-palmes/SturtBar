@@ -49,9 +49,7 @@ import SturtBarCore
         // Suppress the Dock icon when launched via `swift run` (no Info.plist LSUIElement key).
         NSApp.setActivationPolicy(.accessory)
 
-        // Gate init-ordering contract: register the credentials fingerprint provider before any
-        // code consults ClaudeOAuthRefreshFailureGate.
-        ClaudeOAuthCredentialsStore.ensureRefreshFailureGateFingerprintProvider()
+        ClaudeOAuthCredentialsStore.removeRetiredRefreshState()
 
         // Keychain prompt UX: must be installed before anything can trigger a keychain read.
         KeychainPromptCoordinator.install()

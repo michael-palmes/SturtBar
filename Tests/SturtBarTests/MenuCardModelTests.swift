@@ -498,7 +498,7 @@ struct MenuCardModelTests {
     func `non-auth status lines carry no action`() {
         let retrying = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
-            health: .degraded(until: nil),
+            health: .degraded,
             now: Self.now))
         #expect(retrying.status.action == nil)
         #expect(retrying.status.actionSymbolName == nil)
@@ -526,7 +526,7 @@ struct MenuCardModelTests {
     func `degraded shows subtle retrying line`() {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
-            health: .degraded(until: nil),
+            health: .degraded,
             now: Self.now))
 
         #expect(model.status == .retrying)
@@ -771,7 +771,7 @@ struct MenuCardModelTests {
                 $0.auth = .needsReauth(message: "keychain", remedy: .keychainAccess)
             },
             input { $0.snapshot = fullSnapshot; $0.health = .rateLimited(until: now.addingTimeInterval(600)) },
-            input { $0.snapshot = fullSnapshot; $0.health = .degraded(until: nil) },
+            input { $0.snapshot = fullSnapshot; $0.health = .degraded },
             input { $0.snapshot = fullSnapshot; $0.isStale = true; $0.isRefreshing = true },
         ]
 
