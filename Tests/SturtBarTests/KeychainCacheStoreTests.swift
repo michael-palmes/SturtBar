@@ -187,6 +187,134 @@ struct KeychainCacheStoreTests {
         }
     }
 
+    private final class WriteCalls {
+        var names: [String] = []
+    }
+
+    private func writer(
+        update: OSStatus,
+        delete: OSStatus = errSecSuccess,
+        add: OSStatus = errSecSuccess,
+        calls: WriteCalls) -> KeychainCacheStore.ItemWriter
+    {
+        KeychainCacheStore.ItemWriter(
+            update: {
+                calls.names.append("update")
+                return update
+            },
+            delete: {
+                calls.names.append("delete")
+                return delete
+            },
+            add: {
+                calls.names.append("add")
+                return add
+            })
+    }
+
+    private func ownTestService() -> String {
+        "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
+    }
+
+    @Test
+    func `write updates in place and adds a missing item`() {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let updated = WriteCalls()
+        #expect(
+            KeychainCacheStore.write(
+                key: key,
+                service: self.ownTestService(),
+                using: self.writer(update: errSecSuccess, calls: updated)) == .written)
+        #expect(updated.names == ["update"])
+
+        let added = WriteCalls()
+        #expect(
+            KeychainCacheStore.write(
+                key: key,
+                service: self.ownTestService(),
+                using: self.writer(update: errSecItemNotFound, calls: added)) == .written)
+        #expect(added.names == ["update", "add"])
+    }
+
+    @Test(arguments: [errSecInteractionNotAllowed, errSecAuthFailed])
+    func `rejected update deletes and re-adds sturtbar's own item`(status: OSStatus) {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let calls = WriteCalls()
+
+        let outcome = KeychainCacheStore.write(
+            key: key,
+            service: self.ownTestService(),
+            using: self.writer(update: status, calls: calls))
+
+        #expect(outcome == .repaired)
+        #expect(calls.names == ["update", "delete", "add"])
+    }
+
+    @Test
+    func `locked keychain gives up without spending the repair`() {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let service = self.ownTestService()
+        let locked = WriteCalls()
+
+        let outcome = KeychainCacheStore.write(
+            key: key,
+            service: service,
+            using: self.writer(update: errSecInteractionNotAllowed, delete: errSecInteractionNotAllowed, calls: locked))
+
+        #expect(outcome == .locked)
+        #expect(locked.names == ["update", "delete"])
+
+        let unlocked = WriteCalls()
+        #expect(
+            KeychainCacheStore.write(
+                key: key,
+                service: service,
+                using: self.writer(update: errSecAuthFailed, calls: unlocked)) == .repaired)
+        #expect(unlocked.names == ["update", "delete", "add"])
+    }
+
+    @Test
+    func `repair runs at most once per item per launch`() {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let service = self.ownTestService()
+        let first = WriteCalls()
+        #expect(
+            KeychainCacheStore.write(
+                key: key,
+                service: service,
+                using: self.writer(update: errSecAuthFailed, add: errSecAuthFailed, calls: first)) == .failed)
+        #expect(first.names == ["update", "delete", "add"])
+
+        let second = WriteCalls()
+        #expect(
+            KeychainCacheStore.write(
+                key: key,
+                service: service,
+                using: self.writer(update: errSecAuthFailed, calls: second)) == .failed)
+        #expect(second.names == ["update"])
+    }
+
+    @Test(arguments: ["Claude Code-credentials", "com.michaelpalmes.sturtbar.cachex", ""])
+    func `write never touches another service`(service: String) {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let calls = WriteCalls()
+
+        let outcome = KeychainCacheStore.write(
+            key: key,
+            service: service,
+            using: self.writer(update: errSecAuthFailed, calls: calls))
+
+        #expect(outcome == .failed)
+        #expect(calls.names.isEmpty)
+        #expect(!KeychainCacheStore.isOwnCacheService(service))
+    }
+
+    @Test
+    func `own cache service covers the shipped name and test overrides`() {
+        #expect(KeychainCacheStore.isOwnCacheService("com.michaelpalmes.sturtbar.cache"))
+        #expect(KeychainCacheStore.isOwnCacheService(self.ownTestService()))
+    }
+
     @Test
     func `cache ACL trusts bundled app and CLI helper`() {
         let root = URL(fileURLWithPath: "/Applications/SturtBar.app")

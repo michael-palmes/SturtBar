@@ -99,8 +99,8 @@ struct ClaudeOAuthCredentialsStoreTemporaryKeychainCacheTests {
         }
     }
 
-    @Test
-    func `temporary keychain cache unavailability does not overwrite cache from credentials file fallback`() throws {
+    @Test(arguments: [errSecInteractionNotAllowed, errSecAuthFailed])
+    func `unreadable keychain cache is rewritten from the credentials file fallback`(status: OSStatus) throws {
         let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
         try KeychainCacheStore.withServiceOverrideForTesting(service) {
             try KeychainAccessGate.withTaskOverrideForTesting(true) {
@@ -134,9 +134,7 @@ struct ClaudeOAuthCredentialsStoreTemporaryKeychainCacheTests {
                                     owner: .claudeCLI))
                             defer { KeychainCacheStore.clear(key: cacheKey) }
 
-                            let loaded = try KeychainCacheStore.withLoadFailureStatusOverrideForTesting(
-                                errSecInteractionNotAllowed)
-                            {
+                            let loaded = try KeychainCacheStore.withLoadFailureStatusOverrideForTesting(status) {
                                 try ClaudeOAuthCredentialsStore.load(environment: [:], allowKeychainPrompt: false)
                             }
                             #expect(loaded.accessToken == "file-fallback-token")
@@ -147,9 +145,9 @@ struct ClaudeOAuthCredentialsStoreTemporaryKeychainCacheTests {
                             {
                             case let .found(entry):
                                 let parsed = try ClaudeOAuthCredentials.parse(data: entry.data)
-                                #expect(parsed.accessToken == "cached-token")
+                                #expect(parsed.accessToken == "file-fallback-token")
                             case .missing, .temporarilyUnavailable, .invalid:
-                                #expect(Bool(false), "Expected file fallback not to overwrite unavailable cache")
+                                #expect(Bool(false), "Expected file fallback to rewrite the unreadable cache")
                             }
                         }
                     }

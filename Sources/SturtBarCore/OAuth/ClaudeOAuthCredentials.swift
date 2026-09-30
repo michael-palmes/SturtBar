@@ -183,7 +183,6 @@ public enum ClaudeOAuthCredentialsStore {
 
                 var lastError: Error?
                 var expiredRecord: ClaudeOAuthCredentialRecord?
-                var cacheTemporarilyUnavailable = false
                 var credentialsFileMissing = false
 
                 switch KeychainCacheStore.load(key: ClaudeOAuthCredentialsStore.cacheKey, as: CacheEntry.self) {
@@ -217,9 +216,7 @@ public enum ClaudeOAuthCredentialsStore {
                     }
                 case .invalid:
                     KeychainCacheStore.clear(key: ClaudeOAuthCredentialsStore.cacheKey)
-                case .temporarilyUnavailable:
-                    cacheTemporarilyUnavailable = true
-                case .missing:
+                case .temporarilyUnavailable, .missing:
                     break
                 }
 
@@ -239,9 +236,7 @@ public enum ClaudeOAuthCredentialsStore {
                                 owner: .claudeCLI,
                                 source: .memoryCache),
                             timestamp: Date())
-                        if !cacheTemporarilyUnavailable {
-                            ClaudeOAuthCredentialsStore.saveToCacheKeychain(fileData, owner: .claudeCLI)
-                        }
+                        ClaudeOAuthCredentialsStore.saveToCacheKeychain(fileData, owner: .claudeCLI)
                         return record
                     }
                 } catch let error as ClaudeOAuthCredentialsError {
@@ -257,8 +252,7 @@ public enum ClaudeOAuthCredentialsStore {
                 if allowClaudeKeychainRepairWithoutPrompt, !allowKeychainPrompt {
                     if let repaired = recovery.repairFromClaudeKeychainWithoutPromptIfAllowed(
                         now: Date(),
-                        respectKeychainPromptCooldown: shouldRespectKeychainPromptCooldownForSilentProbes,
-                        allowCacheKeychainWrite: !cacheTemporarilyUnavailable)
+                        respectKeychainPromptCooldown: shouldRespectKeychainPromptCooldownForSilentProbes)
                     {
                         return repaired
                     }
@@ -267,7 +261,6 @@ public enum ClaudeOAuthCredentialsStore {
                 if let prompted = self.loadFromClaudeKeychainWithPromptIfAllowed(
                     allowKeychainPrompt: allowKeychainPrompt,
                     respectKeychainPromptCooldown: respectKeychainPromptCooldown,
-                    allowCacheKeychainWrite: !cacheTemporarilyUnavailable,
                     lastError: &lastError)
                 {
                     return prompted
@@ -324,7 +317,6 @@ public enum ClaudeOAuthCredentialsStore {
         private func loadFromClaudeKeychainWithPromptIfAllowed(
             allowKeychainPrompt: Bool,
             respectKeychainPromptCooldown: Bool,
-            allowCacheKeychainWrite: Bool,
             lastError: inout Error?) -> ClaudeOAuthCredentialRecord?
         {
             let shouldApplyPromptCooldown =
@@ -384,9 +376,7 @@ public enum ClaudeOAuthCredentialsStore {
                             owner: .claudeCLI,
                             source: .memoryCache),
                         timestamp: Date())
-                    if allowCacheKeychainWrite {
-                        ClaudeOAuthCredentialsStore.saveToCacheKeychain(keychainData, owner: .claudeCLI)
-                    }
+                    ClaudeOAuthCredentialsStore.saveToCacheKeychain(keychainData, owner: .claudeCLI)
                     return record
                 }
 
@@ -441,9 +431,7 @@ public enum ClaudeOAuthCredentialsStore {
                         owner: .claudeCLI,
                         source: .memoryCache),
                     timestamp: Date())
-                if allowCacheKeychainWrite {
-                    ClaudeOAuthCredentialsStore.saveToCacheKeychain(keychainData, owner: .claudeCLI)
-                }
+                ClaudeOAuthCredentialsStore.saveToCacheKeychain(keychainData, owner: .claudeCLI)
                 return record
             } catch let error as ClaudeOAuthCredentialsError {
                 if case .notFound = error {
@@ -724,8 +712,7 @@ public enum ClaudeOAuthCredentialsStore {
 
         func repairFromClaudeKeychainWithoutPromptIfAllowed(
             now: Date,
-            respectKeychainPromptCooldown: Bool,
-            allowCacheKeychainWrite: Bool = true) -> ClaudeOAuthCredentialRecord?
+            respectKeychainPromptCooldown: Bool) -> ClaudeOAuthCredentialRecord?
         {
             #if os(macOS)
             let mode = ClaudeOAuthKeychainPromptPreference.current()
@@ -765,9 +752,7 @@ public enum ClaudeOAuthCredentialsStore {
                             owner: .claudeCLI,
                             source: .memoryCache),
                         timestamp: now)
-                    if allowCacheKeychainWrite {
-                        ClaudeOAuthCredentialsStore.saveToCacheKeychain(securityData, owner: .claudeCLI)
-                    }
+                    ClaudeOAuthCredentialsStore.saveToCacheKeychain(securityData, owner: .claudeCLI)
 
                     ClaudeOAuthCredentialsStore.log.info(
                         "Claude keychain credentials loaded without prompt; syncing OAuth cache",
@@ -805,9 +790,7 @@ public enum ClaudeOAuthCredentialsStore {
                         owner: .claudeCLI,
                         source: .memoryCache),
                     timestamp: now)
-                if allowCacheKeychainWrite {
-                    ClaudeOAuthCredentialsStore.saveToCacheKeychain(data, owner: .claudeCLI)
-                }
+                ClaudeOAuthCredentialsStore.saveToCacheKeychain(data, owner: .claudeCLI)
 
                 ClaudeOAuthCredentialsStore.log.info(
                     "Claude keychain credentials loaded without prompt; syncing OAuth cache",

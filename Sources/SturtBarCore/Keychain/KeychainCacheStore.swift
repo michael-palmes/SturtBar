@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 #if os(macOS)
 import Darwin
 import Security
@@ -34,14 +35,15 @@ public enum KeychainCacheStore {
     @TaskLocal private static var loadFailureStatusOverride: OSStatus?
     #endif
     private static let testStoreLock = NSLock()
-    private struct TestStoreKey: Hashable {
+    private struct ItemKey: Hashable {
         let service: String
         let account: String
     }
 
-    private nonisolated(unsafe) static var testStore: [TestStoreKey: Data]?
-    private nonisolated(unsafe) static var implicitTestStore: [TestStoreKey: Data] = [:]
+    private nonisolated(unsafe) static var testStore: [ItemKey: Data]?
+    private nonisolated(unsafe) static var implicitTestStore: [ItemKey: Data] = [:]
     private nonisolated(unsafe) static var testStoreRefCount = 0
+    private static let repairedItems = Mutex<Set<ItemKey>>([])
 
     public static func load<Entry: Codable>(
         key: Key,
@@ -109,37 +111,26 @@ public enum KeychainCacheStore {
         ]
         KeychainNoUIQuery.apply(to: &query)
 
-        let updateStatus = self.withoutLegacyKeychainUI {
-            SecItemUpdate(
-                query as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary)
-        }
-        if updateStatus == errSecSuccess {
-            return
-        }
-        if updateStatus == errSecInteractionNotAllowed {
-            self.log.info("Keychain cache update skipped — keychain locked (e.g. after wake) (\(key.account))")
-            return
-        }
-        if updateStatus != errSecItemNotFound {
-            self.log.error("Keychain cache update failed (\(key.account)): \(updateStatus)")
-            return
-        }
-
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrLabel as String] = self.cacheLabel
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        if let access = self.cacheAccessControl() {
-            addQuery[kSecAttrAccess as String] = access
-        }
-
-        let addStatus = self.withoutLegacyKeychainUI {
-            SecItemAdd(addQuery as CFDictionary, nil)
-        }
-        if addStatus != errSecSuccess {
-            self.log.error("Keychain cache add failed (\(key.account)): \(addStatus)")
-        }
+        let writer = ItemWriter(
+            update: {
+                self.withoutLegacyKeychainUI {
+                    SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+                }
+            },
+            delete: {
+                self.withoutLegacyKeychainUI { SecItemDelete(query as CFDictionary) }
+            },
+            add: {
+                var addQuery = query
+                addQuery[kSecValueData as String] = data
+                addQuery[kSecAttrLabel as String] = self.cacheLabel
+                addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                if let access = self.cacheAccessControl() {
+                    addQuery[kSecAttrAccess as String] = access
+                }
+                return self.withoutLegacyKeychainUI { SecItemAdd(addQuery as CFDictionary, nil) }
+            })
+        self.write(key: key, service: self.serviceName, using: writer)
         #endif
     }
 
@@ -245,6 +236,78 @@ public enum KeychainCacheStore {
     }
 
     #if os(macOS)
+    /// The item writes `store` makes, injectable so the repair path is testable without the real keychain.
+    struct ItemWriter {
+        let update: () -> OSStatus
+        let delete: () -> OSStatus
+        let add: () -> OSStatus
+    }
+
+    enum WriteOutcome: Equatable {
+        case written
+        case repaired
+        case locked
+        case failed
+    }
+
+    /// An own item that rejects this build (e.g. after a signature change) is replaced once per launch, without UI.
+    @discardableResult
+    static func write(key: Key, service: String, using writer: ItemWriter) -> WriteOutcome {
+        guard self.isOwnCacheService(service) else {
+            self.log.error("Keychain cache write refused outside SturtBar's own service (\(key.account))")
+            return .failed
+        }
+        let updateStatus = writer.update()
+        switch updateStatus {
+        case errSecSuccess:
+            return .written
+        case errSecItemNotFound:
+            return self.add(key: key, using: writer) ? .written : .failed
+        case errSecInteractionNotAllowed, errSecAuthFailed:
+            return self.replaceRejectedItem(key: key, service: service, using: writer)
+        default:
+            self.log.error("Keychain cache update failed (\(key.account)): \(updateStatus)")
+            return .failed
+        }
+    }
+
+    static func isOwnCacheService(_ service: String) -> Bool {
+        service == self.cacheService || service.hasPrefix(self.cacheService + ".")
+    }
+
+    private static func replaceRejectedItem(key: Key, service: String, using writer: ItemWriter) -> WriteOutcome {
+        let itemKey = ItemKey(service: service, account: key.account)
+        guard self.repairedItems.withLock({ $0.insert(itemKey).inserted }) else {
+            self.log.info("Keychain cache still unwritable after this launch's repair (\(key.account))")
+            return .failed
+        }
+        let deleteStatus = writer.delete()
+        switch deleteStatus {
+        case errSecSuccess, errSecItemNotFound:
+            break
+        case errSecInteractionNotAllowed:
+            // A locked keychain refuses the delete too; leave the one repair for after it unlocks.
+            self.repairedItems.withLock { _ = $0.remove(itemKey) }
+            self.log.info("Keychain cache update skipped, keychain locked (\(key.account))")
+            return .locked
+        default:
+            self.log.error("Keychain cache repair delete failed (\(key.account)): \(deleteStatus)")
+            return .failed
+        }
+        guard self.add(key: key, using: writer) else { return .failed }
+        self.log.info("Keychain cache item replaced after it rejected this build (\(key.account))")
+        return .repaired
+    }
+
+    private static func add(key: Key, using writer: ItemWriter) -> Bool {
+        let addStatus = writer.add()
+        guard addStatus == errSecSuccess else {
+            self.log.error("Keychain cache add failed (\(key.account)): \(addStatus)")
+            return false
+        }
+        return true
+    }
+
     static func loadResultForKeychainReadFailure<Entry>(
         status: OSStatus,
         key: Key) -> LoadResult<Entry>
@@ -438,7 +501,7 @@ public enum KeychainCacheStore {
         defer { self.testStoreLock.unlock() }
         guard let store = self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
         else { return nil }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         guard let data = store[testKey] else { return .missing }
         let decoder = Self.makeDecoder()
         guard let decoded = try? decoder.decode(Entry.self, from: data) else {
@@ -452,7 +515,7 @@ public enum KeychainCacheStore {
         defer { self.testStoreLock.unlock() }
         let encoder = Self.makeEncoder()
         guard let data = try? encoder.encode(entry) else { return true }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         if var store = self.testStore {
             store[testKey] = data
             self.testStore = store
@@ -468,7 +531,7 @@ public enum KeychainCacheStore {
     private static func clearTestStore(key: Key) -> Bool? {
         self.testStoreLock.lock()
         defer { self.testStoreLock.unlock() }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         if var store = self.testStore {
             let removed = store.removeValue(forKey: testKey) != nil
             self.testStore = store
