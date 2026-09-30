@@ -31,6 +31,17 @@ struct WindowsControllerTests {
     }
 
     @Test
+    func `windows open on the active space`() throws {
+        let windows = self.makeController("sturtbar-windows-space")
+        windows.showSettings()
+        windows.showAbout()
+        for window in try [#require(windows.settingsWindow), #require(windows.aboutWindow)] {
+            #expect(window.collectionBehavior.contains(.moveToActiveSpace))
+            #expect(!window.collectionBehavior.contains(.canJoinAllSpaces))
+        }
+    }
+
+    @Test
     func `settings window is reused across show and close`() throws {
         let windows = self.makeController("sturtbar-windows-reuse")
         windows.showSettings()

@@ -4,6 +4,9 @@ All notable changes to SturtBar are recorded here.
 
 ## Unreleased
 
+- Built with Xcode 27 and the macOS 27 SDK (still runs on macOS 26), so the Settings pickers work on macOS 27. The packaging script now refuses a release binary that does not record the macOS 27 SDK, since SwiftPM's default build system could silently record the older one.
+- The menu bar icon keeps its place: SturtBar now names its status item, carries your existing position over, keeps it through the rare startup recovery (which could drop the icon at the far left after an update), and discards a corrupt saved position that could hide the icon off screen.
+- Settings and About open on the Space you are working in (including under Stage Manager) instead of switching to another desktop.
 - Cost estimates cover the current models: Claude Opus 5, Opus 5.5, Fable 5.1 and Sonnet 5, plus Codex gpt-5.6 (Sol, Terra, Luna) and gpt-6-astra, at the providers' published rates. Fable 5.1 and Opus 5.5 were priced at nothing before, so 30-day totals could read about half the true figure.
 - Built-in prices now always win over the models.dev catalogue, which only fills in models a release does not know yet. The catalogue refresh had stopped updating on 1 August and was being re-downloaded on nearly every scan; it now keeps only the Anthropic and OpenAI entries, fetches at most about once a day (every 6 hours while a model has no price), and no longer reads CodexBar's cache folder.
 - A total that leaves out usage with no known price is marked with a "+" (for example "$4,458+"), and the unpriced model appears in the list as "no price" with its token count, instead of being dropped silently.

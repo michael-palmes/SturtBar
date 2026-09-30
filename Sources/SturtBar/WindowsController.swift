@@ -46,6 +46,7 @@ final class WindowsController {
         // Tests construct windows headlessly; never order them onto the developer's screen.
         guard !ProcessEnvironment.isRunningTests else { return }
         NSApp.activate()
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -86,6 +87,8 @@ final class WindowsController {
         let window = NSWindow(contentViewController: contentViewController)
         window.title = title
         window.styleMask = [.titled, .closable, .miniaturizable]
+        // Open on the Space the user is on (Stage Manager, other desktops) instead of switching away.
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         // Reuse contract: closing hides the window; the controller keeps the only reference.
         window.isReleasedWhenClosed = false
         window.center()
