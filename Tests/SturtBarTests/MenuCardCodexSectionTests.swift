@@ -25,6 +25,45 @@ struct MenuCardCodexSectionTests {
             updatedAt: Self.now)
     }
 
+    private func codexOnlyModel(_ snapshot: ProviderUsageSnapshot) -> UsageMenuCardView.Model {
+        var input = UsageMenuCardView.Model.Input(now: Self.now)
+        input.claudeProviderEnabled = false
+        input.codexProviderEnabled = true
+        input.codexSnapshot = snapshot
+        input.codexLastSuccessAt = Self.now
+        return UsageMenuCardView.Model.make(input)
+    }
+
+    @Test
+    func `a weekly only codex reply shows one weekly bar`() throws {
+        let json = #"{ "rate_limit": { "primary_window": { "used_percent": 43, "limit_window_seconds": 604800 } } }"#
+        let snapshot = try CodexUsageService._mapUsageForTesting(Data(json.utf8), now: Self.now)
+
+        let model = self.codexOnlyModel(snapshot)
+
+        #expect(model.metrics.map(\.title) == ["Weekly"])
+    }
+
+    @Test
+    func `a monthly codex window gets its own bar`() throws {
+        let json = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 18, "limit_window_seconds": 18000 },
+            "secondary_window": { "used_percent": 12, "limit_window_seconds": 2592000 }
+          }
+        }
+        """
+        let snapshot = try CodexUsageService._mapUsageForTesting(Data(json.utf8), now: Self.now)
+        #expect(self.codexOnlyModel(snapshot).metrics.map(\.title) == ["Session", "Monthly"])
+
+        let monthlyOnly = #"{ "rate_limit": { "primary_window": "#
+            + #"{ "used_percent": 5, "limit_window_seconds": 2592000 } } }"#
+        let lone = try CodexUsageService._mapUsageForTesting(Data(monthlyOnly.utf8), now: Self.now)
+        #expect(self.codexOnlyModel(lone).metrics.map(\.title) == ["Monthly"])
+        #expect(self.codexOnlyModel(lone).metrics.map(\.id) == ["codex-monthly"])
+    }
+
     // MARK: - Routing
 
     @Test
@@ -251,7 +290,7 @@ struct MenuCardCodexSectionTests {
                 == "API-key accounts have no usage limits to show.")
 
         input.codexAuth = .ok
-        input.codexHealth = .degraded(until: nil)
+        input.codexHealth = .degraded
         model = UsageMenuCardView.Model.make(input)
         #expect(model.codexSection?.status == .retrying)
 

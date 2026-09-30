@@ -295,12 +295,8 @@ struct UsageStoreRateLimitTests {
 
 @MainActor
 struct UsageStoreHealthMappingTests {
-    private func storeFailing(
-        _ suite: String,
-        error: ClaudeUsageError,
-        blockStatus: @escaping @Sendable () -> ClaudeOAuthRefreshFailureGate.BlockStatus? = { nil }) -> TestStore
-    {
-        makeTestStore(suiteName: suite, blockStatus: blockStatus) { _, _ in throw error }
+    private func storeFailing(_ suite: String, error: ClaudeUsageError) -> TestStore {
+        makeTestStore(suiteName: suite) { _, _ in throw error }
     }
 
     @Test
@@ -312,28 +308,10 @@ struct UsageStoreHealthMappingTests {
         ].enumerated() {
             let ts = self.storeFailing("sturtbar-tests-degraded-\(index)", error: error)
             await ts.store.refresh(trigger: .manual)
-            #expect(ts.store.health == .degraded(until: nil))
+            #expect(ts.store.health == .degraded)
             #expect(ts.store.auth == .ok) // auth untouched by non-auth failures
             #expect(ts.store.failureStreak == 1)
         }
-    }
-
-    @Test
-    func `transient and suppressed refresh failures map to degraded with the gate until-date`() async {
-        let until = Date(timeIntervalSince1970: 2_000_000_000)
-        let ts = self.storeFailing(
-            "sturtbar-tests-degraded-transient",
-            error: .credentials(.refreshFailed(kind: .transient, message: "token endpoint 503")),
-            blockStatus: { .transient(until: until, failures: 1) })
-        await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: until))
-        #expect(ts.store.auth == .ok)
-
-        let suppressed = self.storeFailing(
-            "sturtbar-tests-degraded-suppressed",
-            error: .credentials(.refreshFailed(kind: .suppressed, message: "gate active")))
-        await suppressed.store.refresh(trigger: .manual)
-        #expect(suppressed.store.health == .degraded(until: nil))
     }
 
     @Test
@@ -354,8 +332,7 @@ struct UsageStoreHealthMappingTests {
     func `auth-required errors map to needsReauth with the sign-in remedy`() async {
         for (index, error) in [
             ClaudeUsageError.scopeUnsatisfied(message: "missing user:profile"),
-            .credentials(.noRefreshToken(source: nil)),
-            .credentials(.refreshFailed(kind: .terminal, message: "invalid_grant")),
+            .credentials(.tokenExpired(source: .environment)),
         ].enumerated() {
             let ts = self.storeFailing("sturtbar-tests-reauth-\(index)", error: error)
             await ts.store.refresh(trigger: .manual)
@@ -379,20 +356,9 @@ struct UsageStoreHealthMappingTests {
     }
 
     @Test
-    func `gate terminal block maps to needsReauth even for non-auth errors`() async {
-        let ts = self.storeFailing(
-            "sturtbar-tests-gate-terminal",
-            error: .fetch(.networkError(URLError(.timedOut))),
-            blockStatus: { .terminal(reason: "invalid_grant", failures: 3) })
-        await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.auth == .needsReauth(message: "invalid_grant", remedy: .signIn))
-        #expect(ts.store.health == .degraded(until: nil))
-    }
-
-    @Test
     func `auth is sticky across unrelated failures and resets on success`() async {
         let script = FetchScript([
-            .failure(.credentials(.refreshFailed(kind: .terminal, message: "invalid_grant"))),
+            .failure(.scopeUnsatisfied(message: "missing user:profile")),
             .failure(.fetch(.networkError(URLError(.timedOut)))),
             .success(makeUsageSnapshot()),
         ])
@@ -689,7 +655,7 @@ struct UsageStoreHealthMappingMissingTests {
             "sturtbar-tests-parsefailed",
             error: .parseFailed("unexpected JSON shape"))
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: nil))
+        #expect(ts.store.health == .degraded)
         #expect(ts.store.auth == .ok)
         #expect(ts.store.failureStreak == 1)
     }
@@ -700,23 +666,23 @@ struct UsageStoreHealthMappingMissingTests {
             "sturtbar-tests-oauthfailed",
             error: .oauthFailed("token endpoint unreachable"))
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: nil))
+        #expect(ts.store.health == .degraded)
         #expect(ts.store.auth == .ok)
         #expect(ts.store.failureStreak == 1)
     }
 
     @Test
-    func `fetch unauthorized maps to degraded and auth is not downgraded`() async {
-        // .fetch(.unauthorized) is NOT indicatesAuthenticationRequired (that's .scopeUnsatisfied /
-        // .credentials(.refreshFailed(terminal)) / .credentials(.noRefreshToken)); it is a raw
-        // HTTP 401 that didn't trigger a token refresh, so it maps to degraded.
+    func `fetch unauthorized after the retry maps to needsReauth with the sign-in remedy`() async {
+        // The service retries a 401 once; one that still fails means the token was rejected.
         let ts = self.storeFailing(
             "sturtbar-tests-fetch-unauthorized",
             error: .fetch(.unauthorized))
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: nil))
-        #expect(ts.store.auth == .ok)
-        #expect(ts.store.failureStreak == 1)
+        guard case .needsReauth(_, .signIn) = ts.store.auth else {
+            Issue.record("expected needsReauth(.signIn), got \(ts.store.auth)")
+            return
+        }
+        #expect(ts.store.health == .degraded)
     }
 
     @Test
@@ -725,7 +691,7 @@ struct UsageStoreHealthMappingMissingTests {
             "sturtbar-tests-keychain-error",
             error: .credentials(.keychainError(-25300)))
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: nil))
+        #expect(ts.store.health == .degraded)
         #expect(ts.store.auth == .ok)
         #expect(ts.store.failureStreak == 1)
     }
@@ -736,9 +702,97 @@ struct UsageStoreHealthMappingMissingTests {
             "sturtbar-tests-read-failed",
             error: .credentials(.readFailed("file not readable")))
         await ts.store.refresh(trigger: .manual)
-        #expect(ts.store.health == .degraded(until: nil))
+        #expect(ts.store.health == .degraded)
         #expect(ts.store.auth == .ok)
         #expect(ts.store.failureStreak == 1)
+    }
+}
+
+// MARK: - Waiting for Claude Code
+
+@MainActor
+struct UsageStoreAwaitingClaudeCodeTests {
+    @Test
+    func `expired token waits for claude code without backoff and keeps the reading`() async {
+        let script = FetchScript([
+            .success(makeUsageSnapshot()),
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting") { _, _ in try script.next() }
+        ts.settings.refreshFrequency = .fiveMinutes
+
+        await ts.store.refresh(trigger: .manual)
+        let reading = ts.store.usage
+        #expect(reading != nil)
+
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 2)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        #expect(ts.store.health == .ok)
+        #expect(ts.store.failureStreak == 0)
+        #expect(ts.store.usage == reading)
+
+        // No backoff: the very next interval tick re-reads the credential.
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 3)
+        #expect(ts.store.failureStreak == 0)
+    }
+
+    /// No network failure is involved in waiting, so an earlier failure's backoff must not slow pickup.
+    @Test
+    func `waiting clears an earlier failure streak so the next interval proceeds`() async {
+        let script = FetchScript([
+            .failure(.fetch(.serverError(503, nil))),
+            .failure(.credentials(.tokenExpired(source: .credentialsFile))),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-streak") { _, _ in try script.next() }
+        ts.settings.refreshFrequency = .fiveMinutes
+
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.failureStreak == 1)
+
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        #expect(ts.store.health == .ok)
+        #expect(ts.store.failureStreak == 0)
+
+        // A streak of 1 would need 600s; 301s is enough once waiting has reset it.
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 3)
+    }
+
+    @Test
+    func `expired environment token still needs reauth`() async {
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-env") { _, _ in
+            throw ClaudeUsageError.credentials(.tokenExpired(source: .environment))
+        }
+        await ts.store.refresh(trigger: .manual)
+        guard case .needsReauth(_, .signIn) = ts.store.auth else {
+            Issue.record("expected needsReauth(.signIn), got \(ts.store.auth)")
+            return
+        }
+    }
+
+    @Test
+    func `post sign-in recheck stops once claude code renews the token`() async throws {
+        let script = FetchScript([
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+            .success(makeUsageSnapshot()),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-recheck") { _, _ in try script.next() }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        ts.store.postSignInRecheckDelays = [0.01, 0.01, 0.01]
+        ts.store.beginPostSignInRecheck()
+        try await Task.sleep(for: .seconds(0.5))
+
+        #expect(ts.store.auth == .ok)
+        #expect(await ts.recorder.fetchCount == fetchesBefore + 1)
     }
 }
 

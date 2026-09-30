@@ -49,9 +49,7 @@ import SturtBarCore
         // Suppress the Dock icon when launched via `swift run` (no Info.plist LSUIElement key).
         NSApp.setActivationPolicy(.accessory)
 
-        // Gate init-ordering contract: register the credentials fingerprint provider before any
-        // code consults ClaudeOAuthRefreshFailureGate.
-        ClaudeOAuthCredentialsStore.ensureRefreshFailureGateFingerprintProvider()
+        ClaudeOAuthCredentialsStore.removeRetiredRefreshState()
 
         // Keychain prompt UX: must be installed before anything can trigger a keychain read.
         KeychainPromptCoordinator.install()
@@ -138,7 +136,7 @@ import SturtBarCore
             driver.start()
             self.menuDebugDriver = driver
         }
-        // Reauth-banner mock: STURTBAR_DEBUG_MOCK_AUTH=expired|keychain|missing pins the Claude
+        // Reauth-banner mock: STURTBAR_DEBUG_MOCK_AUTH=expired|keychain|missing|waiting pins the Claude
         // auth state so the banner and its CTAs can be exercised against the live menu.
         if let pinned = Self.debugMockAuthState() {
             store.debugPinClaudeAuth(pinned)
@@ -180,6 +178,8 @@ import SturtBarCore
             .needsReauth(message: "Mocked Keychain block (STURTBAR_DEBUG_MOCK_AUTH).", remedy: .keychainAccess)
         case "missing":
             .credentialsMissing
+        case "waiting":
+            .awaitingClaudeCode
         default:
             nil
         }

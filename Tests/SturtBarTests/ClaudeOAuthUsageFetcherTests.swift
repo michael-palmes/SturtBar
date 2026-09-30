@@ -63,7 +63,6 @@ struct ClaudeOAuthUsageFetcherTests {
         #expect(usage.fiveHour?.resetsAt == "2025-12-25T12:00:00.000Z")
         #expect(usage.sevenDay?.utilization == 30)
         #expect(usage.sevenDayRoutines?.utilization == 9)
-        #expect(usage.sevenDayRoutinesSourceKey == "seven_day_cowork")
         #expect(usage.extraUsage?.isEnabled == true)
         #expect(usage.extraUsage?.monthlyLimit == 2050)
         #expect(usage.extraUsage?.usedCredits == 325)

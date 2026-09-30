@@ -23,7 +23,7 @@
 // IconState field choices (what redraws the icon, and what deliberately does not):
 //   IN  primaryBucket/secondaryBucket — whole-point remaining-% buckets; sub-point usage moves
 //       must not re-render (below pixel resolution at 30px bar width).
-//   IN  isStale, needsAuth, credentialsMissing — change the dimmed presentation immediately
+//   IN  isStale, needsAuth, credentialsMissing, quietDim: change the dimmed presentation immediately
 //       (broken auth means data can't refresh; waiting for the staleness clock would hide it).
 //   IN  displayText — the rendered button title (mode-dependent percent/pace text).
 //   IN  style — settings-driven meter style.
@@ -54,8 +54,8 @@ struct IconState: Equatable {
     var isStale: Bool
     var needsAuth: Bool
     var credentialsMissing: Bool
-    /// Dims without badging (Codex API-key-only): badging a permanent state would nag forever.
-    var unsupported: Bool = false
+    /// Dims without badging (Claude waiting for Claude Code, Codex API-key-only or access denied): nothing to fix.
+    var quietDim: Bool = false
     /// Text next to the icon (nil = icon only).
     var displayText: String?
 
@@ -90,26 +90,26 @@ struct IconState: Equatable {
         let isStale: Bool
         let needsAuth: Bool
         let credentialsMissing: Bool
-        let unsupported: Bool
+        let quietDim: Bool
         switch winner {
         case .claude:
             snapshot = claudeUsage
             isStale = claudeStale
             needsAuth = claudeAuth.isNeedsReauth
             credentialsMissing = claudeAuth == .credentialsMissing
-            unsupported = false
+            quietDim = claudeAuth == .awaitingClaudeCode
         case .codex:
             snapshot = codexUsage
             isStale = codexStale
             needsAuth = codexAuth == .signInRequired
             credentialsMissing = codexAuth == .credentialsMissing
-            unsupported = codexAuth == .apiKeyOnlyUnsupported
+            quietDim = codexAuth == .apiKeyOnlyUnsupported || codexAuth == .accessDenied
         case nil:
             snapshot = nil
             isStale = false
             needsAuth = false
             credentialsMissing = false
-            unsupported = false
+            quietDim = false
         }
 
         let fill = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, showUsed: showUsed)
@@ -124,7 +124,7 @@ struct IconState: Equatable {
             isStale: isStale,
             needsAuth: needsAuth,
             credentialsMissing: credentialsMissing,
-            unsupported: unsupported,
+            quietDim: quietDim,
             displayText: winner.flatMap {
                 MenuBarProviderResolver.prefixed(baseText, provider: $0, multiProvider: multiProvider)
             })
@@ -140,7 +140,7 @@ struct IconState: Equatable {
         IconRenderer.Key(
             primaryBucket: self.primaryBucket,
             secondaryBucket: self.secondaryBucket,
-            dimmed: self.isStale || self.needsAuth || self.credentialsMissing || self.unsupported,
+            dimmed: self.isStale || self.needsAuth || self.credentialsMissing || self.quietDim,
             authBadge: self.needsAuth || self.credentialsMissing)
     }
 }

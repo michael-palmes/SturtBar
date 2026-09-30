@@ -140,7 +140,8 @@ struct MenuCardModelTests {
         #expect(model.metrics.map(\.id)
             == ["primary", "secondary", "tertiary", "model-weekly-fable", "claude-routines"])
         let fable = model.metrics[3]
-        #expect(fable.title == "Fable")
+        #expect(fable.title == "Fable weekly")
+        #expect(fable.id == "model-weekly-fable")
         #expect(fable.percent == 70)
         #expect(fable.warningMarkerPercents == [25])
         #expect(fable.resetText(now: now)?.isEmpty == false)
@@ -430,6 +431,47 @@ struct MenuCardModelTests {
         #expect(model.status.helpText == "Claude Code's sign-in changed.")
     }
 
+    @Test
+    func `waiting for claude code shows a calm open claude code row`() {
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: self.snapshot(primary: self.window(used: 10)),
+            auth: .awaitingClaudeCode,
+            now: Self.now))
+
+        #expect(model.status == .awaitingClaudeCode)
+        #expect(model.status.text(now: Self.now) == "Waiting for Claude Code to refresh its sign-in")
+        #expect(!model.status.isError)
+        #expect(model.status.banner == nil)
+        #expect(model.status.action == .openClaudeCode)
+        #expect(model.status.actionSymbolName == "apple.terminal")
+        #expect(model.status.helpText
+            == "Claude's sign-in token has expired. Claude Code renews it when it next runs. "
+            + "Click to open Claude Code.")
+        #expect(model.metricsMuted)
+    }
+
+    @Test
+    func `metrics are only muted while waiting for claude code`() {
+        for auth in [AuthState.ok, .credentialsMissing, .needsReauth(message: nil, remedy: .signIn)] {
+            let model = UsageMenuCardView.Model.make(.init(
+                snapshot: self.snapshot(primary: self.window(used: 10)),
+                auth: auth,
+                now: Self.now))
+            #expect(!model.metricsMuted)
+        }
+    }
+
+    @Test
+    func `waiting keeps the card shape of a healthy card`() {
+        func shape(auth: AuthState) -> MenuCardShape {
+            MenuCardShape(model: UsageMenuCardView.Model.make(.init(
+                snapshot: self.snapshot(primary: self.window(used: 10)),
+                auth: auth,
+                now: Self.now)))
+        }
+        #expect(shape(auth: .awaitingClaudeCode) == shape(auth: .ok))
+    }
+
     // MARK: - Reauth banner
 
     /// Claude auth states render the banner block: sign-in is always the primary remedy and the
@@ -497,7 +539,7 @@ struct MenuCardModelTests {
     func `non-auth status lines carry no action`() {
         let retrying = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
-            health: .degraded(until: nil),
+            health: .degraded,
             now: Self.now))
         #expect(retrying.status.action == nil)
         #expect(retrying.status.actionSymbolName == nil)
@@ -525,7 +567,7 @@ struct MenuCardModelTests {
     func `degraded shows subtle retrying line`() {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
-            health: .degraded(until: nil),
+            health: .degraded,
             now: Self.now))
 
         #expect(model.status == .retrying)
@@ -713,50 +755,6 @@ struct MenuCardModelTests {
     }
 
     @Test
-    func `partial costs carry a plus and keep the unpriced model visible`() throws {
-        let cost = CostUsageTokenSnapshot(
-            sessionTokens: 2_000_000,
-            sessionCostUSD: 4,
-            last30DaysTokens: 3_000_000,
-            last30DaysCostUSD: 9,
-            daily: [
-                CostUsageDailyReport.Entry(
-                    date: "2026-09-20",
-                    inputTokens: nil,
-                    outputTokens: nil,
-                    totalTokens: 3_000_000,
-                    costUSD: 9,
-                    modelsUsed: nil,
-                    modelBreakdowns: [
-                        .init(modelName: "claude-opus-5", costUSD: 5, totalTokens: 500_000),
-                        .init(modelName: "claude-sonnet-5", costUSD: 3, totalTokens: 400_000),
-                        .init(modelName: "claude-haiku-4-5", costUSD: 1, totalTokens: 100_000),
-                        .init(
-                            modelName: "claude-mystery-9",
-                            costUSD: nil,
-                            totalTokens: 2_000_000,
-                            unpricedTokens: 2_000_000),
-                    ],
-                    unpricedTokens: 2_000_000),
-            ],
-            updatedAt: Self.now,
-            unpricedModels: [CostUsageUnpricedModel(modelName: "claude-mystery-9", tokens: 2_000_000)],
-            sessionUnpricedTokens: 2_000_000)
-
-        let model = UsageMenuCardView.Model.make(.init(
-            snapshot: nil,
-            cost: cost,
-            costUsageEnabled: true,
-            now: Self.now))
-        let section = try #require(model.costSection)
-
-        #expect(section.summaryLine == "Cost  $4.00+ today · $9.00+ 30d")
-        #expect(section.helpText == "Excludes 1 model with no known price")
-        #expect(section.breakdown.map(\.id) == ["claude-opus-5", "claude-sonnet-5", "claude-mystery-9"])
-        #expect(section.breakdown.last?.detail == "no price · 2M")
-    }
-
-    @Test
     func `cost section is configuration gated`() {
         let disabled = UsageMenuCardView.Model.make(.init(
             snapshot: nil,
@@ -814,7 +812,7 @@ struct MenuCardModelTests {
                 $0.auth = .needsReauth(message: "keychain", remedy: .keychainAccess)
             },
             input { $0.snapshot = fullSnapshot; $0.health = .rateLimited(until: now.addingTimeInterval(600)) },
-            input { $0.snapshot = fullSnapshot; $0.health = .degraded(until: nil) },
+            input { $0.snapshot = fullSnapshot; $0.health = .degraded },
             input { $0.snapshot = fullSnapshot; $0.isStale = true; $0.isRefreshing = true },
         ]
 

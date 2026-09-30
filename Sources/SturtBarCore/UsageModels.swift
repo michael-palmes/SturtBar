@@ -27,6 +27,11 @@ public struct RateWindow: Codable, Equatable, Sendable {
         max(0, 100 - self.usedPercent)
     }
 
+    /// Session-scale (at most 6h); a window of unknown length counts as a session.
+    public var isSessionScale: Bool {
+        self.windowMinutes.map { $0 <= 6 * 60 } ?? true
+    }
+
     public func backfillingResetTime(from cached: RateWindow?, now: Date = .init()) -> RateWindow {
         if self.resetsAt != nil { return self }
         guard let cachedReset = cached?.resetsAt, cachedReset > now else { return self }

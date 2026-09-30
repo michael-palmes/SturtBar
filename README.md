@@ -51,7 +51,7 @@ Spend is read locally by scanning the session logs under `~/.claude/projects` (t
 
 Refresh runs on a hybrid schedule: whenever you open the menu, plus a background interval you choose (manual, 1, 2, 5, 15, or 30 minutes; 5 is the default). Cost scans run on demand.
 
-**On token rotation:** if SturtBar ever has to refresh an expired OAuth token, the rotated token is written **only** to SturtBar's own keychain cache. SturtBar never writes to Claude Code's credential stores.
+**On token expiry:** SturtBar never refreshes Claude tokens. When one expires, it keeps your last reading, says it is waiting, and picks up the new token once Claude Code renews it.
 
 If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
 
@@ -72,7 +72,6 @@ What it reads:
 Every network call it makes:
 
 - `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
-- `platform.claude.com/v1/oauth/token`: refreshes the OAuth token, only when a stored token has expired. The rotated token is written only to SturtBar's own keychain cache.
 - `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
 - `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, only while local cost tracking is enabled: at most about once a day, or every 6 hours while your logs show a model SturtBar has no built-in price for. SturtBar's own prices always win; the catalogue only fills gaps.
 - `api.github.com/repos/michael-palmes/SturtBar/releases/latest`: reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually.
@@ -80,7 +79,7 @@ Every network call it makes:
 
 Update checks are opt-in: SturtBar asks once on first launch, and the toggle lives under Settings > Updates (turning it off wipes the lane's stored state). The check sends no identifiers. Installing verifies the download's SHA-256 checksum and its Developer ID signature against the running app's own identity before anything is replaced.
 
-When the Claude session expires, the card offers a sign-in button. Clicking it writes a small helper script to `~/.sturtbar` and opens it in your default terminal; the terminal runs `claude /login` from that folder, so if Claude Code asks you to trust a workspace it is only SturtBar's own folder holding that one script, never your home directory or files. SturtBar itself never runs the claude CLI and never touches its credential stores.
+When Claude needs a fresh sign-in, the card offers a sign-in button. Clicking it writes a small helper script to `~/.sturtbar` and opens it in your default terminal; the terminal runs `claude /login` from that folder, so if Claude Code asks you to trust a workspace it is only SturtBar's own folder holding that one script, never your home directory or files. When the token has only expired, the card says it is waiting for Claude Code instead; clicking that line opens `claude` the same way so Claude Code can renew its sign-in. SturtBar itself never runs the claude CLI and never touches its credential stores.
 
 Keychain prompts are opt-in: SturtBar never shows a macOS Keychain prompt unless you allow it, via the "Ask for Keychain access when needed" setting or the menu's reconnect line. Silent reads that macOS already permits keep working either way.
 

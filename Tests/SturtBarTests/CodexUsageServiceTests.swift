@@ -84,7 +84,40 @@ struct CodexUsageMappingTests {
 
         #expect(snap.primary.usedPercent == 43)
         #expect(snap.primary.windowMinutes == 10080)
+        // A promoted weekly window stays the weekly reading too, so weekly warnings keep working.
+        #expect(snap.secondary?.usedPercent == 43)
+    }
+
+    @Test
+    func `a thirty day window is monthly, never the session`() throws {
+        let json = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 12, "limit_window_seconds": 2592000 },
+            "secondary_window": { "used_percent": 30, "limit_window_seconds": 604800 }
+          }
+        }
+        """
+        let snap = try CodexUsageService._mapUsageForTesting(Data(json.utf8), now: self.now)
+
+        #expect(snap.primary.usedPercent == 30)
+        #expect(snap.secondary?.usedPercent == 30)
+        #expect(snap.extraRateWindows.map(\.id) == ["codex-monthly"])
+        #expect(snap.extraRateWindows.first?.window.usedPercent == 12)
+    }
+
+    @Test
+    func `a monthly only reply is primary and still the named monthly window`() throws {
+        let json = """
+        { "rate_limit": { "primary_window": { "used_percent": 12, "limit_window_seconds": 2592000 } } }
+        """
+        let snap = try CodexUsageService._mapUsageForTesting(Data(json.utf8), now: self.now)
+
+        #expect(snap.primary.windowMinutes == 43200)
         #expect(snap.secondary == nil)
+        // Named even as the primary, so it gets named-window warnings.
+        #expect(snap.extraRateWindows.map(\.id) == ["codex-monthly"])
+        #expect(snap.extraRateWindows.first?.window == snap.primary)
     }
 
     @Test
