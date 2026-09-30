@@ -43,8 +43,9 @@ SturtBar reads that item; it never changes it. With prompts already enabled, pre
 
 Re-logging into Claude Code resets this permission, so you may be asked again even if you
 allowed it before. SturtBar never shows a Keychain prompt on its own: one can appear only
-after you allow prompts, and then only when you open the menu, press ⌘R, or once during
-the first launch after install. Routine background refreshes never prompt.
+after you allow prompts, and then only when you open the menu, press ⌘R, or once at launch
+while SturtBar has no saved copy of the token (such as the first launch after install).
+Routine background refreshes never prompt.
 
 ### 4. Check for a stale credentials file
 

@@ -855,6 +855,35 @@ struct ClaudeUsageServiceFlowTests {
         #expect(snapshot.primary.usedPercent == 7)
     }
 
+    /// An expired saved copy means SturtBar is set up and waiting for Claude Code; launch must not prompt.
+    @Test
+    func `oauth bootstrap stays suppressed when an expired copy is saved`() async throws {
+        let usageResponse = try Self.makeOAuthUsageResponse()
+        let promptFlags = Mutex<[Bool]>([])
+        let bootstrapFlags = Mutex<[Bool]>([])
+
+        _ = try await ClaudeUsageService.$hasAnyCachedCredentialsOverride.withValue(true) {
+            try await withOAuthSeams(
+                promptMode: .onlyOnUserAction,
+                hasCachedCredentials: false,
+                load: { _, allowPrompt, _ in
+                    promptFlags.withLock { $0.append(allowPrompt) }
+                    bootstrapFlags.withLock {
+                        $0.append(ClaudeOAuthCredentialsStore.allowBackgroundPromptBootstrap)
+                    }
+                    return Self.makeCredentials()
+                },
+                fetch: { _ in usageResponse },
+                operation: {
+                    try await Self.makeService(allowStartupBootstrapPrompt: true)
+                        .fetchUsage(interaction: .background, phase: .startup)
+                })
+        }
+
+        #expect(promptFlags.withLock { $0 } == [false])
+        #expect(bootstrapFlags.withLock { $0 } == [false])
+    }
+
     @Test
     func `ambient startup phase binding still activates bootstrap`() async throws {
         // Proves RefreshContext.$current ambient binding is still honoured (phase: .regular default

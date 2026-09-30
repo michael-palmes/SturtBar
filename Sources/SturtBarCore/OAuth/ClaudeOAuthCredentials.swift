@@ -506,10 +506,14 @@ public enum ClaudeOAuthCredentialsStore {
             }
         }
 
-        func hasCachedCredentials(environment: [String: String]) -> Bool {
+        func hasCachedCredentials(environment: [String: String], includingExpired: Bool) -> Bool {
             self.context.run {
-                // An expired token is no use to SturtBar, so it never counts as cached.
-                if let creds = ClaudeOAuthCredentialsStore.loadFromEnvironment(environment), !creds.isExpired {
+                /// An expired token is no use for a fetch, so it counts only when the caller asks about any saved copy.
+                func counts(_ creds: ClaudeOAuthCredentials) -> Bool {
+                    includingExpired || !creds.isExpired
+                }
+
+                if let creds = ClaudeOAuthCredentialsStore.loadFromEnvironment(environment), counts(creds) {
                     return true
                 }
 
@@ -517,14 +521,14 @@ public enum ClaudeOAuthCredentialsStore {
                 if let timestamp = memory.timestamp,
                    let cached = memory.record,
                    Date().timeIntervalSince(timestamp) < ClaudeOAuthCredentialsStore.memoryCacheValidityDuration,
-                   !cached.credentials.isExpired
+                   counts(cached.credentials)
                 {
                     return true
                 }
 
                 switch KeychainCacheStore.load(key: ClaudeOAuthCredentialsStore.cacheKey, as: CacheEntry.self) {
                 case let .found(entry):
-                    if let creds = try? ClaudeOAuthCredentials.parse(data: entry.data), !creds.isExpired {
+                    if let creds = try? ClaudeOAuthCredentials.parse(data: entry.data), counts(creds) {
                         return true
                     }
                 case .temporarilyUnavailable:
@@ -535,7 +539,7 @@ public enum ClaudeOAuthCredentialsStore {
 
                 if let fileData = try? ClaudeOAuthCredentialsStore.loadFromFile(),
                    let creds = try? ClaudeOAuthCredentials.parse(data: fileData),
-                   !creds.isExpired
+                   counts(creds)
                 {
                     return true
                 }
@@ -1084,10 +1088,13 @@ public enum ClaudeOAuthCredentialsStore {
     }
 
     /// Check if SturtBar has cached credentials (in memory or keychain cache)
-    public static func hasCachedCredentials(environment: [String: String] = ProcessInfo.processInfo
-        .environment) -> Bool
+    public static func hasCachedCredentials(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        includingExpired: Bool = false) -> Bool
     {
-        Repository(context: self.currentCollaboratorContext()).hasCachedCredentials(environment: environment)
+        Repository(context: self.currentCollaboratorContext()).hasCachedCredentials(
+            environment: environment,
+            includingExpired: includingExpired)
     }
 
     public static func hasClaudeKeychainCredentialsWithoutPrompt() -> Bool {

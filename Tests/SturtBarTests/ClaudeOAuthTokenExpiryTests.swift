@@ -205,6 +205,8 @@ struct ClaudeOAuthTokenExpiryTests {
                     storedAt: Date(),
                     owner: .claudeCLI))
             #expect(ClaudeOAuthCredentialsStore.hasCachedCredentials(environment: [:]) == false)
+            // Still a saved copy, which keeps the startup bootstrap prompt away.
+            #expect(ClaudeOAuthCredentialsStore.hasCachedCredentials(environment: [:], includingExpired: true))
         }
     }
 

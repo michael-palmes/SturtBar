@@ -278,7 +278,7 @@ Links that open in your browser (the provider consoles and status pages) are not
 
 ### 6.4 Prompt policy
 
-Keychain prompts are opt-in and off by default: SturtBar never shows a Keychain prompt unless you allow it, either with the "Ask for Keychain access when needed" setting or by choosing Continue when the menu's reconnect line offers access. With prompts allowed, they appear on user action (opening the menu, pressing ⌘R), plus at most one prompt during the first launch after install. Routine background refreshes never prompt.
+Keychain prompts are opt-in and off by default: SturtBar never shows a Keychain prompt unless you allow it, either with the "Ask for Keychain access when needed" setting or by choosing Continue when the menu's reconnect line offers access. With prompts allowed, they appear on user action (opening the menu, pressing ⌘R), plus at most one prompt at launch while SturtBar has no saved copy of the token (such as the first launch after install). Routine background refreshes never prompt.
 
 ### 6.5 The keeper's economy
 

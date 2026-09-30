@@ -201,6 +201,8 @@ public struct ClaudeUsageService: Sendable {
         Bool) async throws -> ClaudeOAuthCredentials)?
     @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (String) async throws -> OAuthUsageResponse)?
     @TaskLocal static var hasCachedCredentialsOverride: Bool?
+    /// Any saved copy, expired or not; gates the startup bootstrap prompt.
+    @TaskLocal static var hasAnyCachedCredentialsOverride: Bool?
     #endif
 
     // MARK: - OAuth executor
@@ -284,8 +286,11 @@ public struct ClaudeUsageService: Sendable {
         /// 2. `loadOAuthCredentialsOverride` is non-nil       → treat as no-cache (the override
         ///    supplies its own credentials, so the real keychain state is irrelevant)
         /// 3. Otherwise                                        → query the real credentials store
-        private func resolveHasCache() -> Bool {
+        private func resolveHasCache(includingExpired: Bool = false) -> Bool {
             #if DEBUG
+            if includingExpired, let explicit = ClaudeUsageService.hasAnyCachedCredentialsOverride {
+                return explicit
+            }
             if let explicit = ClaudeUsageService.hasCachedCredentialsOverride {
                 return explicit
             }
@@ -293,7 +298,9 @@ public struct ClaudeUsageService: Sendable {
                 return false
             }
             #endif
-            return ClaudeOAuthCredentialsStore.hasCachedCredentials(environment: self.service.environment)
+            return ClaudeOAuthCredentialsStore.hasCachedCredentials(
+                environment: self.service.environment,
+                includingExpired: includingExpired)
         }
 
         private func shouldAllowStartupBootstrapPrompt(
@@ -306,7 +313,9 @@ public struct ClaudeUsageService: Sendable {
                 return false
             }
             guard policy.interaction == .background else { return false }
-            return RefreshContext.current == .startup
+            guard RefreshContext.current == .startup else { return false }
+            // Bootstrap only when nothing is saved: an expired copy means SturtBar was set up and is waiting.
+            return !self.resolveHasCache(includingExpired: true)
         }
 
         private func validateRequiredOAuthScope(_ credentials: ClaudeOAuthCredentials) throws {
