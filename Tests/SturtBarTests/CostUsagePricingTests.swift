@@ -213,47 +213,89 @@ struct CostUsagePricingTests {
     }
 
     @Test
-    func `claude cost prefers models dev cache with threshold pricing`() throws {
-        let root = try Self.seedModelsDevCache("""
+    func `claude built-in rates beat a conflicting models dev entry`() throws {
+        let catalog = try Self.catalog("""
         {
           "anthropic": {
             "id": "anthropic",
             "models": {
-              "claude-sonnet-4-6": {
-                "id": "claude-sonnet-4-6",
+              "claude-fable-5-1": {
+                "id": "claude-fable-5-1",
                 "cost": {
-                  "input": 3,
-                  "output": 15,
-                  "cache_read": 0.3,
-                  "cache_write": 3.75,
-                  "context_over_200k": {
-                    "input": 6,
-                    "output": 22.5,
-                    "cache_read": 0.6,
-                    "cache_write": 7.5
-                  }
+                  "input": 10,
+                  "output": 50,
+                  "cache_read": 1,
+                  "cache_write": 12.5,
+                  "context_over_200k": { "input": 20, "output": 75, "cache_read": 2, "cache_write": 25 }
                 }
               }
             }
           }
         }
         """)
-
-        // Pass catalog explicitly (Phase 2b: threading test).
-        let catalog = ModelsDevCache.load(cacheRoot: root).artifact?.catalog
         let cost = CostUsagePricing.claudeCostUSD(
-            model: "claude-sonnet-4-6",
+            model: "claude-fable-5-1",
+            inputTokens: 300_000,
+            cacheReadInputTokens: 1_000_000,
+            cacheCreationInputTokens: 0,
+            outputTokens: 0,
+            modelsDevCatalog: catalog)
+        let expected = (300_000.0 * 10e-6) + (1_000_000.0 * 0.25e-6)
+        #expect(abs((cost ?? 0) - expected) < 1e-9)
+    }
+
+    @Test
+    func `claude models dev prices an unlisted model with its threshold`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "anthropic": {
+            "id": "anthropic",
+            "models": {
+              "claude-future-9": {
+                "id": "claude-future-9",
+                "cost": {
+                  "input": 3,
+                  "output": 15,
+                  "cache_read": 0.3,
+                  "cache_write": 3.75,
+                  "context_over_200k": { "input": 6, "output": 22.5, "cache_read": 0.6, "cache_write": 7.5 }
+                }
+              }
+            }
+          }
+        }
+        """)
+        let cost = CostUsagePricing.claudeCostUSD(
+            model: "claude-future-9",
             inputTokens: 200_010,
             cacheReadInputTokens: 5,
             cacheCreationInputTokens: 5,
             outputTokens: 5,
             modelsDevCatalog: catalog)
+        let expected = (200_010.0 * 6e-6) + (5.0 * 0.6e-6) + (5.0 * 7.5e-6) + (5.0 * 22.5e-6)
+        #expect(abs((cost ?? 0) - expected) < 1e-12)
+    }
 
-        let expected = (200_010.0 * 6e-6)
-            + (5.0 * 0.6e-6)
-            + (5.0 * 7.5e-6)
-            + (5.0 * 22.5e-6)
-        #expect(cost == expected)
+    @Test
+    func `claude models dev entry without cache prices uses standard multipliers`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "anthropic": {
+            "id": "anthropic",
+            "models": {
+              "claude-future-9": { "id": "claude-future-9", "cost": { "input": 4, "output": 20 } }
+            }
+          }
+        }
+        """)
+        let cost = CostUsagePricing.claudeCostUSD(
+            model: "claude-future-9",
+            inputTokens: 0,
+            cacheReadInputTokens: 1_000_000,
+            cacheCreationInputTokens: 1_000_000,
+            outputTokens: 0,
+            modelsDevCatalog: catalog)
+        #expect(abs((cost ?? 0) - (0.4 + 5)) < 1e-9)
     }
 
     @Test
@@ -389,7 +431,7 @@ struct CostUsagePricingTests {
     }
 
     @Test
-    func `codex cost prefers injected models dev catalog`() throws {
+    func `codex built-in rates beat a conflicting models dev entry`() throws {
         let catalog = try Self.catalog("""
         {
           "openai": {
@@ -409,9 +451,38 @@ struct CostUsagePricingTests {
             cachedInputTokens: 200,
             outputTokens: 500,
             modelsDevCatalog: catalog)
-        // Catalog ($/M tokens) overrides the built-in table: input 2e-6, output 1.2e-5, cache_read 2e-7.
-        let expected = (800.0 * 2e-6) + (200.0 * 2e-7) + (500.0 * 1.2e-5)
-        #expect(cost == expected)
+        let expected = (800.0 * 1.25e-6) + (200.0 * 1.25e-7) + (500.0 * 1e-5)
+        #expect(abs((cost ?? 0) - expected) < 1e-12)
+    }
+
+    @Test
+    func `codex models dev prices an unlisted model at base rates`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "openai": {
+            "id": "openai",
+            "models": {
+              "gpt-future": {
+                "id": "gpt-future",
+                "cost": {
+                  "input": 2,
+                  "output": 12,
+                  "cache_read": 0.2,
+                  "context_over_200k": { "input": 4, "output": 18, "cache_read": 0.4 }
+                }
+              }
+            }
+          }
+        }
+        """)
+        let cost = CostUsagePricing.codexCostUSD(
+            model: "gpt-future",
+            inputTokens: 300_000,
+            cachedInputTokens: 100_000,
+            outputTokens: 1000,
+            modelsDevCatalog: catalog)
+        let expected = (200_000.0 * 2e-6) + (100_000.0 * 2e-7) + (1000.0 * 1.2e-5)
+        #expect(abs((cost ?? 0) - expected) < 1e-12)
     }
 
     // MARK: - Helpers

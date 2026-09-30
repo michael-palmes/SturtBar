@@ -36,9 +36,9 @@ public struct ClaudeCostFetcher: Sendable {
     /// Callers (the Phase 3 actor) schedule this on their own cadence BEFORE
     /// loadTokenSnapshot when they want fresh pricing. Offline/no-op safe:
     /// the pipeline is best-effort and never throws.
-    public func refreshPricingCatalogIfNeeded(now: Date = Date()) async {
+    public func refreshPricingCatalogIfNeeded(now: Date = Date(), eager: Bool = false) async {
         let cacheRoot = self.scannerOptions?.cacheRoot
-        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot)
+        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot, eager: eager)
     }
 
     /// Internal overload used by tests to inject a transport without making ModelsDevClient public.
@@ -160,6 +160,21 @@ public struct ClaudeCostFetcher: Sendable {
             last30DaysCostUSD: last30DaysCostUSD,
             historyDays: historyDays,
             daily: daily.data,
-            updatedAt: now)
+            updatedAt: now,
+            unpricedModels: Self.unpricedModels(in: daily.data),
+            sessionUnpricedTokens: currentDay?.unpricedTokens)
+    }
+
+    /// Unpriced models across the window, largest first; nil when every token has a price.
+    static func unpricedModels(in entries: [CostUsageDailyReport.Entry]) -> [CostUsageUnpricedModel]? {
+        var tokensByModel: [String: Int] = [:]
+        for breakdown in entries.flatMap({ $0.modelBreakdowns ?? [] }) {
+            guard let tokens = breakdown.unpricedTokens, tokens > 0 else { continue }
+            tokensByModel[breakdown.modelName, default: 0].addSaturating(tokens)
+        }
+        guard !tokensByModel.isEmpty else { return nil }
+        return tokensByModel
+            .map { CostUsageUnpricedModel(modelName: $0.key, tokens: $0.value) }
+            .sorted { ($0.tokens, $0.modelName) > ($1.tokens, $1.modelName) }
     }
 }

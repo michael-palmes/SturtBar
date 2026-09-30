@@ -223,7 +223,8 @@ struct ClaudeCostFetcherTests {
         // Build a catalog payload with a known model; the transport returns it for
         // the initial stale-cache refresh.
         let catalogJSON = #"{"anthropic":{"id":"anthropic","models":"#
-            + #"{"claude-test-model":{"id":"claude-test-model","cost":{"input":1,"output":2}}}}}"#
+            + #"{"claude-test-model":{"id":"claude-test-model","cost":{"input":1,"output":2}}}},"#
+            + #""openai":{"id":"openai","models":{"gpt-test":{"id":"gpt-test","cost":{"input":1,"output":2}}}}}"#
         let catalogURL = try #require(URL(string: "https://models.dev/api.json"))
         let catalogResponse = try #require(HTTPURLResponse(
             url: catalogURL,
@@ -242,7 +243,7 @@ struct ClaudeCostFetcherTests {
         // Verify the catalog was written to the injected cacheRoot, not the real cache dir.
         let loaded = ModelsDevCache.load(cacheRoot: env.cacheRoot)
         #expect(loaded.artifact != nil)
-        let lookup = loaded.artifact?.catalog.pricing(
+        let lookup = loaded.artifact?.catalog?.pricing(
             providerID: "anthropic",
             modelID: "claude-test-model")
         #expect(lookup != nil)

@@ -11,14 +11,16 @@ extension CostUsageScanner {
         size: Int64,
         days: [String: [String: [Int]]],
         parsedBytes: Int64?,
-        claudeRows: [ClaudeUsageRow]? = nil) -> CostUsageFileUsage
+        claudeRows: [ClaudeUsageRow]? = nil,
+        fileIdentifier: UInt64? = nil) -> CostUsageFileUsage
     {
         CostUsageFileUsage(
             mtimeUnixMs: mtimeUnixMs,
             size: size,
             days: days,
             parsedBytes: parsedBytes,
-            claudeRows: claudeRows)
+            claudeRows: claudeRows,
+            fileIdentifier: fileIdentifier)
     }
 
     // MARK: - Cache window helpers

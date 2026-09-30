@@ -55,12 +55,12 @@ enum CostUsageScanner {
         let parsedBytes: Int64
     }
 
-    enum ClaudePathRole: String, Codable {
+    enum ClaudePathRole: String, Codable, Equatable {
         case parent
         case subagent
     }
 
-    struct ClaudeUsageRow: Codable {
+    struct ClaudeUsageRow: Codable, Equatable {
         let dayKey: String
         let model: String
         let sessionId: String?
@@ -76,6 +76,7 @@ enum CostUsageScanner {
         let output: Int
         let costNanos: Int
         let costPriced: Bool?
+        var isFast: Bool?
     }
 
     /// Convenience wrapper that silently swallows any thrown error — including

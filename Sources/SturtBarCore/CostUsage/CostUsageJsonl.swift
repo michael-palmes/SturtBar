@@ -47,6 +47,7 @@ enum CostUsageJsonl {
         var lineBytes = 0
         var truncated = false
         var bytesRead: Int64 = 0
+        var committedOffset = startOffset
 
         func appendSegment(_ bytes: UnsafePointer<UInt8>, count: Int) {
             guard count > 0 else { return }
@@ -71,16 +72,25 @@ enum CostUsageJsonl {
             truncated = false
         }
 
+        /// Scanners drop truncated lines anyway, so only an in-limit tail needs to prove it is complete.
+        func tailIsComplete() -> Bool {
+            truncated || (try? JSONSerialization.jsonObject(with: current, options: [.fragmentsAllowed])) != nil
+        }
+
         while true {
             try checkCancellation?()
             let reachedEOF = try autoreleasepool {
                 let chunk = try handle.read(upToCount: 256 * 1024) ?? Data()
                 if chunk.isEmpty {
-                    flushLine()
+                    if lineBytes == 0 || tailIsComplete() {
+                        flushLine()
+                        committedOffset = startOffset + bytesRead
+                    }
                     return true
                 }
 
                 try checkCancellation?()
+                let chunkStartOffset = startOffset + bytesRead
                 bytesRead += Int64(chunk.count)
                 chunk.withUnsafeBytes { rawBuffer in
                     guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
@@ -90,6 +100,7 @@ enum CostUsageJsonl {
                         if base[index] == 0x0A {
                             appendSegment(base.advanced(by: segmentStart), count: index - segmentStart)
                             flushLine()
+                            committedOffset = chunkStartOffset + Int64(index + 1)
                             segmentStart = index + 1
                         }
                         index += 1
@@ -104,6 +115,6 @@ enum CostUsageJsonl {
             try checkCancellation?()
         }
 
-        return startOffset + bytesRead
+        return committedOffset
     }
 }

@@ -58,6 +58,80 @@ struct CostUsageJsonlScannerTests {
         #expect(scanned[1].wasTruncated == true)
     }
 
+    @Test
+    func `jsonl scanner retries an incomplete final record after append`() throws {
+        let root = try self.makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("appending.jsonl", isDirectory: false)
+        let complete = #"{"id":"done"}"# + "\n"
+        let partial = #"{"id":"partial"#
+        try (complete + partial).write(to: fileURL, atomically: true, encoding: .utf8)
+
+        var firstPass: [String] = []
+        let resumeOffset = try CostUsageJsonl.scan(fileURL: fileURL, maxLineBytes: 1024, prefixBytes: 1024) { line in
+            firstPass.append(String(bytes: line.bytes, encoding: .utf8) ?? "")
+        }
+
+        #expect(firstPass == [#"{"id":"done"}"#])
+        #expect(resumeOffset == Int64(Data(complete.utf8).count))
+
+        let handle = try FileHandle(forWritingTo: fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((#""}"# + "\n").utf8))
+        try handle.close()
+
+        var secondPass: [String] = []
+        let endOffset = try CostUsageJsonl.scan(
+            fileURL: fileURL,
+            offset: resumeOffset,
+            maxLineBytes: 1024,
+            prefixBytes: 1024)
+        { line in
+            secondPass.append(String(bytes: line.bytes, encoding: .utf8) ?? "")
+        }
+
+        #expect(secondPass == [#"{"id":"partial"}"#])
+        #expect(endOffset == Int64(Data((complete + partial + #""}"# + "\n").utf8).count))
+    }
+
+    @Test
+    func `jsonl scanner accepts a complete final record without newline`() throws {
+        let root = try self.makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("final-record.jsonl", isDirectory: false)
+        let record = #"{"id":"complete"}"#
+        try record.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        var scanned: [String] = []
+        let endOffset = try CostUsageJsonl.scan(fileURL: fileURL, maxLineBytes: 1024, prefixBytes: 1024) { line in
+            scanned.append(String(bytes: line.bytes, encoding: .utf8) ?? "")
+        }
+
+        #expect(scanned == [record])
+        #expect(endOffset == Int64(Data(record.utf8).count))
+    }
+
+    @Test
+    func `jsonl scanner commits an oversized final record it would drop anyway`() throws {
+        let root = try self.makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("oversized-tail.jsonl", isDirectory: false)
+        let oversized = #"{"message":""# + String(repeating: "x", count: 256)
+        try oversized.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        var scanned: [CostUsageJsonl.Line] = []
+        let endOffset = try CostUsageJsonl.scan(fileURL: fileURL, maxLineBytes: 64, prefixBytes: 64) { line in
+            scanned.append(line)
+        }
+
+        #expect(scanned.count == 1)
+        #expect(scanned[0].wasTruncated)
+        #expect(endOffset == Int64(Data(oversized.utf8).count))
+    }
+
     private func makeTemporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "sturtbar-cost-usage-jsonl-\(UUID().uuidString)",
