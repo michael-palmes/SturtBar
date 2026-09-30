@@ -574,12 +574,13 @@ struct ClaudeUsageServiceFlowTests {
 
     private static func makeCredentials(
         accessToken: String = "fresh-token",
-        scopes: [String] = ["user:profile"]) -> ClaudeOAuthCredentials
+        scopes: [String] = ["user:profile"],
+        expiresIn: TimeInterval = 3600) -> ClaudeOAuthCredentials
     {
         ClaudeOAuthCredentials(
             accessToken: accessToken,
             refreshToken: "refresh-token",
-            expiresAt: Date(timeIntervalSinceNow: 3600),
+            expiresAt: Date(timeIntervalSinceNow: expiresIn),
             scopes: scopes,
             rateLimitTier: nil)
     }
@@ -784,10 +785,45 @@ struct ClaudeUsageServiceFlowTests {
                 Issue.record("Expected ClaudeUsageError.fetch(.unauthorized), got \(error)")
                 return
             }
+            // A token still rejected after the retry needs a fresh sign-in, not a silent retry loop.
+            #expect(error.indicatesAuthenticationRequired)
         } catch {
             Issue.record("Expected ClaudeUsageError, got \(error)")
         }
 
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(fetchCount.withLock { $0 } == 2)
+    }
+
+    @Test
+    func `oauth 401 within the clock skew allowance of expiry maps to token expired`() async throws {
+        let loadCount = Mutex(0)
+        let fetchCount = Mutex(0)
+
+        do {
+            _ = try await withIsolatedCacheStores {
+                try await withOAuthSeams(
+                    load: { _, _, _ in
+                        loadCount.withLock { $0 += 1 }
+                        return Self.makeCredentials(accessToken: "nearly-expired", expiresIn: 30)
+                    },
+                    fetch: { _ in
+                        fetchCount.withLock { $0 += 1 }
+                        throw ClaudeOAuthFetchError.unauthorized
+                    },
+                    operation: {
+                        try await Self.makeService().fetchUsage(interaction: .background)
+                    })
+            }
+            Issue.record("Expected ClaudeUsageError.credentials(.tokenExpired)")
+        } catch let error as ClaudeUsageError {
+            guard case .credentials(.tokenExpired(source: .claudeKeychain)) = error else {
+                Issue.record("Expected .credentials(.tokenExpired(.claudeKeychain)), got \(error)")
+                return
+            }
+        }
+
+        // The single retry still runs first, in case Claude Code renewed the token meanwhile.
         #expect(loadCount.withLock { $0 } == 2)
         #expect(fetchCount.withLock { $0 } == 2)
     }
@@ -934,7 +970,7 @@ struct ClaudeUsageServiceFlowTests {
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope")
             .indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.credentials(.notFound).indicatesAuthenticationRequired == false)
-        #expect(ClaudeUsageError.fetch(.unauthorized).indicatesAuthenticationRequired == false)
+        #expect(ClaudeUsageError.fetch(.unauthorized).indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.parseFailed("missing session data").indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.oauthFailed("anything").indicatesAuthenticationRequired == false)
 

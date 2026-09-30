@@ -42,7 +42,7 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
     /// True when the underlying failure means the user must re-authenticate in Claude Code (`needsReauth`).
     public var indicatesAuthenticationRequired: Bool {
         switch self {
-        case .scopeUnsatisfied:
+        case .scopeUnsatisfied, .fetch(.unauthorized):
             true
         case let .credentials(error):
             switch error {
@@ -92,6 +92,8 @@ public struct ClaudeUsageService: Sendable {
     private let configuration: Configuration
     private let transport: any HTTPTransport
     private static let log = SturtBarLog.logger("claude-usage")
+    /// A 401 this close to `expiresAt` is the server's clock running ahead, so it counts as an expiry.
+    static let expiryClockSkewAllowance: TimeInterval = 60
 
     var environment: [String: String] {
         self.configuration.environment
@@ -201,6 +203,7 @@ public struct ClaudeUsageService: Sendable {
         let service: ClaudeUsageService
 
         func load(allowUnauthorizedRetry: Bool) async throws -> ProviderUsageSnapshot {
+            var loadedRecord: ClaudeOAuthCredentialRecord?
             do {
                 let promptPolicy = ClaudeUsageService.currentClaudeOAuthInteractivePromptPolicy()
                 let hasCache = self.resolveHasCache()
@@ -215,13 +218,15 @@ public struct ClaudeUsageService: Sendable {
                     hasCache: hasCache,
                     startupBootstrapOverride: startupBootstrapOverride)
 
-                let credentials = try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
+                let record = try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
                     .withValue(startupBootstrapOverride) {
                         try await ClaudeUsageService.loadOAuthCredentials(
                             environment: self.service.environment,
                             allowKeychainPrompt: allowKeychainPrompt,
                             respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown)
                     }
+                loadedRecord = record
+                let credentials = record.credentials
 
                 try self.validateRequiredOAuthScope(credentials)
                 let usage = try await self.service.fetchOAuthUsage(accessToken: credentials.accessToken)
@@ -244,6 +249,13 @@ public struct ClaudeUsageService: Sendable {
                     ClaudeUsageService.log.info(
                         "Claude OAuth usage fetch unauthorized; invalidated cache and retrying once")
                     return try await self.load(allowUnauthorizedRetry: false)
+                }
+                if case .unauthorized = error,
+                   let record = loadedRecord,
+                   let expiresAt = record.credentials.expiresAt,
+                   expiresAt.timeIntervalSinceNow <= ClaudeUsageService.expiryClockSkewAllowance
+                {
+                    throw ClaudeUsageError.credentials(.tokenExpired(source: record.expirySource))
                 }
                 if case let .serverError(statusCode, body) = error,
                    statusCode == 403,
@@ -324,11 +336,14 @@ public struct ClaudeUsageService: Sendable {
     private static func loadOAuthCredentials(
         environment: [String: String],
         allowKeychainPrompt: Bool,
-        respectKeychainPromptCooldown: Bool) async throws -> ClaudeOAuthCredentials
+        respectKeychainPromptCooldown: Bool) async throws -> ClaudeOAuthCredentialRecord
     {
         #if DEBUG
         if let override = loadOAuthCredentialsOverride {
-            return try await override(environment, allowKeychainPrompt, respectKeychainPromptCooldown)
+            return try await ClaudeOAuthCredentialRecord(
+                credentials: override(environment, allowKeychainPrompt, respectKeychainPromptCooldown),
+                owner: .claudeCLI,
+                source: .claudeKeychain)
         }
         #endif
         return try ClaudeOAuthCredentialsStore.loadForUsage(

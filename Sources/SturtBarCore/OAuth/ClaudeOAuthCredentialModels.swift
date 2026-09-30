@@ -155,6 +155,11 @@ public struct ClaudeOAuthCredentialRecord: Sendable {
     public let owner: ClaudeOAuthCredentialOwner
     public let source: ClaudeOAuthCredentialSource
 
+    /// Where an expiry is reported from; an environment token is always attributed to the environment.
+    public var expirySource: ClaudeOAuthCredentialSource {
+        self.owner == .environment ? .environment : self.source
+    }
+
     public init(
         credentials: ClaudeOAuthCredentials,
         owner: ClaudeOAuthCredentialOwner,

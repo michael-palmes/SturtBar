@@ -954,7 +954,7 @@ public enum ClaudeOAuthCredentialsStore {
     public static func loadForUsage(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         allowKeychainPrompt: Bool = true,
-        respectKeychainPromptCooldown: Bool = false) throws -> ClaudeOAuthCredentials
+        respectKeychainPromptCooldown: Bool = false) throws -> ClaudeOAuthCredentialRecord
     {
         let record = try Repository(context: self.currentCollaboratorContext()).loadRecord(
             environment: environment,
@@ -977,12 +977,11 @@ public enum ClaudeOAuthCredentialsStore {
         }
         guard isExpired else {
             self.log.debug("Claude OAuth credentials loaded for usage", metadata: expiryMetadata)
-            return credentials
+            return record
         }
 
         self.log.info("Claude OAuth credentials considered expired", metadata: expiryMetadata)
-        throw ClaudeOAuthCredentialsError.tokenExpired(
-            source: record.owner == .environment ? .environment : record.source)
+        throw ClaudeOAuthCredentialsError.tokenExpired(source: record.expirySource)
     }
 
     /// The blocker is the opt-out itself when prompts are off, otherwise the item's access control.

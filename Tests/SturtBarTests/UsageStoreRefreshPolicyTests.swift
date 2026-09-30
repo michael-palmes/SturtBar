@@ -672,15 +672,17 @@ struct UsageStoreHealthMappingMissingTests {
     }
 
     @Test
-    func `fetch unauthorized maps to degraded and auth is not downgraded`() async {
-        // .fetch(.unauthorized) is NOT indicatesAuthenticationRequired; a raw HTTP 401 maps to degraded.
+    func `fetch unauthorized after the retry maps to needsReauth with the sign-in remedy`() async {
+        // The service retries a 401 once; one that still fails means the token was rejected.
         let ts = self.storeFailing(
             "sturtbar-tests-fetch-unauthorized",
             error: .fetch(.unauthorized))
         await ts.store.refresh(trigger: .manual)
+        guard case .needsReauth(_, .signIn) = ts.store.auth else {
+            Issue.record("expected needsReauth(.signIn), got \(ts.store.auth)")
+            return
+        }
         #expect(ts.store.health == .degraded)
-        #expect(ts.store.auth == .ok)
-        #expect(ts.store.failureStreak == 1)
     }
 
     @Test

@@ -54,11 +54,12 @@ struct ClaudeOAuthTokenExpiryTests {
                         expiresAt: Date(timeIntervalSinceNow: 3600)),
                     storedAt: Date(),
                     owner: .claudeCLI))
-            let creds = try ClaudeOAuthCredentialsStore.loadForUsage(
+            let record = try ClaudeOAuthCredentialsStore.loadForUsage(
                 environment: [:],
                 allowKeychainPrompt: false,
                 respectKeychainPromptCooldown: true)
-            #expect(creds.accessToken == "valid-cached")
+            #expect(record.credentials.accessToken == "valid-cached")
+            #expect(record.expirySource == .cacheKeychain)
         }
     }
 
