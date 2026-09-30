@@ -2,6 +2,15 @@
 
 All notable changes to SturtBar are recorded here.
 
+## Unreleased
+
+- SturtBar no longer refreshes Claude sign-in tokens. Refreshing spent Claude Code's own refresh token, which could sign Claude Code out and was the likely cause of repeated "sign in again" loops. When the token expires, the card keeps your last reading, greys it and says "Waiting for Claude Code to refresh its sign-in"; clicking it opens Claude Code, which renews the token, and SturtBar picks it up. One fewer network destination: `platform.claude.com` is no longer contacted. If SturtBar already rotated your token before this update, run `claude /login` once.
+- A token Anthropic rejects now leads to the sign-in banner instead of an endless "Refresh issue, retrying".
+- Codex: an HTTP 403 now reads "Codex denied access to usage data" instead of wrongly asking you to sign in again, and a weekly-only or 30-day reply is labelled by its length (Weekly, Monthly) instead of "Session".
+- The model rows read "Fable weekly" (and so on), a duplicate "All models" row no longer appears, and an empty routines payload no longer shows a fake 0% bar.
+- When weekly usage stands in for a missing session window, warnings come from the weekly lane only instead of firing session warnings too.
+- Error advice for a sign-in missing the usage scope now points at `claude /login` (the old `setup-token` advice produced a token with the same problem), and a malformed expiry in the credentials file can no longer crash a refresh.
+
 ## 1.3.1
 
 - When Claude needs attention, the card now shows a proper banner instead of a red status line: what happened, a "Sign in to Claude Code" button, and (only when relevant) a smaller "Still not working? Allow Keychain access" fallback. Signing in via `claude /login` is always the first remedy; the Keychain ask is reserved for when a fresh sign-in has not helped.
