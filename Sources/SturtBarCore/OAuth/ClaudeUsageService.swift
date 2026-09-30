@@ -46,7 +46,7 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
             true
         case let .credentials(error):
             switch error {
-            case .tokenExpired, .claudeKeychainAccessRequired:
+            case .tokenExpired(source: .environment), .claudeKeychainAccessRequired:
                 true
             default:
                 false
@@ -54,6 +54,12 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
         default:
             false
         }
+    }
+
+    /// True when the token merely expired: Claude Code renews it when it next runs, so SturtBar waits.
+    public var indicatesAwaitingClaudeCode: Bool {
+        guard case let .credentials(.tokenExpired(source)) = self else { return false }
+        return source != .environment
     }
 
     /// True when the remedy is granting Keychain access, not a fresh sign-in. Typed refinement of

@@ -31,6 +31,7 @@
 //   .rateLimited      ← .fetch(.rateLimited(retryAfter:)) (authoritative until-date)
 //   .degraded         ← any other failure
 //   needsReauth       ← error.indicatesAuthenticationRequired
+//   awaitingClaudeCode← error.indicatesAwaitingClaudeCode (health .ok, streak untouched: no backoff)
 //   credentialsMissing← error.indicatesCredentialsMissing
 //   auth is sticky across unrelated failures: a network blip never clears needs-reauth; only a
 //   successful fetch resets auth to .ok.
@@ -53,6 +54,8 @@ enum AuthState: Equatable {
     case ok
     case needsReauth(message: String?, remedy: ClaudeReauthRemedy)
     case credentialsMissing
+    /// The token expired; SturtBar never refreshes it, so it waits for Claude Code to renew it.
+    case awaitingClaudeCode
 }
 
 /// Codex auth states differ from Claude's in kind (no reauth message, plus the API-key-only
@@ -561,6 +564,12 @@ final class UsageStore {
         guard self.settings.claudeProviderEnabled else { return }
         self.lastAttemptAt = self.now()
         let usageError = error as? ClaudeUsageError
+
+        if let usageError, usageError.indicatesAwaitingClaudeCode {
+            self.auth = .awaitingClaudeCode
+            self.health = .ok
+            return
+        }
 
         // Auth state from typed predicates only; sticky otherwise.
         if let usageError, usageError.indicatesCredentialsMissing {

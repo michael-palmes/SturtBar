@@ -153,9 +153,9 @@ struct IconStateDerivationTests {
         #expect(state.rendererKey.dimmed)
 
         state.credentialsMissing = false
-        state.unsupported = true
+        state.quietDim = true
         #expect(state.rendererKey.dimmed)
-        state.unsupported = false
+        state.quietDim = false
 
         // The key never contains the display text: text changes must not bust the image cache.
         state.credentialsMissing = true
@@ -192,8 +192,8 @@ struct IconStateDerivationTests {
         #expect(state.rendererKey.authBadge)
         state.credentialsMissing = false
 
-        // Codex API-key-only is permanent and informational: dimmed, never badged.
-        state.unsupported = true
+        // Quiet states (Claude waiting, Codex API-key-only): dimmed, never badged.
+        state.quietDim = true
         #expect(state.rendererKey.dimmed)
         #expect(!state.rendererKey.authBadge)
     }
@@ -209,7 +209,7 @@ struct IconStateDerivationTests {
         await ts.store.refresh(trigger: .manual)
 
         let state = IconState.derive(store: ts.store, settings: ts.settings)
-        #expect(state.unsupported)
+        #expect(state.quietDim)
         #expect(!state.needsAuth)
         #expect(state.rendererKey.dimmed)
         #expect(!state.rendererKey.authBadge)
@@ -227,8 +227,27 @@ struct IconStateDerivationTests {
 
         let state = IconState.derive(store: ts.store, settings: ts.settings)
         #expect(state.needsAuth)
-        #expect(!state.unsupported)
+        #expect(!state.quietDim)
         #expect(state.rendererKey.authBadge)
+    }
+
+    @Test
+    func `claude waiting for claude code dims without badging`() async {
+        let script = FetchScript([
+            .success(makeUsageSnapshot()),
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-iconstate-claude-waiting") { _, _ in try script.next() }
+        await ts.store.refresh(trigger: .manual)
+        await ts.store.refresh(trigger: .manual)
+
+        let state = IconState.derive(store: ts.store, settings: ts.settings)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        #expect(state.quietDim)
+        #expect(!state.needsAuth)
+        #expect(state.primaryBucket != nil)
+        #expect(state.rendererKey.dimmed)
+        #expect(!state.rendererKey.authBadge)
     }
 }
 

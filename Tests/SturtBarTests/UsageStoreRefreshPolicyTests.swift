@@ -708,6 +708,87 @@ struct UsageStoreHealthMappingMissingTests {
     }
 }
 
+// MARK: - Waiting for Claude Code
+
+@MainActor
+struct UsageStoreAwaitingClaudeCodeTests {
+    @Test
+    func `expired token waits for claude code without backoff and keeps the reading`() async {
+        let script = FetchScript([
+            .success(makeUsageSnapshot()),
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting") { _, _ in try script.next() }
+        ts.settings.refreshFrequency = .fiveMinutes
+
+        await ts.store.refresh(trigger: .manual)
+        let reading = ts.store.usage
+        #expect(reading != nil)
+
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 2)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        #expect(ts.store.health == .ok)
+        #expect(ts.store.failureStreak == 0)
+        #expect(ts.store.usage == reading)
+
+        // No backoff: the very next interval tick re-reads the credential.
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 3)
+        #expect(ts.store.failureStreak == 0)
+    }
+
+    @Test
+    func `waiting leaves an existing failure streak untouched`() async {
+        let script = FetchScript([
+            .failure(.fetch(.serverError(503, nil))),
+            .failure(.credentials(.tokenExpired(source: .credentialsFile))),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-streak") { _, _ in try script.next() }
+
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.failureStreak == 1)
+
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        #expect(ts.store.health == .ok)
+        #expect(ts.store.failureStreak == 1)
+    }
+
+    @Test
+    func `expired environment token still needs reauth`() async {
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-env") { _, _ in
+            throw ClaudeUsageError.credentials(.tokenExpired(source: .environment))
+        }
+        await ts.store.refresh(trigger: .manual)
+        guard case .needsReauth(_, .signIn) = ts.store.auth else {
+            Issue.record("expected needsReauth(.signIn), got \(ts.store.auth)")
+            return
+        }
+    }
+
+    @Test
+    func `post sign-in recheck stops once claude code renews the token`() async throws {
+        let script = FetchScript([
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+            .success(makeUsageSnapshot()),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-recheck") { _, _ in try script.next() }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        ts.store.postSignInRecheckDelays = [0.01, 0.01, 0.01]
+        ts.store.beginPostSignInRecheck()
+        try await Task.sleep(for: .seconds(0.5))
+
+        #expect(ts.store.auth == .ok)
+        #expect(await ts.recorder.fetchCount == fetchesBefore + 1)
+    }
+}
+
 // MARK: - Post-sign-in recheck
 
 @MainActor

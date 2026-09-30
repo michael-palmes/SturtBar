@@ -967,6 +967,14 @@ struct ClaudeUsageServiceFlowTests {
         // indicatesAuthenticationRequired matrix
         #expect(ClaudeUsageError.credentials(.tokenExpired(source: .environment))
             .indicatesAuthenticationRequired == true)
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain))
+            .indicatesAuthenticationRequired == false)
+
+        // indicatesAwaitingClaudeCode: Claude Code renews its own token; an environment token it never renews.
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain)).indicatesAwaitingClaudeCode)
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .cacheKeychain)).indicatesAwaitingClaudeCode)
+        #expect(!ClaudeUsageError.credentials(.tokenExpired(source: .environment)).indicatesAwaitingClaudeCode)
+        #expect(!ClaudeUsageError.fetch(.unauthorized).indicatesAwaitingClaudeCode)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope")
             .indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.credentials(.notFound).indicatesAuthenticationRequired == false)

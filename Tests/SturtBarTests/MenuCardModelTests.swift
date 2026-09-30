@@ -431,6 +431,47 @@ struct MenuCardModelTests {
         #expect(model.status.helpText == "Claude Code's sign-in changed.")
     }
 
+    @Test
+    func `waiting for claude code shows a calm open claude code row`() {
+        let model = UsageMenuCardView.Model.make(.init(
+            snapshot: self.snapshot(primary: self.window(used: 10)),
+            auth: .awaitingClaudeCode,
+            now: Self.now))
+
+        #expect(model.status == .awaitingClaudeCode)
+        #expect(model.status.text(now: Self.now) == "Waiting for Claude Code to refresh its sign-in")
+        #expect(!model.status.isError)
+        #expect(model.status.banner == nil)
+        #expect(model.status.action == .openClaudeCode)
+        #expect(model.status.actionSymbolName == "apple.terminal")
+        #expect(model.status.helpText
+            == "Claude's sign-in token has expired. Claude Code renews it when it next runs. "
+            + "Click to open Claude Code.")
+        #expect(model.metricsMuted)
+    }
+
+    @Test
+    func `metrics are only muted while waiting for claude code`() {
+        for auth in [AuthState.ok, .credentialsMissing, .needsReauth(message: nil, remedy: .signIn)] {
+            let model = UsageMenuCardView.Model.make(.init(
+                snapshot: self.snapshot(primary: self.window(used: 10)),
+                auth: auth,
+                now: Self.now))
+            #expect(!model.metricsMuted)
+        }
+    }
+
+    @Test
+    func `waiting keeps the card shape of a healthy card`() {
+        func shape(auth: AuthState) -> MenuCardShape {
+            MenuCardShape(model: UsageMenuCardView.Model.make(.init(
+                snapshot: self.snapshot(primary: self.window(used: 10)),
+                auth: auth,
+                now: Self.now)))
+        }
+        #expect(shape(auth: .awaitingClaudeCode) == shape(auth: .ok))
+    }
+
     // MARK: - Reauth banner
 
     /// Claude auth states render the banner block: sign-in is always the primary remedy and the

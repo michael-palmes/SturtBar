@@ -3,7 +3,8 @@
 ## "Waiting for Claude Code to refresh its sign-in"
 
 Claude's sign-in token has expired. SturtBar never refreshes it; Claude Code renews it the
-next time it runs. Run `claude` and SturtBar picks up the new token on its next refresh.
+next time it runs. Run `claude` (or click the line to open it) and SturtBar picks up the new
+token on its next refresh. Your last reading stays on screen meanwhile.
 
 ## "Sign in to Claude Code" won't go away
 

@@ -179,6 +179,8 @@ struct UsageMenuCardView: View {
             case empty
             /// AuthState.credentialsMissing — no Claude Code login on this machine.
             case credentialsMissing
+            /// AuthState.awaitingClaudeCode: the token expired and Claude Code renews it; calm, not an error.
+            case awaitingClaudeCode
             /// AuthState.needsReauth — actionable re-auth row; the remedy picks the click action, the detail becomes a
             /// tooltip.
             case needsReauth(detail: String?, remedy: ClaudeReauthRemedy)
@@ -211,6 +213,8 @@ struct UsageMenuCardView: View {
                     return "Sign in to Claude Code"
                 case .needsReauth(_, .keychainAccess):
                     return "Allow Keychain access to reconnect"
+                case .awaitingClaudeCode:
+                    return "Waiting for Claude Code to refresh its sign-in"
                 case let .rateLimited(until):
                     let countdown = UsageFormatter.resetCountdownDescription(from: until, now: now)
                     return countdown == "now"
@@ -239,7 +243,8 @@ struct UsageMenuCardView: View {
                 case .credentialsMissing, .needsReauth, .rateLimited,
                      .codexCredentialsMissing, .codexSignInRequired:
                     true
-                case .empty, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported, .codexAccessDenied:
+                case .empty, .awaitingClaudeCode, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported,
+                     .codexAccessDenied:
                     false
                 }
             }
@@ -248,6 +253,8 @@ struct UsageMenuCardView: View {
             enum Action: Equatable {
                 /// Open the default terminal running `claude /login`.
                 case claudeSignIn
+                /// Open the default terminal running `claude` so Claude Code renews its own sign-in.
+                case openClaudeCode
                 /// Re-fetch with user-initiated rights (same as ⌘R), which raises the consent prompt.
                 case claudeKeychainRetry
             }
@@ -258,6 +265,8 @@ struct UsageMenuCardView: View {
                     .claudeSignIn
                 case .needsReauth(_, .keychainAccess):
                     .claudeKeychainRetry
+                case .awaitingClaudeCode:
+                    .openClaudeCode
                 default:
                     nil
                 }
@@ -266,7 +275,7 @@ struct UsageMenuCardView: View {
             /// Trailing glyph marking the strip as clickable.
             var actionSymbolName: String? {
                 switch self.action {
-                case .claudeSignIn: "apple.terminal"
+                case .claudeSignIn, .openClaudeCode: "apple.terminal"
                 case .claudeKeychainRetry: "key.horizontal"
                 case nil: nil
                 }
@@ -281,6 +290,9 @@ struct UsageMenuCardView: View {
                     "Opens your terminal running claude /login to connect."
                 case let .needsReauth(detail, .keychainAccess):
                     detail ?? "Fetches again and asks macOS for Keychain access."
+                case .awaitingClaudeCode:
+                    "Claude's sign-in token has expired. Claude Code renews it when it next runs. "
+                        + "Click to open Claude Code."
                 default:
                     nil
                 }
@@ -368,6 +380,8 @@ struct UsageMenuCardView: View {
         let codexSection: ProviderSection?
         /// nil iff cost usage is disabled (the section is configuration-gated, never data-gated).
         let costSection: CostSection?
+        /// Greys the main metric rows while their reading waits on Claude Code; never changes height.
+        var metricsMuted = false
 
         /// The fixed-height slot list — configuration-derived only (assertable; see tests).
         var sections: [Section] {
@@ -447,6 +461,7 @@ struct UsageMenuCardView: View {
                     ExtraUsageContent(section: extraUsage)
                 }
             }
+            .grayscale(self.model.metricsMuted ? 1 : 0)
 
             // Inline cost for the main provider block (Claude, or Codex when it owns the main slots).
             if let costSection = self.model.costSection {
@@ -808,7 +823,8 @@ extension UsageMenuCardView.Model {
             metrics: self.metrics(input: input),
             extraUsage: extraUsageSection(snapshot: input.snapshot),
             codexSection: codexSection,
-            costSection: claudeCostSection(input: input))
+            costSection: claudeCostSection(input: input),
+            metricsMuted: input.auth == .awaitingClaudeCode)
     }
 
     /// Codex carries the main slots when it is the only enabled provider; its inline cost rides
@@ -898,6 +914,8 @@ extension UsageMenuCardView.Model {
         switch input.auth {
         case .credentialsMissing:
             return .credentialsMissing
+        case .awaitingClaudeCode:
+            return .awaitingClaudeCode
         case let .needsReauth(message, remedy):
             let detail = message?.trimmingCharacters(in: .whitespacesAndNewlines)
             return .needsReauth(detail: (detail?.isEmpty ?? true) ? nil : detail, remedy: remedy)
