@@ -10,10 +10,14 @@ public enum ClaudeLinks {
 // MARK: - Errors
 
 public enum ClaudeUsageError: LocalizedError, Sendable {
+    static let scopeRemedy =
+        "Run `claude /login` to sign in again. If you set STURTBAR_CLAUDE_OAUTH_TOKEN, remove it first."
+
     case parseFailed(String)
     case oauthFailed(String)
     /// The OAuth token is missing a required scope (e.g. `user:profile`). This is a permanent
-    /// user-action state: the user must re-generate credentials via `claude setup-token`.
+    /// user-action state: the user must sign in again via `claude /login` (a `setup-token` token lacks
+    /// `user:profile`, so that advice would loop).
     case scopeUnsatisfied(message: String)
     /// Typed pass-through of credential store failures. Needs-reauth is derived from
     /// `.noRefreshToken` / `.refreshFailed(kind: .terminal, _)` — never from message strings.
@@ -254,8 +258,8 @@ public struct ClaudeUsageService: Sendable {
                    body?.contains("user:profile") ?? false
                 {
                     throw ClaudeUsageError.scopeUnsatisfied(
-                        message: "Claude OAuth token does not meet scope requirement 'user:profile'. "
-                            + "Run `claude setup-token` to re-generate credentials.")
+                        message: "Claude's sign-in can't read usage (missing the user:profile scope). "
+                            + ClaudeUsageError.scopeRemedy)
                 }
                 throw ClaudeUsageError.fetch(error)
             } catch {
@@ -299,10 +303,9 @@ public struct ClaudeUsageService: Sendable {
             guard credentials.scopes.contains("user:profile") else {
                 let scopes = credentials.scopes.joined(separator: ", ")
                 let detail = scopes.isEmpty
-                    ? "Claude OAuth token missing 'user:profile' scope."
-                    : "Claude OAuth token missing 'user:profile' scope (has: \(scopes))."
-                throw ClaudeUsageError.scopeUnsatisfied(
-                    message: detail + " Run `claude setup-token` to re-generate credentials.")
+                    ? "Claude's sign-in can't read usage (missing the user:profile scope)."
+                    : "Claude's sign-in can't read usage (missing the user:profile scope; has \(scopes))."
+                throw ClaudeUsageError.scopeUnsatisfied(message: detail + " " + ClaudeUsageError.scopeRemedy)
             }
         }
     }

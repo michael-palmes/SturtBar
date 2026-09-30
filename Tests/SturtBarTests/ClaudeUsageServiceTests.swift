@@ -875,6 +875,8 @@ struct ClaudeUsageServiceFlowTests {
             }
             #expect(message.contains("user:profile"))
             #expect(message.contains("usage:read"))
+            #expect(message.contains("claude /login"))
+            #expect(!message.contains("setup-token"))
             #expect(error.indicatesAuthenticationRequired == true)
         } catch {
             Issue.record("Expected ClaudeUsageError, got \(error)")
