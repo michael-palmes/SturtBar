@@ -21,6 +21,9 @@ All notable changes to SturtBar are recorded here.
 - When weekly usage stands in for a missing session window, the card shows it as Weekly (not Session) and warnings come from the weekly lane only instead of firing session warnings too.
 - Error advice for a sign-in missing the usage scope now points at `claude /login` (the old `setup-token` advice produced a token with the same problem), and a malformed expiry in the credentials file can no longer crash a usage check.
 
+- Keychain reads SturtBar makes without asking can no longer show macOS's older "wants to use your confidential information" dialog, and a prompt setting of Never now blocks only prompts, never the silent reads SturtBar relies on.
+- If macOS stops letting SturtBar update its own cached copy of the token (for example after switching between builds), SturtBar replaces that one item quietly instead of staying stuck. It never touches Claude Code's own Keychain item.
+
 ## 1.3.1
 
 - When Claude needs attention, the card now shows a proper banner instead of a red status line: what happened, a "Sign in to Claude Code" button, and (only when relevant) a smaller "Still not working? Allow Keychain access" fallback. Signing in via `claude /login` is always the first remedy; the Keychain ask is reserved for when a fresh sign-in has not helped.
