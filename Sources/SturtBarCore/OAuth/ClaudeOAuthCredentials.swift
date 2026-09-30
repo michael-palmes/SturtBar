@@ -362,7 +362,10 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 let promptMode = ClaudeOAuthKeychainPromptPreference.current()
-                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else {
+                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(
+                    mode: promptMode,
+                    allowKeychainPrompt: allowKeychainPrompt)
+                else {
                     return nil
                 }
 
@@ -551,7 +554,9 @@ public enum ClaudeOAuthCredentialsStore {
             self.context.run {
                 #if os(macOS)
                 let mode = ClaudeOAuthKeychainPromptPreference.current()
-                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return false }
+                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(
+                    mode: mode,
+                    allowKeychainPrompt: false) else { return false }
                 if ClaudeOAuthCredentialsStore.loadFromClaudeKeychainViaSecurityCLIIfEnabled(
                     interaction: InteractionContext.current) != nil
                 {
@@ -559,7 +564,7 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 let fallbackPromptMode = ClaudeOAuthKeychainPromptPreference.securityFrameworkFallbackMode()
-                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: fallbackPromptMode) else {
+                guard ClaudeOAuthCredentialsStore.shouldAllowSecurityFrameworkFallback(mode: fallbackPromptMode) else {
                     return false
                 }
                 if InteractionContext.current == .background,
@@ -645,7 +650,9 @@ public enum ClaudeOAuthCredentialsStore {
         {
             #if os(macOS)
             let mode = ClaudeOAuthKeychainPromptPreference.current()
-            guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return nil }
+            guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(
+                mode: mode,
+                allowKeychainPrompt: false) else { return nil }
             if ClaudeOAuthCredentialsStore.isPromptPolicyApplicable,
                respectKeychainPromptCooldown,
                !ClaudeOAuthKeychainAccessGate.shouldAllowPrompt(now: now)
@@ -722,7 +729,9 @@ public enum ClaudeOAuthCredentialsStore {
         {
             #if os(macOS)
             let mode = ClaudeOAuthKeychainPromptPreference.current()
-            guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return nil }
+            guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(
+                mode: mode,
+                allowKeychainPrompt: false) else { return nil }
 
             if ClaudeOAuthCredentialsStore.shouldShowClaudeKeychainPreAlert() {
                 return nil
@@ -833,7 +842,9 @@ public enum ClaudeOAuthCredentialsStore {
             self.context.run {
                 #if os(macOS)
                 let mode = ClaudeOAuthKeychainPromptPreference.current()
-                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return false }
+                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(
+                    mode: mode,
+                    allowKeychainPrompt: false) else { return false }
 
                 if let data = ClaudeOAuthCredentialsStore.loadFromClaudeKeychainViaSecurityCLIIfEnabled(
                     interaction: InteractionContext.current),
@@ -852,7 +863,7 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 let fallbackPromptMode = ClaudeOAuthKeychainPromptPreference.securityFrameworkFallbackMode()
-                guard ClaudeOAuthCredentialsStore.shouldAllowClaudeCodeKeychainAccess(mode: fallbackPromptMode) else {
+                guard ClaudeOAuthCredentialsStore.shouldAllowSecurityFrameworkFallback(mode: fallbackPromptMode) else {
                     return false
                 }
 
@@ -1208,7 +1219,9 @@ public enum ClaudeOAuthCredentialsStore {
         if let store = taskClaudeKeychainOverrideStore { return .value(store.fingerprint) }
         if let override = taskClaudeKeychainFingerprintOverride { return .value(override) }
         #endif
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return .unavailable }
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode, allowKeychainPrompt: false) else {
+            return .unavailable
+        }
         if self.isPromptPolicyApplicable,
            InteractionContext.current == .background,
            !ClaudeOAuthKeychainAccessGate.shouldAllowPrompt()
@@ -1256,8 +1269,7 @@ public enum ClaudeOAuthCredentialsStore {
             return data
         }
 
-        // For experimental strategy, enforce stored prompt policy before any Security.framework fallback probes.
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: fallbackPromptMode) else { return nil }
+        guard self.shouldAllowSecurityFrameworkFallback(mode: fallbackPromptMode) else { return nil }
 
         #if DEBUG
         if let store = taskClaudeKeychainOverrideStore { return store.data }
@@ -1287,7 +1299,10 @@ public enum ClaudeOAuthCredentialsStore {
     }
 
     public static func loadFromClaudeKeychain() throws -> Data {
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: ClaudeOAuthKeychainPromptPreference.current()) else {
+        guard self.shouldAllowClaudeCodeKeychainAccess(
+            mode: ClaudeOAuthKeychainPromptPreference.current(),
+            allowKeychainPrompt: true)
+        else {
             throw ClaudeOAuthCredentialsError.notFound
         }
         #if DEBUG
@@ -1398,7 +1413,9 @@ public enum ClaudeOAuthCredentialsStore {
         enforcePromptPolicy: Bool = true) -> ClaudeKeychainProbe<[ClaudeKeychainCandidate]>
     {
         if enforcePromptPolicy {
-            guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else { return .unavailable }
+            guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode, allowKeychainPrompt: false) else {
+                return .unavailable
+            }
             if self.isPromptPolicyApplicable,
                InteractionContext.current == .background,
                !ClaudeOAuthKeychainAccessGate.shouldAllowPrompt() { return .unavailable }
@@ -1459,7 +1476,9 @@ public enum ClaudeOAuthCredentialsStore {
         enforcePromptPolicy: Bool = true) -> ClaudeKeychainProbe<ClaudeKeychainCandidate?>
     {
         if enforcePromptPolicy {
-            guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else { return .unavailable }
+            guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode, allowKeychainPrompt: false) else {
+                return .unavailable
+            }
             if self.isPromptPolicyApplicable,
                InteractionContext.current == .background,
                !ClaudeOAuthKeychainAccessGate.shouldAllowPrompt() { return .unavailable }
@@ -1497,7 +1516,10 @@ public enum ClaudeOAuthCredentialsStore {
         allowKeychainPrompt: Bool,
         promptMode: ClaudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptPreference.current()) throws -> Data?
     {
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else { return nil }
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode, allowKeychainPrompt: allowKeychainPrompt)
+        else {
+            return nil
+        }
         self.log.debug(
             "Claude keychain data read start",
             metadata: [
@@ -1559,7 +1581,10 @@ public enum ClaudeOAuthCredentialsStore {
         allowKeychainPrompt: Bool,
         promptMode: ClaudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptPreference.current()) throws -> Data?
     {
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else { return nil }
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode, allowKeychainPrompt: allowKeychainPrompt)
+        else {
+            return nil
+        }
         self.log.debug(
             "Claude keychain legacy data read start",
             metadata: [
@@ -1703,7 +1728,8 @@ public enum ClaudeOAuthCredentialsStore {
         guard allowKeychainPrompt else {
             return (allowed: false, blockedReason: "allowKeychainPromptFalse")
         }
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode) else {
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: promptMode, allowKeychainPrompt: allowKeychainPrompt)
+        else {
             return (allowed: false, blockedReason: self.fallbackBlockedReason(promptMode: promptMode))
         }
         if respectKeychainPromptCooldown,
@@ -1726,16 +1752,27 @@ public enum ClaudeOAuthCredentialsStore {
         }
     }
 
-    private static func shouldAllowClaudeCodeKeychainAccess(
-        mode: ClaudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptPreference.current()) -> Bool
+    /// The prompt mode governs only reads that can show the macOS dialog; silent no-UI reads pass under every mode.
+    static func shouldAllowClaudeCodeKeychainAccess(
+        mode: ClaudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptPreference.current(),
+        allowKeychainPrompt: Bool) -> Bool
     {
         guard self.keychainAccessAllowed else { return false }
         switch mode {
-        case .never: return false
+        case .never: return !allowKeychainPrompt
         case .onlyOnUserAction:
-            return InteractionContext.current == .userInitiated || self.allowBackgroundPromptBootstrap
+            return !allowKeychainPrompt
+                || InteractionContext.current == .userInitiated
+                || self.allowBackgroundPromptBootstrap
         case .always: return true
         }
+    }
+
+    /// Behind the /usr/bin/security reader any Security.framework fallback stays opt-in, so it gates as a prompt.
+    private static func shouldAllowSecurityFrameworkFallback(mode: ClaudeOAuthKeychainPromptMode) -> Bool {
+        self.shouldAllowClaudeCodeKeychainAccess(
+            mode: mode,
+            allowKeychainPrompt: self.shouldPreferSecurityCLIKeychainRead())
     }
 
     static func preferredClaudeKeychainAccountForSecurityCLIRead(
@@ -1749,7 +1786,7 @@ public enum ClaudeOAuthCredentialsStore {
         #endif
         #if os(macOS)
         let mode = ClaudeOAuthKeychainPromptPreference.current()
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return nil }
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode, allowKeychainPrompt: false) else { return nil }
         // Keep experimental mode prompt-safe: avoid Security.framework candidate probes when preflight says
         // interaction is likely.
         if self.shouldShowClaudeKeychainPreAlert() {
@@ -1864,7 +1901,7 @@ extension ClaudeOAuthCredentialsStore {
 
     private static func shouldShowClaudeKeychainPreAlert() -> Bool {
         let mode = ClaudeOAuthKeychainPromptPreference.current()
-        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode) else { return false }
+        guard self.shouldAllowClaudeCodeKeychainAccess(mode: mode, allowKeychainPrompt: false) else { return false }
         return switch KeychainAccessPreflight.checkGenericPassword(service: self.claudeKeychainService, account: nil) {
         case .interactionRequired:
             true
