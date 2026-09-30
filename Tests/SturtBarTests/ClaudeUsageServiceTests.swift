@@ -74,7 +74,7 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
-    func `maps OAuth null cowork as zero routines window`() throws {
+    func `a null routines payload shows no routines bar`() throws {
         let json = """
         {
           "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
@@ -83,7 +83,7 @@ struct ClaudeOAuthUsageMappingTests {
         }
         """
         let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
-        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 0)
+        #expect(!snap.extraRateWindows.contains { $0.id == "claude-routines" })
         #expect(snap.extraRateWindows.contains { $0.id == "claude-design" } == false)
     }
 
@@ -364,6 +364,24 @@ struct ClaudeOAuthUsageMappingTests {
         // Session and weekly_all kinds stay with the legacy keyed buckets.
         #expect(snap.primary.usedPercent == 10)
         #expect(snap.secondary?.usedPercent == 30)
+    }
+
+    @Test
+    func `drops the all models entry that duplicates weekly`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day": { "utilization": 30, "resets_at": "2026-07-06T10:00:00.827258+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 30,
+              "scope": { "model": { "id": "claude/all_models", "display_name": "All models" } } },
+            { "kind": "weekly_scoped", "percent": 42.5,
+              "scope": { "model": { "id": "claude/fable.5:promo", "display_name": "Fable" } } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.map(\.id) == ["model-weekly-fable"])
     }
 
     @Test

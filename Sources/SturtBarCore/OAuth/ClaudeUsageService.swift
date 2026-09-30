@@ -474,29 +474,12 @@ public struct ClaudeUsageService: Sendable {
     }
 
     private static func oauthExtraRateWindows(from usage: OAuthUsageResponse) -> [NamedRateWindow] {
-        let definitions: [(id: String, title: String, window: OAuthUsageWindow?, sourceKey: String?)] = [
-            (
-                id: "claude-routines",
-                title: "Daily Routines",
-                window: usage.sevenDayRoutines,
-                sourceKey: usage.sevenDayRoutinesSourceKey),
+        let definitions: [(id: String, title: String, window: OAuthUsageWindow?)] = [
+            (id: "claude-routines", title: "Daily Routines", window: usage.sevenDayRoutines),
         ]
-        if let routinesKey = usage.sevenDayRoutinesSourceKey {
-            Self.log.debug("Claude OAuth extra usage key matched: routines=\(routinesKey)")
-        }
         return definitions.compactMap { definition in
-            let utilization: Double
-            let resetDate: Date?
-            if let window = definition.window, let parsedUtilization = window.utilization {
-                utilization = parsedUtilization
-                resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(window.resetsAt)
-            } else if definition.sourceKey != nil {
-                // Keep product bars visible when the API returns a known key with null payload.
-                utilization = 0
-                resetDate = nil
-            } else {
-                return nil
-            }
+            guard let window = definition.window, let utilization = window.utilization else { return nil }
+            let resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(window.resetsAt)
             let resetDescription = resetDate.map(Self.formatResetDate)
             return NamedRateWindow(
                 id: definition.id,
@@ -515,6 +498,7 @@ public struct ClaudeUsageService: Sendable {
         var seenIDs: Set<String> = []
         return limits.compactMap { limit in
             guard limit.kind == "weekly_scoped",
+                  !(limit.modelID ?? "").hasSuffix("all_models"),
                   let percent = limit.percent, percent.isFinite,
                   let title = limit.modelDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty
