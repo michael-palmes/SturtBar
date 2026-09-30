@@ -184,6 +184,7 @@ public enum ClaudeOAuthCredentialsStore {
                 var lastError: Error?
                 var expiredRecord: ClaudeOAuthCredentialRecord?
                 var cacheTemporarilyUnavailable = false
+                var credentialsFileMissing = false
 
                 switch KeychainCacheStore.load(key: ClaudeOAuthCredentialsStore.cacheKey, as: CacheEntry.self) {
                 case let .found(entry):
@@ -245,6 +246,7 @@ public enum ClaudeOAuthCredentialsStore {
                     }
                 } catch let error as ClaudeOAuthCredentialsError {
                     if case .notFound = error {
+                        credentialsFileMissing = true
                     } else {
                         lastError = error
                     }
@@ -272,7 +274,9 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 if let expiredRecord {
-                    return try self.validatedStaleRecord(expiredRecord)
+                    return try self.validatedStaleRecord(
+                        expiredRecord,
+                        credentialsFileMissing: credentialsFileMissing)
                 }
                 throw self.noReadableCredentialsError(lastError: lastError)
             }
@@ -292,8 +296,17 @@ public enum ClaudeOAuthCredentialsStore {
 
         /// Claude Code's item changed since the last read but is unreadable silently: the renewed token needs access.
         private func validatedStaleRecord(
-            _ record: ClaudeOAuthCredentialRecord) throws -> ClaudeOAuthCredentialRecord
+            _ record: ClaudeOAuthCredentialRecord,
+            credentialsFileMissing: Bool) throws -> ClaudeOAuthCredentialRecord
         {
+            if record.source == .cacheKeychain, credentialsFileMissing,
+               case .value(false) = ClaudeOAuthCredentialsStore.claudeKeychainItemPresenceWithoutPrompt()
+            {
+                // Claude Code has signed out: drop SturtBar's stale copy so the sign-in card shows.
+                ClaudeOAuthCredentialsStore.log.info("Claude Code storage is gone; clearing SturtBar's cached copy")
+                ClaudeOAuthCredentialsStore.clearCacheKeychain()
+                throw ClaudeOAuthCredentialsError.notFound
+            }
             guard self.staleRecordNeedsClaudeKeychainAccess(record) else { return record }
             throw ClaudeOAuthCredentialsError.claudeKeychainAccessRequired(
                 underlying: "the token in \(record.source.humanLabel) has expired",
@@ -1080,34 +1093,38 @@ public enum ClaudeOAuthCredentialsStore {
     }
 
     private static func hasClaudeKeychainItemWithoutPrompt() -> Bool {
+        if case .value(true) = self.claudeKeychainItemPresenceWithoutPrompt() { return true }
+        return false
+    }
+
+    /// Whether Claude Code's keychain item exists, from a no-UI attribute probe; `.unavailable` when it can't tell.
+    private static func claudeKeychainItemPresenceWithoutPrompt() -> ClaudeKeychainProbe<Bool> {
         #if DEBUG
         if let store = self.taskClaudeKeychainOverrideStore {
-            if let data = store.data, !data.isEmpty { return true }
-            if store.fingerprint != nil { return true }
+            return .value(!(store.data?.isEmpty ?? true) || store.fingerprint != nil)
         }
         if let data = self.taskClaudeKeychainDataOverride, !data.isEmpty {
-            return true
+            return .value(true)
         }
         if self.taskClaudeKeychainFingerprintOverride != nil {
-            return true
+            return .value(true)
         }
         #endif
 
         #if os(macOS)
-        switch self.claudeKeychainCandidatesProbeWithoutPrompt(enforcePromptPolicy: false) {
-        case let .value(candidates) where !candidates.isEmpty:
-            return true
-        case .value, .unavailable:
-            break
-        }
-        switch self.claudeKeychainLegacyCandidateProbeWithoutPrompt(enforcePromptPolicy: false) {
-        case let .value(candidate):
-            return candidate != nil
-        case .unavailable:
-            return false
+        let candidates = self.claudeKeychainCandidatesProbeWithoutPrompt(enforcePromptPolicy: false)
+        if case let .value(found) = candidates, !found.isEmpty { return .value(true) }
+        let legacy = self.claudeKeychainLegacyCandidateProbeWithoutPrompt(enforcePromptPolicy: false)
+        switch (candidates, legacy) {
+        case (_, .value(.some)):
+            return .value(true)
+        case (.value, .value(.none)):
+            return .value(false)
+        default:
+            return .unavailable
         }
         #else
-        return false
+        return .unavailable
         #endif
     }
 

@@ -63,6 +63,73 @@ struct ClaudeOAuthTokenExpiryTests {
         }
     }
 
+    /// After `claude /logout` only SturtBar's expired copy remains; it must not leave the card waiting forever.
+    @Test
+    func `expired cached copy with claude code signed out clears it and shows sign-in`() throws {
+        try self.withIsolatedCache { cacheKey in
+            self.storeExpiredEntry(cacheKey)
+            // An empty override store is a definitive "no Claude Code keychain item".
+            try ClaudeOAuthCredentialsStore.withMutableClaudeKeychainOverrideStoreForTesting(.init()) {
+                do {
+                    _ = try ClaudeOAuthCredentialsStore.loadForUsage(
+                        environment: [:],
+                        allowKeychainPrompt: false,
+                        respectKeychainPromptCooldown: true)
+                    Issue.record("Expected ClaudeOAuthCredentialsError.notFound")
+                } catch let error as ClaudeOAuthCredentialsError {
+                    guard case .notFound = error else {
+                        Issue.record("Expected .notFound, got \(error)")
+                        return
+                    }
+                }
+            }
+            guard case .missing = KeychainCacheStore.load(
+                key: cacheKey,
+                as: ClaudeOAuthCredentialsStore.CacheEntry.self)
+            else {
+                Issue.record("Expected SturtBar's stale copy to be cleared")
+                return
+            }
+        }
+    }
+
+    @Test
+    func `expired cached copy keeps waiting when the keychain probe cannot tell`() throws {
+        try self.withIsolatedCache { cacheKey in
+            self.storeExpiredEntry(cacheKey)
+            do {
+                _ = try ClaudeOAuthCredentialsStore.loadForUsage(
+                    environment: [:],
+                    allowKeychainPrompt: false,
+                    respectKeychainPromptCooldown: true)
+                Issue.record("Expected ClaudeOAuthCredentialsError.tokenExpired")
+            } catch let error as ClaudeOAuthCredentialsError {
+                guard case .tokenExpired(source: .cacheKeychain) = error else {
+                    Issue.record("Expected .tokenExpired(.cacheKeychain), got \(error)")
+                    return
+                }
+            }
+            guard case .found = KeychainCacheStore.load(
+                key: cacheKey,
+                as: ClaudeOAuthCredentialsStore.CacheEntry.self)
+            else {
+                Issue.record("Expected the cached copy to stay while Claude Code's storage is unknown")
+                return
+            }
+        }
+    }
+
+    private func storeExpiredEntry(_ cacheKey: KeychainCacheStore.Key) {
+        KeychainCacheStore.store(
+            key: cacheKey,
+            entry: ClaudeOAuthCredentialsStore.CacheEntry(
+                data: self.makeCredentialsData(
+                    accessToken: "expired-cached",
+                    expiresAt: Date(timeIntervalSinceNow: -3600)),
+                storedAt: Date(),
+                owner: .claudeCLI))
+    }
+
     /// Builds of SturtBar that refreshed tokens tagged their cache entry with owner "sturtbar"; that rotated
     /// chain must be discarded, never used.
     @Test
