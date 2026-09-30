@@ -119,7 +119,7 @@ Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers wil
 
 ## Build from source
 
-Zero third-party dependencies; the system toolchain is all you need.
+Zero third-party dependencies; the system toolchain is all you need: Xcode 27 (macOS 27 SDK) on an Apple Silicon Mac. Builds still run on macOS 26.
 
 ```sh
 make build      # swift build

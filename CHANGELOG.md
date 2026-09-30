@@ -2,6 +2,10 @@
 
 All notable changes to SturtBar are recorded here.
 
+## Unreleased
+
+- Built with Xcode 27 and the macOS 27 SDK (still runs on macOS 26), so the Settings pickers work on macOS 27. The packaging script now refuses a release binary that does not record the macOS 27 SDK, since SwiftPM's default build system could silently record the older one.
+
 ## 1.3.1
 
 - When Claude needs attention, the card now shows a proper banner instead of a red status line: what happened, a "Sign in to Claude Code" button, and (only when relevant) a smaller "Still not working? Allow Keychain access" fallback. Signing in via `claude /login` is always the first remedy; the Keychain ask is reserved for when a fresh sign-in has not helped.

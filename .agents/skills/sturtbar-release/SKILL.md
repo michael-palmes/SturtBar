@@ -18,13 +18,14 @@ Ship a signed, notarised, stapled `.app` and DMG that open on any Mac with no Ga
 
 ## One-time setup
 
-1. A **Developer ID Application** cert in the keychain: `security find-identity -p codesigning -v`.
-2. Notary credentials, exactly one mode (all three documented in the `sign-and-notarize.sh` header):
+1. **Xcode 27 selected** (`xcode-select -p`; `xcrun --show-sdk-version` prints 27.x). A 26-SDK build breaks the Settings pickers on macOS 27. `package_app.sh` links with `-isysroot` (SwiftPM's default build system otherwise records the deployment target as the SDK, so an Xcode 27 build still reported `sdk 26.0`) and refuses any binary whose `vtool -show-build` is not `sdk` ≥ 27 and `minos` 26.0. If it refuses, switch Xcode with `sudo xcode-select -s /Applications/<Xcode 27>.app` rather than editing the check.
+2. A **Developer ID Application** cert in the keychain: `security find-identity -p codesigning -v`.
+3. Notary credentials, exactly one mode (all three documented in the `sign-and-notarize.sh` header):
    - `STURTBAR_NOTARY_PROFILE`: a notarytool keychain profile, created once via `xcrun notarytool store-credentials <name> --apple-id <email> --team-id <TEAMID>` (prompts for an app-specific password from appleid.apple.com, never the Apple ID password).
    - `STURTBAR_NOTARY_KEY_ID` + `STURTBAR_NOTARY_ISSUER` + `STURTBAR_NOTARY_KEY_PATH` (App Store Connect API `.p8` on disk).
    - The same trio with `STURTBAR_NOTARY_KEY_P8` instead (inline key material; literal `\n` sequences allowed).
-3. An authenticated `gh` CLI (`gh auth status`).
-4. Export for the release run:
+4. An authenticated `gh` CLI (`gh auth status`).
+5. Export for the release run:
    ```bash
    export STURTBAR_SIGNING_IDENTITY="Developer ID Application: Your Name (<TEAMID>)"
    export STURTBAR_NOTARY_PROFILE="<profile name>"
