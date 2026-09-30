@@ -4,6 +4,7 @@ All notable changes to SturtBar are recorded here.
 
 ## Unreleased
 
+- Built with Xcode 27 and the macOS 27 SDK (still runs on macOS 26), so the Settings pickers work on macOS 27. The packaging script now refuses a release binary that does not record the macOS 27 SDK, since SwiftPM's default build system could silently record the older one.
 - The menu bar icon keeps its place: SturtBar now names its status item, carries your existing position over, keeps it through the rare startup recovery (which could drop the icon at the far left after an update), and discards a corrupt saved position that could hide the icon off screen.
 - Settings and About open on the Space you are working in (including under Stage Manager) instead of switching to another desktop.
 

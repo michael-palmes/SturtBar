@@ -25,6 +25,7 @@ EXECUTABLE="SturtBar"
 BUNDLE_ID="com.michaelpalmes.sturtbar"
 COPYRIGHT="© 2026 Michael Palmes. MIT."
 MIN_SYSTEM="26.0"
+MIN_SDK_MAJOR=27
 ENTITLEMENTS="$ROOT/Scripts/SturtBar.entitlements"
 ICON_SOURCE="$ROOT/Resources/AppIcon.icns"
 
@@ -49,7 +50,10 @@ source "$ROOT/version.env"
 
 # --- Build -------------------------------------------------------------------
 # Apple Silicon only: always build a single arm64 slice.
-BUILD_FLAGS=(-c "$CONF" --arch arm64)
+SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+# SwiftPM links via clang --sysroot, which records minos as the SDK version; -isysroot records the real SDK.
+BUILD_FLAGS=(-c "$CONF" --arch arm64
+  -Xswiftc -Xclang-linker -Xswiftc -isysroot -Xswiftc -Xclang-linker -Xswiftc "$SDK_PATH")
 
 echo "==> swift build ${BUILD_FLAGS[*]}"
 swift build "${BUILD_FLAGS[@]}"
@@ -59,6 +63,19 @@ BINARY="$BIN_DIR/$EXECUTABLE"
 echo "==> binary archs: $(lipo -archs "$BINARY")"
 lipo "$BINARY" -verify_arch arm64 \
   || { echo "ERROR: build missing arm64 slice" >&2; exit 1; }
+
+BUILD_VERSION=$(vtool -show-build "$BINARY")
+BUILT_SDK=$(awk '$1 == "sdk" { print $2; exit }' <<<"$BUILD_VERSION")
+BUILT_MINOS=$(awk '$1 == "minos" { print $2; exit }' <<<"$BUILD_VERSION")
+echo "==> binary minos ${BUILT_MINOS:-?}, sdk ${BUILT_SDK:-?}"
+if [[ -z "$BUILT_SDK" || "${BUILT_SDK%%.*}" -lt "$MIN_SDK_MAJOR" ]]; then
+  echo "ERROR: binary records SDK ${BUILT_SDK:-unknown}; releases need the macOS ${MIN_SDK_MAJOR} SDK (Xcode ${MIN_SDK_MAJOR})." >&2
+  exit 1
+fi
+if [[ "$BUILT_MINOS" != "$MIN_SYSTEM" ]]; then
+  echo "ERROR: binary minos is ${BUILT_MINOS:-unknown}, expected ${MIN_SYSTEM}." >&2
+  exit 1
+fi
 
 # --- Resolve signing identity --------------------------------------------------
 resolve_dev_identity() {
