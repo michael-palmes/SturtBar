@@ -52,8 +52,8 @@ enum KeychainPromptCoordinator {
         "If you continue, macOS will show its own Keychain dialog. Choose Always Allow to grant " +
         "ongoing read access, or Deny to refuse. If that dialog asks for your Mac login password, " +
         "the entry is handled by macOS itself; SturtBar never sees what you type. Claude Code " +
-        "replaces this Keychain item each time it renews its sign-in, which clears Always Allow, " +
-        "so macOS may ask again after that.\n\n" +
+        "may replace this Keychain item when it renews its sign-in, which clears Always Allow, " +
+        "so macOS may ask again.\n\n" +
         "SturtBar only reads the token and uses it with Anthropic's API to fetch usage. It keeps " +
         "a copy in its own Keychain item so it asks less often. It never refreshes the token, " +
         "never changes Claude Code's sign-in and never sends the token anywhere else."
