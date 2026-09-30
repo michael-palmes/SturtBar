@@ -36,23 +36,28 @@ extension CostUsageScanner {
 
     // MARK: - Per-file parse
 
-    /// Parses one Codex session file into a `dayKey -> model -> [input, cached, output]`
-    /// aggregate, summing each turn's token delta. Out-of-range days are skipped.
+    /// Day/model aggregate slots: turns at or under the long-context threshold, then turns over it.
+    private enum CodexSlot {
+        static let count = 6
+        static let longContextOffset = 3
+    }
+
+    /// Parses one Codex session file into a `dayKey -> model -> [input, cached, output,
+    /// lcInput, lcCached, lcOutput]` aggregate, summing each turn's token delta into the standard
+    /// or long-context slots by that turn's own input. Out-of-range days are skipped.
     static func parseCodexFile(
         fileURL: URL,
         range: CostUsageDayRange,
         checkCancellation: CancellationCheck? = nil) throws -> [String: [String: [Int]]]
     {
-        func toInt(_ value: Any?) -> Int {
-            (value as? NSNumber)?.intValue ?? 0
-        }
-
         func totals(_ value: Any?) -> (input: Int, cached: Int, output: Int)? {
             guard let dict = value as? [String: Any] else { return nil }
             return (
-                input: max(0, toInt(dict["input_tokens"])),
-                cached: max(0, toInt(dict["cached_input_tokens"] ?? dict["cache_read_input_tokens"])),
-                output: max(0, toInt(dict["output_tokens"])))
+                input: CostUsageMath.tokenCount(dict["input_tokens"]),
+                cached: max(
+                    CostUsageMath.tokenCount(dict["cached_input_tokens"]),
+                    CostUsageMath.tokenCount(dict["cache_read_input_tokens"])),
+                output: CostUsageMath.tokenCount(dict["output_tokens"]))
         }
 
         var days: [String: [String: [Int]]] = [:]
@@ -67,10 +72,11 @@ extension CostUsageScanner {
             else { return }
             let normModel = CostUsagePricing.normalizeCodexModel(model)
             var dayModels = days[dayKey] ?? [:]
-            var packed = dayModels[normModel] ?? [0, 0, 0]
-            packed[0] = (packed[safe: 0] ?? 0) + input
-            packed[1] = (packed[safe: 1] ?? 0) + cached
-            packed[2] = (packed[safe: 2] ?? 0) + output
+            var packed = dayModels[normModel] ?? Array(repeating: 0, count: CodexSlot.count)
+            let base = input > CostUsagePricing.codexLongContextThresholdTokens ? CodexSlot.longContextOffset : 0
+            packed[base] = CostUsageMath.add(packed[safe: base] ?? 0, input)
+            packed[base + 1] = CostUsageMath.add(packed[safe: base + 1] ?? 0, cached)
+            packed[base + 2] = CostUsageMath.add(packed[safe: base + 2] ?? 0, output)
             dayModels[normModel] = packed
             days[dayKey] = dayModels
         }
@@ -263,10 +269,10 @@ extension CostUsageScanner {
             for (day, models) in usage.days {
                 for (model, packed) in models {
                     var dayModels = days[day] ?? [:]
-                    var merged = dayModels[model] ?? [0, 0, 0]
-                    merged[0] = (merged[safe: 0] ?? 0) + (packed[safe: 0] ?? 0)
-                    merged[1] = (merged[safe: 1] ?? 0) + (packed[safe: 1] ?? 0)
-                    merged[2] = (merged[safe: 2] ?? 0) + (packed[safe: 2] ?? 0)
+                    var merged = dayModels[model] ?? Array(repeating: 0, count: CodexSlot.count)
+                    for slot in 0..<CodexSlot.count {
+                        merged[slot] = CostUsageMath.add(merged[safe: slot] ?? 0, packed[safe: slot] ?? 0)
+                    }
                     dayModels[model] = merged
                     days[day] = dayModels
                 }
@@ -282,6 +288,7 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
         var cache = CostUsageCacheIO.load(cacheRoot: options.cacheRoot, provider: .codex)
+        let loadedCache = cache
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
 
         let refreshMs = Int64(max(0, options.refreshMinIntervalSeconds) * 1000)
@@ -322,7 +329,11 @@ extension CostUsageScanner {
             cache.scanUntilKey = range.scanUntilKey
             cache.lastScanUnixMs = nowMs
             try checkCancellation?()
-            CostUsageCacheIO.save(cache: cache, cacheRoot: options.cacheRoot, provider: .codex)
+            CostUsageCacheIO.saveIfChanged(
+                cache: cache,
+                loaded: loadedCache,
+                cacheRoot: options.cacheRoot,
+                provider: .codex)
         }
 
         return try Self.buildCodexReportFromCache(
@@ -361,38 +372,55 @@ extension CostUsageScanner {
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
             var dayCostSeen = false
+            var dayUnpricedTokens = 0
 
             for model in modelNames {
-                let packed = models[model] ?? [0, 0, 0]
-                let input = packed[safe: 0] ?? 0
-                let cached = packed[safe: 1] ?? 0
-                let output = packed[safe: 2] ?? 0
+                let packed = models[model] ?? []
+                func slot(_ index: Int) -> Int {
+                    packed[safe: index] ?? 0
+                }
+                let lc = CodexSlot.longContextOffset
+                let input = CostUsageMath.add(slot(0), slot(lc))
+                let cached = CostUsageMath.add(slot(1), slot(lc + 1))
+                let output = CostUsageMath.add(slot(2), slot(lc + 2))
 
-                dayInput += input
-                dayCached += cached
-                dayOutput += output
+                dayInput.addSaturating(input)
+                dayCached.addSaturating(cached)
+                dayOutput.addSaturating(output)
 
                 // Codex input_tokens already includes the cached subset, so distinct
                 // tokens = input + output.
-                let modelTokens = input + output
-                let cost = CostUsagePricing.codexCostUSD(
+                let modelTokens = CostUsageMath.add(input, output)
+                let standardCost = CostUsagePricing.codexCostUSD(
                     model: model,
-                    inputTokens: input,
-                    cachedInputTokens: cached,
-                    outputTokens: output,
+                    inputTokens: slot(0),
+                    cachedInputTokens: slot(1),
+                    outputTokens: slot(2),
+                    isLongContextTurn: false,
                     modelsDevCatalog: modelsDevCatalog)
+                let longContextCost = CostUsagePricing.codexCostUSD(
+                    model: model,
+                    inputTokens: slot(lc),
+                    cachedInputTokens: slot(lc + 1),
+                    outputTokens: slot(lc + 2),
+                    isLongContextTurn: true,
+                    modelsDevCatalog: modelsDevCatalog)
+                let cost = standardCost.flatMap { standard in longContextCost.map { standard + $0 } }
                 breakdown.append(CostUsageDailyReport.ModelBreakdown(
                     modelName: model,
                     costUSD: cost,
-                    totalTokens: modelTokens))
+                    totalTokens: modelTokens,
+                    unpricedTokens: cost == nil ? modelTokens : nil))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
+                } else {
+                    dayUnpricedTokens.addSaturating(modelTokens)
                 }
             }
 
             let sortedBreakdown = Self.sortedModelBreakdowns(breakdown)
-            let dayTotal = dayInput + dayOutput
+            let dayTotal = CostUsageMath.add(dayInput, dayOutput)
             let entryCost = dayCostSeen ? dayCost : nil
             entries.append(CostUsageDailyReport.Entry(
                 date: day,
@@ -403,12 +431,13 @@ extension CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: sortedBreakdown))
+                modelBreakdowns: sortedBreakdown,
+                unpricedTokens: dayUnpricedTokens))
 
-            totalInput += dayInput
-            totalOutput += dayOutput
-            totalCacheRead += dayCached
-            totalTokens += dayTotal
+            totalInput.addSaturating(dayInput)
+            totalOutput.addSaturating(dayOutput)
+            totalCacheRead.addSaturating(dayCached)
+            totalTokens.addSaturating(dayTotal)
             if let entryCost {
                 totalCost += entryCost
                 costSeen = true

@@ -73,7 +73,7 @@ Every network call it makes:
 
 - `api.anthropic.com/api/oauth/usage`: reads your usage numbers, authenticated with the OAuth token, on each refresh.
 - `chatgpt.com/backend-api/wham/usage`: reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled.
-- `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled.
+- `models.dev/api.json`: fetches the pricing catalogue, unauthenticated, only while local cost tracking is enabled: at most about once a day, or every 6 hours while your logs show a model SturtBar has no built-in price for. SturtBar's own prices always win; the catalogue only fills gaps.
 - `api.github.com/repos/michael-palmes/SturtBar/releases/latest`: reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually.
 - `github.com/michael-palmes/SturtBar/releases/download/...` and `release-assets.githubusercontent.com` (the asset host it redirects to): downloads the update archive and its checksum, only when you choose to install an update.
 
@@ -118,7 +118,7 @@ Measured on an Apple M1 Max running macOS 26.5, SturtBar 1.0.2. Your numbers wil
 
 ## Build from source
 
-Zero third-party dependencies; the system toolchain is all you need.
+Zero third-party dependencies; the system toolchain is all you need: Xcode 27 (macOS 27 SDK) on an Apple Silicon Mac. Builds still run on macOS 26.
 
 ```sh
 make build      # swift build

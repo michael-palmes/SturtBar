@@ -38,6 +38,8 @@ extension UsageMenuCardView {
         let summaryLine: String
         /// Top models by cost across the scanned window (≤ breakdownRowSlots entries).
         let breakdown: [BreakdownRow]
+        /// Explains a "+" on the summary: how many models had no known price.
+        var helpText: String?
 
         /// Rendered model-row count: the actual rows once data is present (0…breakdownRowSlots),
         /// or the full reserve while skeleton so a FIRST scan's data (always ≤ the reserve) never
@@ -76,26 +78,31 @@ extension UsageMenuCardView.Model {
                 breakdown: [])
         }
 
-        let sessionCost = snapshot.sessionCostUSD.map {
-            UsageFormatter.currencyString($0, currencyCode: snapshot.currencyCode)
-        } ?? "—"
-        let monthCost = snapshot.last30DaysCostUSD.map {
-            UsageFormatter.currencyString($0, currencyCode: snapshot.currencyCode)
-        } ?? "—"
+        let sessionCost = UsageFormatter.costString(
+            snapshot.sessionCostUSD,
+            currencyCode: snapshot.currencyCode,
+            isPartial: snapshot.isSessionPartial) ?? "—"
+        let monthCost = UsageFormatter.costString(
+            snapshot.last30DaysCostUSD,
+            currencyCode: snapshot.currencyCode,
+            isPartial: snapshot.isPartial) ?? "—"
         let summaryLine = "Cost  \(sessionCost) today · \(monthCost) \(snapshot.historyDays)d"
 
         return UsageMenuCardView.CostSection(
             isSkeleton: false,
             summaryLine: summaryLine,
-            breakdown: Self.costBreakdownRows(snapshot: snapshot))
+            breakdown: Self.costBreakdownRows(snapshot: snapshot),
+            helpText: UsageFormatter.unpricedHelpText(modelCount: snapshot.unpricedModels?.count ?? 0))
     }
 
     /// Aggregates per-model cost/tokens across the scanned window and returns the top rows by
-    /// cost (token count breaks ties), capped at `breakdownRowSlots`.
+    /// cost (token count breaks ties), capped at `breakdownRowSlots`. An unpriced model always
+    /// keeps a row (the last slot if needed), so a partial total is never unexplained.
     static func costBreakdownRows(snapshot: CostUsageTokenSnapshot) -> [UsageMenuCardView.CostSection.BreakdownRow] {
         struct Totals {
             var costUSD: Double?
             var totalTokens: Int?
+            var unpricedTokens = 0
         }
 
         var totalsByModel: [String: Totals] = [:]
@@ -106,33 +113,43 @@ extension UsageMenuCardView.Model {
                     totals.costUSD = (totals.costUSD ?? 0) + cost
                 }
                 if let tokens = breakdown.totalTokens {
-                    totals.totalTokens = (totals.totalTokens ?? 0) + tokens
+                    totals.totalTokens = CostUsageMath.add(totals.totalTokens ?? 0, tokens)
                 }
+                totals.unpricedTokens = CostUsageMath.add(totals.unpricedTokens, breakdown.unpricedTokens ?? 0)
                 totalsByModel[breakdown.modelName] = totals
             }
         }
 
-        return totalsByModel
-            .sorted { lhs, rhs in
-                let lhsCost = lhs.value.costUSD ?? -1
-                let rhsCost = rhs.value.costUSD ?? -1
-                if lhsCost != rhsCost { return lhsCost > rhsCost }
-                let lhsTokens = lhs.value.totalTokens ?? -1
-                let rhsTokens = rhs.value.totalTokens ?? -1
-                if lhsTokens != rhsTokens { return lhsTokens > rhsTokens }
-                return lhs.key < rhs.key
-            }
-            .prefix(UsageMenuCardView.CostSection.breakdownRowSlots)
-            .map { modelName, totals in
-                UsageMenuCardView.CostSection.BreakdownRow(
-                    id: modelName,
-                    name: UsageFormatter.modelDisplayName(modelName),
-                    detail: UsageFormatter.modelCostDetail(
-                        modelName,
-                        costUSD: totals.costUSD,
-                        totalTokens: totals.totalTokens,
-                        currencyCode: snapshot.currencyCode))
-            }
+        let sorted = totalsByModel.sorted { lhs, rhs in
+            let lhsCost = lhs.value.costUSD ?? -1
+            let rhsCost = rhs.value.costUSD ?? -1
+            if lhsCost != rhsCost { return lhsCost > rhsCost }
+            let lhsTokens = lhs.value.totalTokens ?? -1
+            let rhsTokens = rhs.value.totalTokens ?? -1
+            if lhsTokens != rhsTokens { return lhsTokens > rhsTokens }
+            return lhs.key < rhs.key
+        }
+        var shown = Array(sorted.prefix(UsageMenuCardView.CostSection.breakdownRowSlots))
+        if !shown.isEmpty,
+           !shown.contains(where: { $0.value.unpricedTokens > 0 }),
+           let largestUnpriced = sorted
+               .filter({ $0.value.unpricedTokens > 0 })
+               .max(by: { $0.value.unpricedTokens < $1.value.unpricedTokens })
+        {
+            shown[shown.count - 1] = largestUnpriced
+        }
+
+        return shown.map { modelName, totals in
+            UsageMenuCardView.CostSection.BreakdownRow(
+                id: modelName,
+                name: UsageFormatter.modelDisplayName(modelName),
+                detail: UsageFormatter.modelCostDetail(
+                    modelName,
+                    costUSD: totals.costUSD,
+                    totalTokens: totals.totalTokens,
+                    currencyCode: snapshot.currencyCode,
+                    unpricedTokens: totals.unpricedTokens))
+        }
     }
 
     // MARK: Extra usage (snapshot.providerCost)
@@ -181,6 +198,7 @@ struct CostSectionContent: View {
                         ? MenuHighlightStyle.secondary(self.isHighlighted)
                         : MenuHighlightStyle.primary(self.isHighlighted))
                 .lineLimit(1)
+                .help(self.section.helpText ?? "")
             ForEach(self.section.breakdown) { row in
                 HStack(alignment: .firstTextBaseline) {
                     Text(row.name)

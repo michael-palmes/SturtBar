@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build test run package dmg release lint format clean
+.PHONY: build test run package dmg release lint format clean cost-audit
 
 build:
 	swift build
@@ -25,6 +25,9 @@ lint:
 
 format:
 	./Scripts/lint.sh format
+
+cost-audit:
+	swift Scripts/cost_audit.swift --codex
 
 clean:
 	swift package clean

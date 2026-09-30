@@ -18,13 +18,14 @@ Ship a signed, notarised, stapled `.app` and DMG that open on any Mac with no Ga
 
 ## One-time setup
 
-1. A **Developer ID Application** cert in the keychain: `security find-identity -p codesigning -v`.
-2. Notary credentials, exactly one mode (all three documented in the `sign-and-notarize.sh` header):
+1. **Xcode 27 selected** (`xcode-select -p`; `xcrun --show-sdk-version` prints 27.x). A 26-SDK build breaks the Settings pickers on macOS 27. `package_app.sh` links with `-isysroot` (SwiftPM's default build system otherwise records the deployment target as the SDK, so an Xcode 27 build still reported `sdk 26.0`) and refuses any binary whose `vtool -show-build` is not `sdk` ≥ 27 and `minos` 26.0. If it refuses, switch Xcode with `sudo xcode-select -s /Applications/<Xcode 27>.app` rather than editing the check.
+2. A **Developer ID Application** cert in the keychain: `security find-identity -p codesigning -v`.
+3. Notary credentials, exactly one mode (all three documented in the `sign-and-notarize.sh` header):
    - `STURTBAR_NOTARY_PROFILE`: a notarytool keychain profile, created once via `xcrun notarytool store-credentials <name> --apple-id <email> --team-id <TEAMID>` (prompts for an app-specific password from appleid.apple.com, never the Apple ID password).
    - `STURTBAR_NOTARY_KEY_ID` + `STURTBAR_NOTARY_ISSUER` + `STURTBAR_NOTARY_KEY_PATH` (App Store Connect API `.p8` on disk).
    - The same trio with `STURTBAR_NOTARY_KEY_P8` instead (inline key material; literal `\n` sequences allowed).
-3. An authenticated `gh` CLI (`gh auth status`).
-4. Export for the release run:
+4. An authenticated `gh` CLI (`gh auth status`).
+5. Export for the release run:
    ```bash
    export STURTBAR_SIGNING_IDENTITY="Developer ID Application: Your Name (<TEAMID>)"
    export STURTBAR_NOTARY_PROFILE="<profile name>"
@@ -32,11 +33,12 @@ Ship a signed, notarised, stapled `.app` and DMG that open on any Mac with no Ga
 
 ## Cutting a release
 
-1. **Bump `version.env`** (`MARKETING_VERSION` and `BUILD_NUMBER`) on a branch, open a PR, squash merge. The ruleset rejects direct pushes to main for everyone; tags are exempt and pushed by `release.sh` only. An already-tagged version is refused.
-2. From a clean, up-to-date main checkout, run **`make release`**. It runs: guards (gh installed, clean tree, untagged version, `swift test -q`), then `sign-and-notarize.sh` (Developer ID package, signature verify, notarise, staple and Gatekeeper-check the app, then build the styled DMG and notarise, staple and Gatekeeper-check it separately), then zip + `.sha256` + dSYM zip, then the annotated tag `v<version>` pushed, then a draft GitHub release with DMG (listed first: the human installer), zip, sha256 and dSYM.
+1. **Check prices are current.** Open SturtBar and let a cost scan finish, then run `make cost-audit`. It reprices your local logs from its own rate table and diffs every model against the app's snapshot. Any `MISMATCH` or unpriced model means a new model or price change: add it to both `CostUsagePricing+Tables.swift` and the audit's table from the Anthropic and OpenAI pricing pages (never from models.dev or CodexBar alone; CodexBar had gpt-5.6-sol wrong), then rerun. A `+` on the app's cost line is the same signal.
+2. **Bump `version.env`** (`MARKETING_VERSION` and `BUILD_NUMBER`) on a branch, open a PR, squash merge. The ruleset rejects direct pushes to main for everyone; tags are exempt and pushed by `release.sh` only. An already-tagged version is refused.
+3. From a clean, up-to-date main checkout, run **`make release`**. It runs: guards (gh installed, clean tree, untagged version, `swift test -q`), then `sign-and-notarize.sh` (Developer ID package, signature verify, notarise, staple and Gatekeeper-check the app, then build the styled DMG and notarise, staple and Gatekeeper-check it separately), then zip + `.sha256` + dSYM zip, then the annotated tag `v<version>` pushed, then a draft GitHub release with DMG (listed first: the human installer), zip, sha256 and dSYM.
    - **Needs a GUI session.** Finder styles the DMG, so this cannot run headless or over SSH, and the first run prompts once for Finder automation permission.
    - Budget time for two notarisation waits (app, then DMG), mostly waiting on Apple.
-3. **Publish the draft on GitHub.** This step is load-bearing: the in-app updater reads `releases/latest`, which excludes drafts and pre-releases, so a draft is invisible to every installed copy until published.
+4. **Publish the draft on GitHub.** This step is load-bearing: the in-app updater reads `releases/latest`, which excludes drafts and pre-releases, so a draft is invisible to every installed copy until published.
 
 Partial flows:
 

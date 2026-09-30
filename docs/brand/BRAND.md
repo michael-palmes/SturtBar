@@ -269,7 +269,7 @@ The complete list of network destinations. Anything not on this list does not ha
 |---|---|
 | `api.anthropic.com/api/oauth/usage` | Reads your usage numbers, authenticated with the OAuth token, on each refresh |
 | `chatgpt.com/backend-api/wham/usage` | Reads your Codex usage numbers, authenticated with the codex CLI's existing sign-in, on each refresh, only while the Codex provider is enabled |
-| `models.dev/api.json` | Fetches the pricing catalogue, unauthenticated, at most about once a day, and only while local cost tracking is enabled |
+| `models.dev/api.json` | Fetches the pricing catalogue, unauthenticated, only while local cost tracking is enabled: at most about once a day, or every 6 hours while the logs show a model with no built-in price |
 | `api.github.com/repos/michael-palmes/SturtBar/releases/latest` | Reads the newest release listing, unauthenticated, at most about once a day while update checks are enabled, or when you check manually |
 | `github.com/michael-palmes/SturtBar/releases/download/...` | Downloads the update archive and its checksum, only when you choose to install an update |
 | `release-assets.githubusercontent.com` | GitHub's asset host the release download redirects to, only when you choose to install an update |

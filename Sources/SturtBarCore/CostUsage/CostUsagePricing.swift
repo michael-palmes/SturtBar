@@ -1,15 +1,9 @@
 import Foundation
+import Synchronization
 
-/// Claude pricing tables + models.dev catalog lookup (Phase 2b).
-///
-/// Lookup order for claudeCostUSD:
-///  1. Historical-tariff check (uses built-in tables; short-circuits for models
-///     that have pre-cutover long-context pricing).
-///  2. models.dev catalog (injected or loaded from cache) — covers new models
-///     not yet in the built-in tables.
-///  3. Built-in table fallback — offline safety net, pinned by tests.
-///
-/// Call sites pass the catalog explicitly to avoid a per-row file load.
+/// Claude and Codex cost estimates. The built-in tables (pinned by tests to published rates) are
+/// authoritative; the models.dev catalog only prices models a build does not know yet. Call sites
+/// pass the catalog explicitly to avoid a per-row file load.
 enum CostUsagePricing {
     struct ClaudePricing {
         let inputCostPerToken: Double
@@ -32,187 +26,13 @@ enum CostUsagePricing {
         let output: Int
     }
 
-    private static let claude: [String: ClaudePricing] = [
-        "claude-fable-5": ClaudePricing(
-            inputCostPerToken: 1e-5,
-            outputCostPerToken: 5e-5,
-            cacheCreationInputCostPerToken: 1.25e-5,
-            cacheReadInputCostPerToken: 1e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-haiku-4-5-20251001": ClaudePricing(
-            inputCostPerToken: 1e-6,
-            outputCostPerToken: 5e-6,
-            cacheCreationInputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 1e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-haiku-4-5": ClaudePricing(
-            inputCostPerToken: 1e-6,
-            outputCostPerToken: 5e-6,
-            cacheCreationInputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 1e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-5-20251101": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-5": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-6-20260205": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-6": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-7": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-8": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-5": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-        "claude-sonnet-4-6": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-5-20250929": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-        "claude-opus-4-20250514": ClaudePricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 7.5e-5,
-            cacheCreationInputCostPerToken: 1.875e-5,
-            cacheReadInputCostPerToken: 1.5e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-opus-4-1": ClaudePricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 7.5e-5,
-            cacheCreationInputCostPerToken: 1.875e-5,
-            cacheReadInputCostPerToken: 1.5e-6,
-            thresholdTokens: nil,
-            inputCostPerTokenAboveThreshold: nil,
-            outputCostPerTokenAboveThreshold: nil,
-            cacheCreationInputCostPerTokenAboveThreshold: nil,
-            cacheReadInputCostPerTokenAboveThreshold: nil),
-        "claude-sonnet-4-20250514": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-    ]
-
-    private static let claudeFullContextStandardPricingCutoff = Date(timeIntervalSince1970: 1_773_360_000)
-    private static let claudeHistoricalLongContext: [String: ClaudePricing] = [
-        "claude-opus-4-6": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 1e-5,
-            outputCostPerTokenAboveThreshold: 3.75e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 1.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 1e-6),
-        "claude-sonnet-4-6": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-    ]
-
     /// Precompiled regex for vertex version suffix (-v1:0 style) and date suffix (-20250514 style).
     private static let vertexVersionRegex = makeRegex(pattern: #"-v\d+:\d+$"#)
 
     private static let dateSuffixRegex = makeRegex(pattern: #"-\d{8}$"#)
+
+    /// Claude Code tags extended-context sessions, e.g. `claude-opus-5[1m]`; the price is the base model's.
+    private static let contextTagRegex = makeRegex(pattern: #"\[\d+[a-z]\]$"#)
 
     private static let fallbackRegex: NSRegularExpression = {
         do {
@@ -228,12 +48,38 @@ enum CostUsagePricing {
         (try? NSRegularExpression(pattern: pattern)) ?? self.fallbackRegex
     }
 
+    /// Scans normalise the same few model names on every row; the regex work runs once per name.
+    private static let normalizedKeyMemo = Mutex<[String: String]>([:])
+
+    private static func memoised(_ raw: String, provider: String, _ compute: (String) -> String) -> String {
+        let memoKey = "\(provider)\u{0}\(raw)"
+        if let hit = self.normalizedKeyMemo.withLock({ $0[memoKey] }) { return hit }
+        let key = compute(raw)
+        self.normalizedKeyMemo.withLock { memo in
+            if memo.count >= 512 { memo.removeAll(keepingCapacity: true) }
+            memo[memoKey] = key
+        }
+        return key
+    }
+
     static func normalizeClaudeModel(_ raw: String) -> String {
+        self.memoised(raw, provider: "claude", self.computeClaudeKey)
+    }
+
+    private static func computeClaudeKey(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Fast path: if the trimmed form already is a known key, return immediately.
-        if self.claude[trimmed] != nil || self.claudeHistoricalLongContext[trimmed] != nil {
+        if self.claudeTable[trimmed] != nil || self.claudeHistoricalLongContextTable[trimmed] != nil {
             return trimmed
+        }
+
+        if trimmed.hasSuffix("]"),
+           let tag = contextTagRegex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+           let range = Range(tag.range, in: trimmed)
+        {
+            trimmed.removeSubrange(range)
+            if self.claudeTable[trimmed] != nil { return trimmed }
         }
 
         if trimmed.hasPrefix("anthropic.") {
@@ -259,7 +105,7 @@ enum CostUsagePricing {
         if let dateMatch = dateSuffixRegex.firstMatch(in: trimmed, range: range2) {
             let matchRange = Range(dateMatch.range, in: trimmed)!
             let base = String(trimmed[..<matchRange.lowerBound])
-            if self.claude[base] != nil {
+            if self.claudeTable[base] != nil {
                 return base
             }
         }
@@ -278,6 +124,7 @@ enum CostUsagePricing {
         cacheCreationInputTokens1h: Int = 0,
         outputTokens: Int,
         pricingDate: Date? = nil,
+        isFast: Bool = false,
         modelsDevCatalog: ModelsDevCatalog? = nil) -> Double?
     {
         let tokens = ClaudeCostTokens(
@@ -288,12 +135,16 @@ enum CostUsagePricing {
             output: outputTokens)
         let key = self.normalizeClaudeModel(model)
 
-        // 1. Historical-tariff check: models with a pre-cutover long-context tier use built-in
-        //    tables only — models.dev may carry the post-cutover flat rates, which would be wrong
-        //    for historical rows.
+        // Fast mode has published rates for a few models only; anywhere else the turn stays unpriced.
+        if isFast {
+            guard let multiplier = self.claudeFastMultiplier[key], let pricing = self.claudeTable[key]
+            else { return nil }
+            return self.claudeCostUSD(pricing: pricing, tokens: tokens) * multiplier
+        }
+
         if let pricingDate,
-           let historicalPricing = self.claudeHistoricalLongContext[key],
-           let currentPricing = self.claude[key]
+           let historicalPricing = self.claudeHistoricalLongContextTable[key],
+           let currentPricing = self.claudeTable[key]
         {
             return self.claudeCostUSD(
                 pricing: pricingDate < self.claudeFullContextStandardPricingCutoff
@@ -302,20 +153,16 @@ enum CostUsagePricing {
                 tokens: tokens)
         }
 
-        // 2. models.dev catalog lookup — covers models added after this binary shipped.
-        if let lookup = self.modelsDevLookup(
+        if let pricing = self.claudeTable[key] {
+            return self.claudeCostUSD(pricing: pricing, tokens: tokens)
+        }
+
+        guard let lookup = self.modelsDevLookup(
             providerID: self.claudeModelsDevProviderID,
             model: model,
             catalog: modelsDevCatalog)
-        {
-            return self.claudeCostUSD(pricing: lookup.pricing, tokens: tokens)
-        }
-
-        // 3. Built-in table fallback.
-        guard let pricing = self.claude[key] else { return nil }
-        return self.claudeCostUSD(
-            pricing: pricing,
-            tokens: tokens)
+        else { return nil }
+        return self.claudeCostUSD(pricing: lookup.pricing, tokens: tokens)
     }
 
     static func modelsDevCatalog(now: Date = Date(), cacheRoot: URL? = nil) -> ModelsDevCatalog? {
@@ -344,8 +191,9 @@ enum CostUsagePricing {
             pricing: ClaudePricing(
                 inputCostPerToken: pricing.inputCostPerToken,
                 outputCostPerToken: pricing.outputCostPerToken,
-                cacheCreationInputCostPerToken: pricing.cacheCreationInputCostPerToken ?? pricing.inputCostPerToken,
-                cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken,
+                cacheCreationInputCostPerToken: pricing.cacheCreationInputCostPerToken
+                    ?? pricing.inputCostPerToken * 1.25,
+                cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken * 0.1,
                 thresholdTokens: pricing.thresholdTokens,
                 inputCostPerTokenAboveThreshold: pricing.inputCostPerTokenAboveThreshold,
                 outputCostPerTokenAboveThreshold: pricing.outputCostPerTokenAboveThreshold,
@@ -364,7 +212,7 @@ enum CostUsagePricing {
         let cacheCreation1h = min(max(0, tokens.cacheCreation1h), cacheCreationTotal)
         let cacheCreation5m = cacheCreationTotal - cacheCreation1h
         let usesLongContextRates = pricing.thresholdTokens.map {
-            input + cacheRead + cacheCreationTotal > $0
+            CostUsageMath.sum(input, cacheRead, cacheCreationTotal) > $0
         } ?? false
         let inputRate = usesLongContextRates
             ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken
@@ -433,126 +281,6 @@ enum CostUsagePricing {
         }
     }
 
-    private static let codex: [String: CodexPricing] = [
-        "gpt-5": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5-codex": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5-mini": CodexPricing(
-            inputCostPerToken: 2.5e-7,
-            outputCostPerToken: 2e-6,
-            cacheReadInputCostPerToken: 2.5e-8,
-            displayLabel: nil),
-        "gpt-5-nano": CodexPricing(
-            inputCostPerToken: 5e-8,
-            outputCostPerToken: 4e-7,
-            cacheReadInputCostPerToken: 5e-9,
-            displayLabel: nil),
-        "gpt-5-pro": CodexPricing(
-            inputCostPerToken: 1.5e-5,
-            outputCostPerToken: 1.2e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.1": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex-max": CodexPricing(
-            inputCostPerToken: 1.25e-6,
-            outputCostPerToken: 1e-5,
-            cacheReadInputCostPerToken: 1.25e-7,
-            displayLabel: nil),
-        "gpt-5.1-codex-mini": CodexPricing(
-            inputCostPerToken: 2.5e-7,
-            outputCostPerToken: 2e-6,
-            cacheReadInputCostPerToken: 2.5e-8,
-            displayLabel: nil),
-        "gpt-5.2": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.2-codex": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.2-pro": CodexPricing(
-            inputCostPerToken: 2.1e-5,
-            outputCostPerToken: 1.68e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.3-codex": CodexPricing(
-            inputCostPerToken: 1.75e-6,
-            outputCostPerToken: 1.4e-5,
-            cacheReadInputCostPerToken: 1.75e-7,
-            displayLabel: nil),
-        "gpt-5.3-codex-spark": CodexPricing(
-            inputCostPerToken: 0,
-            outputCostPerToken: 0,
-            cacheReadInputCostPerToken: 0,
-            displayLabel: "Research Preview"),
-        "gpt-5.4": CodexPricing(
-            inputCostPerToken: 2.5e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheReadInputCostPerToken: 2.5e-7,
-            displayLabel: nil,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 5e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 5e-7,
-            priorityInputCostPerToken: 5e-6,
-            priorityOutputCostPerToken: 3e-5,
-            priorityCacheReadInputCostPerToken: 5e-7),
-        "gpt-5.4-mini": CodexPricing(
-            inputCostPerToken: 7.5e-7,
-            outputCostPerToken: 4.5e-6,
-            cacheReadInputCostPerToken: 7.5e-8,
-            displayLabel: nil,
-            priorityInputCostPerToken: 1.5e-6,
-            priorityOutputCostPerToken: 9e-6,
-            priorityCacheReadInputCostPerToken: 1.5e-7),
-        "gpt-5.4-nano": CodexPricing(
-            inputCostPerToken: 2e-7,
-            outputCostPerToken: 1.25e-6,
-            cacheReadInputCostPerToken: 2e-8,
-            displayLabel: nil),
-        "gpt-5.4-pro": CodexPricing(
-            inputCostPerToken: 3e-5,
-            outputCostPerToken: 1.8e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-        "gpt-5.5": CodexPricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 3e-5,
-            cacheReadInputCostPerToken: 5e-7,
-            displayLabel: nil,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 1e-5,
-            outputCostPerTokenAboveThreshold: 4.5e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 1e-6,
-            priorityInputCostPerToken: 1.25e-5,
-            priorityOutputCostPerToken: 7.5e-5,
-            priorityCacheReadInputCostPerToken: 1.25e-6),
-        "gpt-5.5-pro": CodexPricing(
-            inputCostPerToken: 3e-5,
-            outputCostPerToken: 1.8e-4,
-            cacheReadInputCostPerToken: nil,
-            displayLabel: nil),
-    ]
-
     /// Precompiled regex for Codex date suffixes (-YYYY-MM-DD style).
     private static let codexDateSuffixRegex = makeRegex(pattern: #"-\d{4}-\d{2}-\d{2}$"#)
 
@@ -560,10 +288,14 @@ enum CostUsagePricing {
     static let codexModelsDevProviderID = "openai"
 
     static func normalizeCodexModel(_ raw: String) -> String {
+        self.memoised(raw, provider: "codex", self.computeCodexKey)
+    }
+
+    private static func computeCodexKey(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Fast path: already a known key.
-        if self.codex[trimmed] != nil {
+        if self.codexTable[trimmed] != nil {
             return trimmed
         }
 
@@ -571,7 +303,11 @@ enum CostUsagePricing {
             trimmed = String(trimmed.dropFirst("openai/".count))
         }
 
-        if self.codex[trimmed] != nil {
+        if let alias = self.codexAliases[trimmed] {
+            return alias
+        }
+
+        if self.codexTable[trimmed] != nil {
             return trimmed
         }
 
@@ -579,7 +315,7 @@ enum CostUsagePricing {
         if let dateMatch = codexDateSuffixRegex.firstMatch(in: trimmed, range: range) {
             let matchRange = Range(dateMatch.range, in: trimmed)!
             let base = String(trimmed[..<matchRange.lowerBound])
-            if self.codex[base] != nil {
+            if self.codexTable[base] != nil {
                 return base
             }
         }
@@ -587,38 +323,42 @@ enum CostUsagePricing {
         return trimmed
     }
 
-    /// Estimated Codex cost in USD. Lookup order mirrors `claudeCostUSD`:
-    ///  1. models.dev catalog (injected) — covers models added after this binary shipped, with the
-    ///     built-in long-context threshold layered on top.
-    ///  2. Built-in table fallback — offline safety net, pinned by tests.
-    /// Priority pricing is intentionally not applied (SturtBar reads no priority metadata).
+    /// OpenAI's long-context tier applies to a single turn whose input exceeds this many tokens.
+    static let codexLongContextThresholdTokens = 272_000
+
+    /// Estimated Codex cost in USD: built-in table first, then models.dev at base rates (a catalog
+    /// tier cannot be trusted to match OpenAI's). Priority pricing is not applied.
+    /// `isLongContextTurn` says whether these tokens came from over-threshold turns; nil treats
+    /// the tokens as one turn.
     static func codexCostUSD(
         model: String,
         inputTokens: Int,
         cachedInputTokens: Int,
         outputTokens: Int,
+        isLongContextTurn: Bool? = nil,
         modelsDevCatalog: ModelsDevCatalog? = nil) -> Double?
     {
         let key = self.normalizeCodexModel(model)
 
-        // 1. models.dev catalog lookup — keep the built-in threshold so long-context tiers still apply.
-        if let lookup = self.modelsDevLookup(
+        if let pricing = self.codexTable[key] {
+            let longContext = isLongContextTurn
+                ?? pricing.thresholdTokens.map { max(0, inputTokens) > $0 }
+                ?? false
+            return self.codexCostUSD(
+                pricing: pricing,
+                inputTokens: inputTokens,
+                cachedInputTokens: cachedInputTokens,
+                outputTokens: outputTokens,
+                usesLongContextRates: longContext && pricing.thresholdTokens != nil)
+        }
+
+        guard let lookup = self.modelsDevLookup(
             providerID: self.codexModelsDevProviderID,
             model: model,
             catalog: modelsDevCatalog)
-        {
-            return self.codexCostUSD(
-                pricing: lookup.pricing,
-                thresholdTokens: self.codex[key]?.thresholdTokens,
-                inputTokens: inputTokens,
-                cachedInputTokens: cachedInputTokens,
-                outputTokens: outputTokens)
-        }
-
-        // 2. Built-in table fallback.
-        guard let pricing = self.codex[key] else { return nil }
+        else { return nil }
         return self.codexCostUSD(
-            pricing: pricing,
+            pricing: lookup.pricing,
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens)
@@ -628,13 +368,13 @@ enum CostUsagePricing {
         pricing: CodexPricing,
         inputTokens: Int,
         cachedInputTokens: Int,
-        outputTokens: Int) -> Double
+        outputTokens: Int,
+        usesLongContextRates: Bool = false) -> Double
     {
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
         let nonCached = max(0, inputTokens - cached)
         let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
 
-        let usesLongContextRates = pricing.thresholdTokens.map { max(0, inputTokens) > $0 } ?? false
         let inputRate = usesLongContextRates
             ? pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken
             : pricing.inputCostPerToken
@@ -652,7 +392,6 @@ enum CostUsagePricing {
 
     private static func codexCostUSD(
         pricing: ModelsDevPricingInfo,
-        thresholdTokens: Int? = nil,
         inputTokens: Int,
         cachedInputTokens: Int,
         outputTokens: Int) -> Double
@@ -662,11 +401,7 @@ enum CostUsagePricing {
                 inputCostPerToken: pricing.inputCostPerToken,
                 outputCostPerToken: pricing.outputCostPerToken,
                 cacheReadInputCostPerToken: pricing.cacheReadInputCostPerToken,
-                displayLabel: nil,
-                thresholdTokens: thresholdTokens ?? pricing.thresholdTokens,
-                inputCostPerTokenAboveThreshold: pricing.inputCostPerTokenAboveThreshold,
-                outputCostPerTokenAboveThreshold: pricing.outputCostPerTokenAboveThreshold,
-                cacheReadInputCostPerTokenAboveThreshold: pricing.cacheReadInputCostPerTokenAboveThreshold),
+                displayLabel: nil),
             inputTokens: inputTokens,
             cachedInputTokens: cachedInputTokens,
             outputTokens: outputTokens)
