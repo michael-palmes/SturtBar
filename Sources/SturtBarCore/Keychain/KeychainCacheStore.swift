@@ -33,6 +33,7 @@ public enum KeychainCacheStore {
     @TaskLocal private static var serviceOverride: String?
     #if DEBUG && os(macOS)
     @TaskLocal private static var loadFailureStatusOverride: OSStatus?
+    @TaskLocal private static var itemOperationOverride: (@Sendable (ItemOperation, [String: Any]) -> OSStatus)?
     #endif
     private static let testStoreLock = NSLock()
     private struct ItemKey: Hashable {
@@ -103,34 +104,7 @@ public enum KeychainCacheStore {
             self.log.error("Failed to encode keychain cache (\(key.account))")
             return
         }
-
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.serviceName,
-            kSecAttrAccount as String: key.account,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-
-        let writer = ItemWriter(
-            update: {
-                KeychainNoUIQuery.withoutLegacyKeychainUI {
-                    SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-                }
-            },
-            delete: {
-                KeychainNoUIQuery.withoutLegacyKeychainUI { SecItemDelete(query as CFDictionary) }
-            },
-            add: {
-                var addQuery = query
-                addQuery[kSecValueData as String] = data
-                addQuery[kSecAttrLabel as String] = self.cacheLabel
-                addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-                if let access = self.cacheAccessControl() {
-                    addQuery[kSecAttrAccess as String] = access
-                }
-                return KeychainNoUIQuery.withoutLegacyKeychainUI { SecItemAdd(addQuery as CFDictionary, nil) }
-            })
-        self.write(key: key, service: self.serviceName, using: writer)
+        self.writeToKeychain(key: key, data: data)
         #endif
     }
 
@@ -184,6 +158,15 @@ public enum KeychainCacheStore {
         operation: () throws -> T) rethrows -> T
     {
         try self.$loadFailureStatusOverride.withValue(status) {
+            try operation()
+        }
+    }
+
+    static func withItemOperationOverrideForTesting<T>(
+        _ override: @escaping @Sendable (ItemOperation, [String: Any]) -> OSStatus,
+        operation: () throws -> T) rethrows -> T
+    {
+        try self.$itemOperationOverride.withValue(override) {
             try operation()
         }
     }
@@ -248,6 +231,56 @@ public enum KeychainCacheStore {
         case repaired
         case locked
         case failed
+    }
+
+    enum ItemOperation: Equatable {
+        case update
+        case delete
+        case add
+    }
+
+    /// Every item write uses the one service value that `write` checks against SturtBar's own.
+    @discardableResult
+    static func writeToKeychain(key: Key, data: Data) -> WriteOutcome {
+        let service = self.serviceName
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key.account,
+        ]
+        KeychainNoUIQuery.apply(to: &query)
+
+        let writer = ItemWriter(
+            update: { self.perform(.update, query, attributes: [kSecValueData as String: data]) },
+            delete: { self.perform(.delete, query) },
+            add: {
+                var addQuery = query
+                addQuery[kSecValueData as String] = data
+                addQuery[kSecAttrLabel as String] = self.cacheLabel
+                addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                if let access = self.cacheAccessControl() {
+                    addQuery[kSecAttrAccess as String] = access
+                }
+                return self.perform(.add, addQuery)
+            })
+        return self.write(key: key, service: service, using: writer)
+    }
+
+    private static func perform(
+        _ operation: ItemOperation,
+        _ query: [String: Any],
+        attributes: [String: Any] = [:]) -> OSStatus
+    {
+        #if DEBUG
+        if let override = self.itemOperationOverride { return override(operation, query) }
+        #endif
+        return KeychainNoUIQuery.withoutLegacyKeychainUI {
+            switch operation {
+            case .update: SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            case .delete: SecItemDelete(query as CFDictionary)
+            case .add: SecItemAdd(query as CFDictionary, nil)
+            }
+        }
     }
 
     /// An own item that rejects this build (e.g. after a signature change) is replaced once per launch, without UI.

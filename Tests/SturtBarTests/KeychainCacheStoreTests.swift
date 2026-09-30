@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import SturtBarCore
 
@@ -296,6 +297,38 @@ struct KeychainCacheStoreTests {
         #expect(outcome == .failed)
         #expect(calls.names.isEmpty)
         #expect(!KeychainCacheStore.isOwnCacheService(service))
+    }
+
+    private func storeWiringOperations(service: String) -> (outcome: KeychainCacheStore.WriteOutcome, seen: [String]) {
+        let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
+        let seen = Mutex<[String]>([])
+        let outcome = KeychainCacheStore.withServiceOverrideForTesting(service) {
+            KeychainCacheStore.withItemOperationOverrideForTesting { operation, query in
+                let queried = query[kSecAttrService as String] as? String ?? "none"
+                seen.withLock { $0.append("\(operation) \(queried)") }
+                return operation == .update ? errSecAuthFailed : errSecSuccess
+            } operation: {
+                KeychainCacheStore.writeToKeychain(key: key, data: Data("fresh".utf8))
+            }
+        }
+        return (outcome, seen.withLock { $0 })
+    }
+
+    @Test
+    func `store wiring repairs the item under the service it checked`() {
+        let service = self.ownTestService()
+        let result = self.storeWiringOperations(service: service)
+
+        #expect(result.outcome == .repaired)
+        #expect(result.seen == ["update \(service)", "delete \(service)", "add \(service)"])
+    }
+
+    @Test
+    func `store wiring never touches a foreign service override`() {
+        let result = self.storeWiringOperations(service: "Claude Code-credentials")
+
+        #expect(result.outcome == .failed)
+        #expect(result.seen.isEmpty)
     }
 
     @Test
