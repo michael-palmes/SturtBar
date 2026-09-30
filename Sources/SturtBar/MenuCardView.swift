@@ -979,16 +979,17 @@ extension UsageMenuCardView.Model {
         if input.showModelWeeklyLimits {
             // Model-scoped weekly rows (such as Fable) get the same treatment as the tertiary slot.
             for namedWindow in snapshot.modelWeeklyWindows {
+                let title = "\(namedWindow.title) weekly"
                 if input.workDaysPerWeek != nil {
                     metrics.append(Self.weeklyMetric(
                         window: namedWindow.window,
                         input: input,
                         id: namedWindow.id,
-                        title: namedWindow.title))
+                        title: title))
                 } else {
                     metrics.append(Metric(
                         id: namedWindow.id,
-                        title: namedWindow.title,
+                        title: title,
                         percent: Self.displayPercent(namedWindow.window, input: input),
                         reset: Self.resetInfo(namedWindow.window, input: input),
                         warningMarkerPercents: Self.warningMarkerPercents(

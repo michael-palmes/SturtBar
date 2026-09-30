@@ -140,7 +140,8 @@ struct MenuCardModelTests {
         #expect(model.metrics.map(\.id)
             == ["primary", "secondary", "tertiary", "model-weekly-fable", "claude-routines"])
         let fable = model.metrics[3]
-        #expect(fable.title == "Fable")
+        #expect(fable.title == "Fable weekly")
+        #expect(fable.id == "model-weekly-fable")
         #expect(fable.percent == 70)
         #expect(fable.warningMarkerPercents == [25])
         #expect(fable.resetText(now: now)?.isEmpty == false)
