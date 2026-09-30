@@ -144,17 +144,6 @@ struct KeychainCacheStoreTests {
     }
 
     @Test
-    func `legacy keychain UI is suppressed during a wrapped read and restored afterward`() {
-        // Proves the SecKeychainSetUserInteractionAllowed toggle actually flips the process-wide
-        // legacy-ACL prompt off for the cache read and puts the prior value back. This is what stops
-        // the "SturtBar wants to access key 'SturtBar Cache'" dialog for a non-matching binary; the
-        // real prompt-vs-silent behavior is covered by the packaged-app live run.
-        let probe = KeychainCacheStore.legacyKeychainUIProbeForTesting()
-        #expect(probe.insideAllowed == false)
-        #expect(probe.afterAllowed == true)
-    }
-
-    @Test
     func `delete interaction not allowed is non-fatal`() {
         let key = KeychainCacheStore.Key(category: "test", identifier: UUID().uuidString)
         #expect(KeychainCacheStore.clearResultForKeychainDeleteStatus(errSecInteractionNotAllowed, key: key) == false)

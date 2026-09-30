@@ -1511,20 +1511,15 @@ public enum ClaudeOAuthCredentialsStore {
                 "process": ProcessInfo.processInfo.processName,
             ])
 
-        var query: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecValuePersistentRef as String: candidate.persistentRef,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
 
-        if !allowKeychainPrompt {
-            KeychainNoUIQuery.apply(to: &query)
-        }
-
-        var result: AnyObject?
         let startedAtNs = DispatchTime.now().uptimeNanoseconds
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = self.copyClaudeKeychainData(query, allowKeychainPrompt: allowKeychainPrompt)
         let durationMs = Double(DispatchTime.now().uptimeNanoseconds - startedAtNs) / 1_000_000.0
         self.log.debug(
             "Claude keychain data read result",
@@ -1560,6 +1555,26 @@ public enum ClaudeOAuthCredentialsStore {
         }
     }
 
+    /// A silent read of Claude Code's secret also suppresses the legacy dialog, which `KeychainNoUIQuery` flags miss.
+    static func copyClaudeKeychainData(
+        _ query: [String: Any],
+        allowKeychainPrompt: Bool) -> (status: OSStatus, result: AnyObject?)
+    {
+        guard !allowKeychainPrompt else { return self.copyClaudeKeychainItem(query) }
+        var query = query
+        KeychainNoUIQuery.apply(to: &query)
+        return KeychainNoUIQuery.withoutLegacyKeychainUI { self.copyClaudeKeychainItem(query) }
+    }
+
+    private static func copyClaudeKeychainItem(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
+        #if DEBUG
+        if let override = self.taskClaudeKeychainDataCopyOverride { return override(query) }
+        #endif
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        return (status, result)
+    }
+
     private static func loadClaudeKeychainLegacyData(
         allowKeychainPrompt: Bool,
         promptMode: ClaudeOAuthKeychainPromptMode = ClaudeOAuthKeychainPromptPreference.current()) throws -> Data?
@@ -1576,20 +1591,15 @@ public enum ClaudeOAuthCredentialsStore {
                 "process": ProcessInfo.processInfo.processName,
             ])
 
-        var query: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: self.claudeKeychainService,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
 
-        if !allowKeychainPrompt {
-            KeychainNoUIQuery.apply(to: &query)
-        }
-
-        var result: AnyObject?
         let startedAtNs = DispatchTime.now().uptimeNanoseconds
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = self.copyClaudeKeychainData(query, allowKeychainPrompt: allowKeychainPrompt)
         let durationMs = Double(DispatchTime.now().uptimeNanoseconds - startedAtNs) / 1_000_000.0
         self.log.debug(
             "Claude keychain legacy data read result",

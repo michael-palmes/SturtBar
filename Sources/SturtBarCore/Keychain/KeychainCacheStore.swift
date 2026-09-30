@@ -69,7 +69,7 @@ public enum KeychainCacheStore {
         KeychainNoUIQuery.apply(to: &query)
 
         var result: AnyObject?
-        let status = self.withoutLegacyKeychainUI {
+        let status = KeychainNoUIQuery.withoutLegacyKeychainUI {
             SecItemCopyMatching(query as CFDictionary, &result)
         }
         switch status {
@@ -113,12 +113,12 @@ public enum KeychainCacheStore {
 
         let writer = ItemWriter(
             update: {
-                self.withoutLegacyKeychainUI {
+                KeychainNoUIQuery.withoutLegacyKeychainUI {
                     SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
                 }
             },
             delete: {
-                self.withoutLegacyKeychainUI { SecItemDelete(query as CFDictionary) }
+                KeychainNoUIQuery.withoutLegacyKeychainUI { SecItemDelete(query as CFDictionary) }
             },
             add: {
                 var addQuery = query
@@ -128,7 +128,7 @@ public enum KeychainCacheStore {
                 if let access = self.cacheAccessControl() {
                     addQuery[kSecAttrAccess as String] = access
                 }
-                return self.withoutLegacyKeychainUI { SecItemAdd(addQuery as CFDictionary, nil) }
+                return KeychainNoUIQuery.withoutLegacyKeychainUI { SecItemAdd(addQuery as CFDictionary, nil) }
             })
         self.write(key: key, service: self.serviceName, using: writer)
         #endif
@@ -147,7 +147,7 @@ public enum KeychainCacheStore {
             kSecAttrAccount as String: key.account,
         ]
         KeychainNoUIQuery.apply(to: &query)
-        let deleteStatus = self.withoutLegacyKeychainUI {
+        let deleteStatus = KeychainNoUIQuery.withoutLegacyKeychainUI {
             SecItemDelete(query as CFDictionary)
         }
         return self.clearResultForKeychainDeleteStatus(deleteStatus, key: key)
@@ -316,7 +316,7 @@ public enum KeychainCacheStore {
         case errSecItemNotFound:
             return .missing
         case errSecInteractionNotAllowed, errSecAuthFailed:
-            // No prompt was shown because `withoutLegacyKeychainUI` suppresses the legacy ACL dialog.
+            // No prompt was shown because `KeychainNoUIQuery.withoutLegacyKeychainUI` suppresses the ACL dialog.
             // `errSecInteractionNotAllowed` = keychain locked (e.g. just after wake); `errSecAuthFailed`
             // = this binary isn't on the item's ACL (the usual case for a locally rebuilt dev binary,
             // whose code identity no longer matches). Both are benign for a best-effort cache: the
@@ -443,54 +443,6 @@ public enum KeychainCacheStore {
         return dlsym(securityFrameworkHandle, name)
     }
 
-    private typealias SetUserInteractionAllowedFunction = @convention(c) (UInt8) -> OSStatus
-    private typealias GetUserInteractionAllowedFunction = @convention(c) (UnsafeMutablePointer<UInt8>?) -> OSStatus
-
-    /// Runs `body` with legacy Keychain Services UI suppressed process-wide, restoring the prior
-    /// setting afterward. This is the ONLY lever that governs the legacy login-keychain ACL prompt
-    /// ("… wants to access key 'SturtBar Cache' … Allow / Always Allow / Deny"): the modern
-    /// LocalAuthentication flags in `KeychainNoUIQuery` only suppress data-protection-keychain UI,
-    /// not this older file-based dialog. With UI off, a binary not on the item's ACL gets
-    /// `errSecInteractionNotAllowed` instead of a prompt — so the self-cache read falls back silently
-    /// to the Claude Code keychain. A binary that IS on the ACL (the same notarized app reading its
-    /// own item in production) needs no interaction and still succeeds. The window is kept to a single
-    /// SecItem call; the prior value is saved/restored rather than forced back to "allowed" so we never
-    /// clobber an outer suppression. No-op when the deprecated symbols cannot be resolved.
-    private static func withoutLegacyKeychainUI<T>(_ body: () -> T) -> T {
-        guard
-            let setSymbol = self.securitySymbol(named: "SecKeychainSetUserInteractionAllowed"),
-            let getSymbol = self.securitySymbol(named: "SecKeychainGetUserInteractionAllowed")
-        else {
-            return body()
-        }
-        let setInteraction = unsafeBitCast(setSymbol, to: SetUserInteractionAllowedFunction.self)
-        let getInteraction = unsafeBitCast(getSymbol, to: GetUserInteractionAllowedFunction.self)
-
-        var previous: UInt8 = 1
-        _ = getInteraction(&previous)
-        guard setInteraction(0) == errSecSuccess else { return body() }
-        defer { _ = setInteraction(previous) }
-        return body()
-    }
-
-    #if DEBUG
-    /// Captures the legacy keychain interaction-allowed flag from inside the suppression wrapper and
-    /// again after it returns, so a test can assert the toggle both flips and restores. `nil` when the
-    /// deprecated getter symbol is unavailable. Returns `(true, true)` shaped values otherwise.
-    static func legacyKeychainUIProbeForTesting() -> (insideAllowed: Bool?, afterAllowed: Bool?) {
-        func currentAllowed() -> Bool? {
-            guard let getSymbol = self.securitySymbol(named: "SecKeychainGetUserInteractionAllowed") else {
-                return nil
-            }
-            let getInteraction = unsafeBitCast(getSymbol, to: GetUserInteractionAllowedFunction.self)
-            var state: UInt8 = 1
-            guard getInteraction(&state) == errSecSuccess else { return nil }
-            return state != 0
-        }
-        let inside = self.withoutLegacyKeychainUI { currentAllowed() }
-        return (inside, currentAllowed())
-    }
-    #endif
     #endif
 
     private static func loadFromTestStore<Entry: Codable>(

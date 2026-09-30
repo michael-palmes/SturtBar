@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Synchronization
 import Testing
 @testable import SturtBarCore
@@ -139,6 +140,25 @@ struct ClaudeOAuthSilentKeychainReadTests {
 
         #expect(record.credentials.accessToken == "silent-token")
         #expect(record.source == .claudeKeychain)
+    }
+
+    @Test
+    func `silent token reads suppress the legacy keychain dialog and prompt reads do not`() {
+        let reads = Mutex<[String]>([])
+        let copy: @Sendable ([String: Any]) -> (status: OSStatus, result: AnyObject?) = { query in
+            let legacyUI = KeychainNoUIQuery.legacyKeychainUIAllowedForTesting().map(String.init) ?? "unknown"
+            let noUIFlags = query[kSecUseAuthenticationUI as String] != nil
+            reads.withLock { $0.append("legacyUI=\(legacyUI) noUIFlags=\(noUIFlags)") }
+            return (errSecItemNotFound, nil)
+        }
+
+        ClaudeOAuthCredentialsStore.$taskClaudeKeychainDataCopyOverride.withValue(copy) {
+            _ = ClaudeOAuthCredentialsStore.copyClaudeKeychainData([:], allowKeychainPrompt: false)
+            _ = ClaudeOAuthCredentialsStore.copyClaudeKeychainData([:], allowKeychainPrompt: true)
+        }
+
+        #expect(reads.withLock { $0 } == ["legacyUI=false noUIFlags=true", "legacyUI=true noUIFlags=false"])
+        #expect(KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() == true)
     }
 
     @Test
