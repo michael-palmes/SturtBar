@@ -50,8 +50,8 @@ public struct ClaudeOAuthCredentials: Sendable {
         guard !accessToken.isEmpty else {
             throw ClaudeOAuthCredentialsError.missingAccessToken
         }
-        let expiresAt = oauth.expiresAt.map { millis in
-            Date(timeIntervalSince1970: millis / 1000.0)
+        let expiresAt = oauth.expiresAt.flatMap { millis in
+            millis.isFinite ? Date(timeIntervalSince1970: millis / 1000.0) : nil
         }
         return ClaudeOAuthCredentials(
             accessToken: accessToken,
@@ -97,10 +97,11 @@ extension ClaudeOAuthCredentials {
         ]
 
         if let expiresAt = self.expiresAt {
-            let expiresAtMs = Int(expiresAt.timeIntervalSince1970 * 1000.0)
-            let expiresInSec = Int(expiresAt.timeIntervalSince(now).rounded())
-            metadata["expiresAtMs"] = "\(expiresAtMs)"
-            metadata["expiresInSec"] = "\(expiresInSec)"
+            // A corrupt credentials file can hold any number; Int(Double) would trap on it.
+            let expiresAtMs = Int(exactly: (expiresAt.timeIntervalSince1970 * 1000.0).rounded(.towardZero))
+            let expiresInSec = Int(exactly: expiresAt.timeIntervalSince(now).rounded())
+            metadata["expiresAtMs"] = expiresAtMs.map { "\($0)" } ?? "out_of_range"
+            metadata["expiresInSec"] = expiresInSec.map { "\($0)" } ?? "out_of_range"
             metadata["isExpired"] = "\(now >= expiresAt)"
         } else {
             metadata["expiresAtMs"] = "nil"

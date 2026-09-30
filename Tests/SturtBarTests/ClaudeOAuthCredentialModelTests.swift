@@ -31,6 +31,17 @@ struct ClaudeOAuthCredentialModelTests {
     }
 
     @Test
+    func `a huge expiry does not crash the diagnostics`() throws {
+        let json = #"{"claudeAiOauth":{"accessToken":"t","expiresAt":1e300}}"#
+        let creds = try ClaudeOAuthCredentials.parse(data: Data(json.utf8))
+        let metadata = creds.diagnosticsMetadata(now: Date(timeIntervalSince1970: 0))
+
+        #expect(metadata["expiresAtMs"] == "out_of_range")
+        #expect(metadata["expiresInSec"] == "out_of_range")
+        #expect(metadata["isExpired"] == "false")
+    }
+
+    @Test
     func `missing access token throws`() {
         let json = """
         {
