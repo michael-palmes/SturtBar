@@ -261,13 +261,16 @@ struct QuotaTransitionMachine {
         // advances nor clears), unlike the per-window toggles below which clear state.
         guard configuration.quotaWarningNotificationsEnabled else { return }
 
-        let sessionRateWindow = snapshot.primaryWindowKind == .usage ? snapshot.primary : nil
-        self.processWarningWindow(
-            window: .session,
-            rateWindow: sessionRateWindow,
-            configuration: configuration,
-            state: &self.sessionWarning,
-            into: &crossings)
+        // Weekly usage stands in for a missing session window; it warns on the weekly lane only, and
+        // the session lane keeps its history for when a real session window returns.
+        if snapshot.primaryWindowKind != .usage || Self.isSessionWindow(snapshot.primary) {
+            self.processWarningWindow(
+                window: .session,
+                rateWindow: Self.sessionRateWindow(of: snapshot),
+                configuration: configuration,
+                state: &self.sessionWarning,
+                into: &crossings)
+        }
         self.processWarningWindow(
             window: .weekly,
             rateWindow: snapshot.secondary,

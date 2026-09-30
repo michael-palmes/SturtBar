@@ -187,6 +187,41 @@ struct QuotaTransitionMachineTests {
     }
 
     @Test
+    func `weekly primary fallback warns on the weekly lane only`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration(sessionNotifications: false)
+        let weekly = 7 * 24 * 60
+
+        _ = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 10, primaryWindowMinutes: weekly, secondaryUsedPercent: 10),
+            configuration: config)
+        let events = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 60, primaryWindowMinutes: weekly, secondaryUsedPercent: 60),
+            configuration: config)
+
+        #expect(events == [.warningThresholdCrossed(
+            window: .weekly,
+            threshold: 50,
+            currentRemaining: 40,
+            resetsAt: nil)])
+    }
+
+    @Test
+    func `session warning history survives a weekly fallback`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration(sessionNotifications: false, weeklyEnabled: false)
+        let weekly = 7 * 24 * 60
+
+        var events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 60), configuration: config)
+        #expect(events.count == 1)
+        _ = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 5, primaryWindowMinutes: weekly),
+            configuration: config)
+        events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 60), configuration: config)
+        #expect(events.isEmpty)
+    }
+
+    @Test
     func `spend limit snapshot emits neither depletion nor warnings`() {
         var machine = QuotaTransitionMachine()
         let config = self.makeConfiguration()
