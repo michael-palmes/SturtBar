@@ -315,6 +315,8 @@ public enum ClaudeOAuthCredentialsStore {
 
         private func staleRecordNeedsClaudeKeychainAccess(_ record: ClaudeOAuthCredentialRecord) -> Bool {
             guard record.source != .claudeKeychain else { return false }
+            // No fingerprint on record (the /usr/bin/security reader never saves one): a change is unknowable, so wait.
+            guard ClaudeOAuthCredentialsStore.loadClaudeKeychainFingerprint() != nil else { return false }
             guard ClaudeOAuthCredentialsStore.hasClaudeKeychainItemWithoutPrompt() else { return false }
             return ClaudeOAuthCredentialsStore.claudeKeychainFingerprintChangedWithoutConsuming()
         }
