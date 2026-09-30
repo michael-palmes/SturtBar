@@ -43,6 +43,56 @@ struct TerminalLoginLauncherTests {
         #expect(TerminalLoginLauncher.scriptContents(for: .claude) == expected)
     }
 
+    @Test
+    func `renew script opens interactive claude with the exact expected helper`() {
+        let expected = """
+        #!/bin/zsh -l
+        # SturtBar sign-in helper. Generated on demand; safe to delete.
+        # Runs in SturtBar's own folder so any Claude Code workspace prompt covers nothing else.
+        cd "$(dirname "$0")" || exit 1
+        print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
+        print -P "%B%F{173}  SturtBar sign-in helper%f%b"
+        print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
+        echo ""
+        echo "  Opening Claude Code so it can renew its sign-in. Once it starts,"
+        echo "  you can quit with /exit."
+        echo ""
+        echo "  This window runs from ~/.sturtbar, SturtBar's own folder. It holds only"
+        echo "  this script."
+        echo ""
+        echo "  If Claude Code asks you to trust this workspace (first time only):"
+        print -P "    %F{green}✓%f the trust covers this folder alone"
+        print -P "    %F{red}✗%f never your home directory, your files or your other projects"
+        echo ""
+        if command -v claude >/dev/null 2>&1; then
+          print -P "  %F{173}Opening Claude Code (claude) in 3 seconds...%f"
+          sleep 3
+          exec claude
+        fi
+        echo ""
+        echo "SturtBar could not find the claude command on your PATH."
+        echo "Install Claude Code, then use the sign-in line in the SturtBar menu again."
+        echo ""
+        read -s -k 1 "?Press any key to close this window."
+
+        """
+        #expect(TerminalLoginLauncher.scriptContents(for: .claudeRenew) == expected)
+    }
+
+    @Test
+    func `renew launch writes its own script alongside the sign-in helper`() throws {
+        let directory = self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let launcher = TerminalLoginLauncher(scriptDirectory: directory, open: { _ in true })
+
+        #expect(launcher.launch(.claudeRenew))
+
+        let scriptURL = directory.appendingPathComponent("SturtBar Claude Code.command")
+        let contents = try String(contentsOf: scriptURL, encoding: .utf8)
+        #expect(contents == TerminalLoginLauncher.scriptContents(for: .claudeRenew))
+        #expect(!contents.contains("claude -p"))
+    }
+
     /// The script must live outside ~/Library: reading it from SturtBar's Application Support
     /// container made the terminal raise the macOS app-data prompt, and a home-directory cwd made
     /// Claude Code ask the user to trust their entire home folder.
