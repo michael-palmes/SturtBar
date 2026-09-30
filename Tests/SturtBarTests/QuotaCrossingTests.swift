@@ -438,7 +438,7 @@ struct UsageStoreQuotaCrossingTests {
         ])
         let ts = makeTestStore(
             suiteName: "sturtbar-tests-quota-codex",
-            codexFetch: { try await codexScript.next() },
+            codexFetch: { try codexScript.next() },
             fetch: { _, _ in
                 // Claude stays flat at 10% — its machine must emit nothing while codex crosses.
                 makeUsageSnapshot(primaryUsedPercent: 10)
