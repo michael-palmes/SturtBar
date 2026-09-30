@@ -527,6 +527,28 @@ struct NamedWindowWarningTests {
         #expect(events.isEmpty)
     }
 
+    /// A monthly-only Codex account's one reading is its primary; naming it too is what makes it warn.
+    @Test
+    func `codex monthly only reply warns through its named window`() throws {
+        func monthlyOnly(used: Int) throws -> ProviderUsageSnapshot {
+            let json = #"{ "rate_limit": { "primary_window": "#
+                + #"{ "used_percent": \#(used), "limit_window_seconds": 2592000 } } }"#
+            return try CodexUsageService._mapUsageForTesting(Data(json.utf8))
+        }
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration()
+
+        _ = try machine.process(snapshot: monthlyOnly(used: 40), configuration: config)
+        let events = try machine.process(snapshot: monthlyOnly(used: 55), configuration: config)
+        #expect(events.count == 1)
+        guard case let .namedWindowThresholdCrossed(title, threshold, _, _) = events.first else {
+            Issue.record("Expected a named window crossing, got \(events)")
+            return
+        }
+        #expect(title == "Monthly")
+        #expect(threshold == 50)
+    }
+
     @Test
     func `named window re-arms after its reset`() {
         var machine = QuotaTransitionMachine()

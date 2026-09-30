@@ -81,8 +81,9 @@ public struct CodexUsageService: Sendable {
         guard let primary = session ?? weekly ?? monthly else {
             throw CodexUsageError.parseFailed("missing rate_limit windows")
         }
-        let extraRateWindows = monthly.flatMap { $0 == primary ? nil : $0 }
-            .map { [NamedRateWindow(id: "codex-monthly", title: "Monthly", window: $0)] } ?? []
+        // Always named, even when it is also the primary, so a monthly-only account still gets warnings.
+        let extraRateWindows = monthly.map { [NamedRateWindow(id: "codex-monthly", title: "Monthly", window: $0)] }
+            ?? []
 
         return ProviderUsageSnapshot(
             primary: primary,

@@ -1108,14 +1108,6 @@ extension UsageMenuCardView.Model {
         for named in snapshot.extraRateWindows {
             metrics.append(Self.longWindowMetric(window: named.window, input: input, id: named.id, title: named.title))
         }
-        if metrics.isEmpty {
-            // A lone 30-day window is the only reading.
-            metrics.append(Self.longWindowMetric(
-                window: snapshot.primary,
-                input: input,
-                id: "codex-primary",
-                title: "Monthly"))
-        }
         return metrics
     }
 

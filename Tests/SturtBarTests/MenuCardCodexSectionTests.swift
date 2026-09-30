@@ -61,6 +61,7 @@ struct MenuCardCodexSectionTests {
             + #"{ "used_percent": 5, "limit_window_seconds": 2592000 } } }"#
         let lone = try CodexUsageService._mapUsageForTesting(Data(monthlyOnly.utf8), now: Self.now)
         #expect(self.codexOnlyModel(lone).metrics.map(\.title) == ["Monthly"])
+        #expect(self.codexOnlyModel(lone).metrics.map(\.id) == ["codex-monthly"])
     }
 
     // MARK: - Routing

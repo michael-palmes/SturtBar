@@ -107,7 +107,7 @@ struct CodexUsageMappingTests {
     }
 
     @Test
-    func `a monthly only reply is primary with no weekly`() throws {
+    func `a monthly only reply is primary and still the named monthly window`() throws {
         let json = """
         { "rate_limit": { "primary_window": { "used_percent": 12, "limit_window_seconds": 2592000 } } }
         """
@@ -115,7 +115,9 @@ struct CodexUsageMappingTests {
 
         #expect(snap.primary.windowMinutes == 43200)
         #expect(snap.secondary == nil)
-        #expect(snap.extraRateWindows.isEmpty)
+        // Named even as the primary, so it gets named-window warnings.
+        #expect(snap.extraRateWindows.map(\.id) == ["codex-monthly"])
+        #expect(snap.extraRateWindows.first?.window == snap.primary)
     }
 
     @Test
