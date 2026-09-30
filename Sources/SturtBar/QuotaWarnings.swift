@@ -206,10 +206,8 @@ struct QuotaTransitionMachine {
         return snapshot.primary
     }
 
-    /// Legacy `isSessionWindow`: unknown duration counts as session; ≤ 6h counts as session.
     private static func isSessionWindow(_ window: RateWindow) -> Bool {
-        guard let minutes = window.windowMinutes else { return true }
-        return minutes <= 6 * 60
+        window.isSessionScale
     }
 
     private mutating func processSessionDepletion(

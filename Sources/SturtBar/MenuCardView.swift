@@ -1080,11 +1080,34 @@ extension UsageMenuCardView.Model {
         guard let snapshot = input.codexSnapshot else {
             return self.codexPlaceholderMetrics()
         }
-        var metrics = [Self.sessionMetric(window: snapshot.primary, input: input, id: "codex-primary")]
+        var metrics: [Metric] = []
+        if snapshot.primary.isSessionScale {
+            metrics.append(Self.sessionMetric(window: snapshot.primary, input: input, id: "codex-primary"))
+        }
         if let weekly = snapshot.secondary {
             metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "codex-secondary"))
         }
+        for named in snapshot.extraRateWindows {
+            metrics.append(Self.longWindowMetric(window: named.window, input: input, id: named.id, title: named.title))
+        }
+        if metrics.isEmpty {
+            // A lone 30-day window is the only reading.
+            metrics.append(Self.longWindowMetric(
+                window: snapshot.primary,
+                input: input,
+                id: "codex-primary",
+                title: "Monthly"))
+        }
         return metrics
+    }
+
+    private static func longWindowMetric(window: RateWindow, input: Input, id: String, title: String) -> Metric {
+        Metric(
+            id: id,
+            title: title,
+            percent: self.displayPercent(window, input: input),
+            reset: self.resetInfo(window, input: input),
+            isUsed: input.usageBarsShowUsed)
     }
 
     private static func codexPlaceholderMetrics() -> [Metric] {
