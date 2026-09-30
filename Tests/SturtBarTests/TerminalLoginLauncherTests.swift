@@ -47,11 +47,11 @@ struct TerminalLoginLauncherTests {
     func `renew script opens interactive claude with the exact expected helper`() {
         let expected = """
         #!/bin/zsh -l
-        # SturtBar sign-in helper. Generated on demand; safe to delete.
+        # SturtBar: opening Claude Code. Generated on demand; safe to delete.
         # Runs in SturtBar's own folder so any Claude Code workspace prompt covers nothing else.
         cd "$(dirname "$0")" || exit 1
         print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
-        print -P "%B%F{173}  SturtBar sign-in helper%f%b"
+        print -P "%B%F{173}  SturtBar: opening Claude Code%f%b"
         print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
         echo ""
         echo "  Opening Claude Code so it can renew its sign-in. Once it starts,"
@@ -71,7 +71,7 @@ struct TerminalLoginLauncherTests {
         fi
         echo ""
         echo "SturtBar could not find the claude command on your PATH."
-        echo "Install Claude Code, then use the sign-in line in the SturtBar menu again."
+        echo "Install Claude Code, then use the waiting line in the SturtBar menu again."
         echo ""
         read -s -k 1 "?Press any key to close this window."
 

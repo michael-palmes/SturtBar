@@ -44,6 +44,22 @@ struct TerminalLoginLauncher {
             }
         }
 
+        /// Banner line, also the script's header comment.
+        var bannerTitle: String {
+            switch self {
+            case .claude: "SturtBar sign-in helper"
+            case .claudeRenew: "SturtBar: opening Claude Code"
+            }
+        }
+
+        /// The card line that launched this helper, for the missing-binary retry hint.
+        var menuLine: String {
+            switch self {
+            case .claude: "sign-in line"
+            case .claudeRenew: "waiting line"
+            }
+        }
+
         /// Printed under the banner, before the folder note.
         var introLines: [String] {
             switch self {
@@ -92,11 +108,11 @@ struct TerminalLoginLauncher {
             : command.introLines.map { "echo \"  \($0)\"\n" }.joined() + "echo \"\"\n"
         return """
         #!/bin/zsh -l
-        # SturtBar sign-in helper. Generated on demand; safe to delete.
+        # \(command.bannerTitle). Generated on demand; safe to delete.
         # Runs in SturtBar's own folder so any \(command.productName) workspace prompt covers nothing else.
         cd "$(dirname "$0")" || exit 1
         print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
-        print -P "%B%F{173}  SturtBar sign-in helper%f%b"
+        print -P "%B%F{173}  \(command.bannerTitle)%f%b"
         print -P "%F{173}──────────────────────────────────────────────────────────────────────%f"
         echo ""
         \(intro)echo "  This window runs from ~/.sturtbar, SturtBar's own folder. It holds only"
@@ -113,7 +129,7 @@ struct TerminalLoginLauncher {
         fi
         echo ""
         echo "SturtBar could not find the \(executable) command on your PATH."
-        echo "Install \(command.productName), then use the sign-in line in the SturtBar menu again."
+        echo "Install \(command.productName), then use the \(command.menuLine) in the SturtBar menu again."
         echo ""
         read -s -k 1 "?Press any key to close this window."
 
