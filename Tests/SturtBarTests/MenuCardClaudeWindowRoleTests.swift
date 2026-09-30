@@ -1,4 +1,4 @@
-// MenuCardClaudeWindowRoleTests.swift — which row a Claude window lands in, from its length rather than its slot.
+// MenuCardClaudeWindowRoleTests.swift: which row a Claude window lands in, from its length rather than its slot.
 
 import Foundation
 import SturtBarCore

@@ -70,8 +70,7 @@ public struct CodexUsageService: Sendable {
                 resetDescription: resetDate.map(Self.formatResetDate))
         }
 
-        // Roles come from each window's length, never its slot: a weekly-only or 30-day reply is
-        // not a session. Weekly stays the secondary even when promoted, as on the Claude lane.
+        // Roles come from each window's length, never its slot; weekly stays secondary even when promoted.
         let windows = [response.rateLimit?.primaryWindow, response.rateLimit?.secondaryWindow]
             .compactMap(makeWindow)
         let session = windows.first { $0.isSessionScale }
