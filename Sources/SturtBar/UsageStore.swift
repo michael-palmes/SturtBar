@@ -66,6 +66,8 @@ enum CodexAuthState: Equatable {
     case signInRequired
     /// Platform API-key account: no ChatGPT rate-limit usage exists to display (decision 4).
     case apiKeyOnlyUnsupported
+    /// HTTP 403: OpenAI refuses usage data for this account; nothing SturtBar or a sign-in can fix.
+    case accessDenied
 }
 
 enum FetchHealth: Equatable {
@@ -550,6 +552,8 @@ final class UsageStore {
             self.codexAuth = .signInRequired
         } else if let usageError, usageError.indicatesUnsupportedAccount {
             self.codexAuth = .apiKeyOnlyUnsupported
+        } else if let usageError, usageError.indicatesAccessDenied {
+            self.codexAuth = .accessDenied
         }
 
         if case let .rateLimited(retryAfter) = usageError {

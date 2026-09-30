@@ -196,6 +196,8 @@ struct UsageMenuCardView: View {
             case codexSignInRequired
             /// CodexAuthState.apiKeyOnlyUnsupported — informational, not an error (decision 4).
             case codexApiKeyUnsupported
+            /// CodexAuthState.accessDenied: OpenAI refused usage data (HTTP 403).
+            case codexAccessDenied
 
             func text(now: Date) -> String? {
                 switch self {
@@ -226,6 +228,8 @@ struct UsageMenuCardView: View {
                     return "Sign in again via the codex CLI."
                 case .codexApiKeyUnsupported:
                     return "API-key accounts have no usage limits to show."
+                case .codexAccessDenied:
+                    return "Codex denied access to usage data (HTTP 403)."
                 }
             }
 
@@ -235,7 +239,7 @@ struct UsageMenuCardView: View {
                 case .credentialsMissing, .needsReauth, .rateLimited,
                      .codexCredentialsMissing, .codexSignInRequired:
                     true
-                case .empty, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported:
+                case .empty, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported, .codexAccessDenied:
                     false
                 }
             }
@@ -920,6 +924,8 @@ extension UsageMenuCardView.Model {
             return .codexSignInRequired
         case .apiKeyOnlyUnsupported:
             return .codexApiKeyUnsupported
+        case .accessDenied:
+            return .codexAccessDenied
         case .ok:
             break
         }

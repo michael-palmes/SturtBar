@@ -154,6 +154,22 @@ struct CodexUsageFetcherTests {
     }
 
     @Test
+    func `403 maps to access denied, not sign-in`() async throws {
+        let transport = self.makeTransport(statusCode: 403)
+
+        do {
+            _ = try await CodexUsageFetcher.fetchUsage(
+                credentials: CodexCredentials(accessToken: "t", accountId: nil),
+                transport: transport)
+            Issue.record("expected a 403 to throw")
+        } catch let error as CodexUsageError {
+            #expect(error.indicatesAccessDenied)
+            #expect(!error.indicatesSignInRequired)
+            #expect(error.errorDescription == "Codex denied access to usage data (HTTP 403).")
+        }
+    }
+
+    @Test
     func `429 with Retry-After seconds maps to rateLimited`() async throws {
         let now = Date()
         let transport = self.makeTransport(statusCode: 429, headers: ["Retry-After": "120"])

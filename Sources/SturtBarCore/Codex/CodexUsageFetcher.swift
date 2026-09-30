@@ -22,6 +22,8 @@ public enum CodexUsageError: LocalizedError, Sendable {
     /// The access token was rejected (expired/revoked). The codex CLI refreshes its own tokens
     /// whenever the user runs it; SturtBar never refreshes on its behalf.
     case unauthorized
+    /// HTTP 403: the account or workspace policy denies usage data; signing in again won't help.
+    case accessDenied
     case rateLimited(retryAfter: Date)
     case invalidResponse
     case serverError(Int, String?)
@@ -36,6 +38,8 @@ public enum CodexUsageError: LocalizedError, Sendable {
             return "API-key Codex accounts have no usage limits to show."
         case .unauthorized:
             return "Codex session expired. Sign in via the codex CLI."
+        case .accessDenied:
+            return "Codex denied access to usage data (HTTP 403)."
         case .rateLimited:
             return "Codex usage endpoint is rate limited right now. It will recover on its own."
         case .invalidResponse:
@@ -65,6 +69,12 @@ public enum CodexUsageError: LocalizedError, Sendable {
     /// True when the stored token was rejected and the user must sign in again via the codex CLI.
     public var indicatesSignInRequired: Bool {
         if case .unauthorized = self { return true }
+        return false
+    }
+
+    /// True when OpenAI refused usage data for this account (HTTP 403).
+    public var indicatesAccessDenied: Bool {
+        if case .accessDenied = self { return true }
         return false
     }
 
@@ -140,8 +150,10 @@ enum CodexUsageFetcher {
             switch response.statusCode {
             case 200:
                 return try JSONDecoder().decode(CodexWhamUsageResponse.self, from: response.data)
-            case 401, 403:
+            case 401:
                 throw CodexUsageError.unauthorized
+            case 403:
+                throw CodexUsageError.accessDenied
             case 429:
                 let now = Date()
                 let retryAfter = self.retryAfterDate(from: response.response, now: now)

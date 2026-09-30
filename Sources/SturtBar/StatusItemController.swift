@@ -103,7 +103,7 @@ struct IconState: Equatable {
             isStale = codexStale
             needsAuth = codexAuth == .signInRequired
             credentialsMissing = codexAuth == .credentialsMissing
-            unsupported = codexAuth == .apiKeyOnlyUnsupported
+            unsupported = codexAuth == .apiKeyOnlyUnsupported || codexAuth == .accessDenied
         case nil:
             snapshot = nil
             isStale = false
