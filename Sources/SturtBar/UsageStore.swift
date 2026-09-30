@@ -31,7 +31,7 @@
 //   .rateLimited      ← .fetch(.rateLimited(retryAfter:)) (authoritative until-date)
 //   .degraded         ← any other failure
 //   needsReauth       ← error.indicatesAuthenticationRequired
-//   awaitingClaudeCode← error.indicatesAwaitingClaudeCode (health .ok, streak untouched: no backoff)
+//   awaitingClaudeCode← error.indicatesAwaitingClaudeCode (health .ok, streak reset: no backoff)
 //   credentialsMissing← error.indicatesCredentialsMissing
 //   auth is sticky across unrelated failures: a network blip never clears needs-reauth; only a
 //   successful fetch resets auth to .ok.
@@ -568,6 +568,7 @@ final class UsageStore {
         if let usageError, usageError.indicatesAwaitingClaudeCode {
             self.auth = .awaitingClaudeCode
             self.health = .ok
+            self.failureStreak = 0
             return
         }
 

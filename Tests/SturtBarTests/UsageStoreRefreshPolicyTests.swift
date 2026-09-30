@@ -740,13 +740,15 @@ struct UsageStoreAwaitingClaudeCodeTests {
         #expect(ts.store.failureStreak == 0)
     }
 
+    /// No network failure is involved in waiting, so an earlier failure's backoff must not slow pickup.
     @Test
-    func `waiting leaves an existing failure streak untouched`() async {
+    func `waiting clears an earlier failure streak so the next interval proceeds`() async {
         let script = FetchScript([
             .failure(.fetch(.serverError(503, nil))),
             .failure(.credentials(.tokenExpired(source: .credentialsFile))),
         ])
         let ts = makeTestStore(suiteName: "sturtbar-tests-awaiting-streak") { _, _ in try script.next() }
+        ts.settings.refreshFrequency = .fiveMinutes
 
         await ts.store.refresh(trigger: .manual)
         #expect(ts.store.failureStreak == 1)
@@ -754,7 +756,12 @@ struct UsageStoreAwaitingClaudeCodeTests {
         await ts.store.refresh(trigger: .manual)
         #expect(ts.store.auth == .awaitingClaudeCode)
         #expect(ts.store.health == .ok)
-        #expect(ts.store.failureStreak == 1)
+        #expect(ts.store.failureStreak == 0)
+
+        // A streak of 1 would need 600s; 301s is enough once waiting has reset it.
+        ts.clock.advance(by: 301)
+        await ts.store.refresh(trigger: .interval)
+        #expect(await ts.recorder.fetchCount == 3)
     }
 
     @Test
