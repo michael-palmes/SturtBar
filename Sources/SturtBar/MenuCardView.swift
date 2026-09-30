@@ -974,7 +974,13 @@ extension UsageMenuCardView.Model {
         }
 
         var metrics: [Metric] = []
-        metrics.append(Self.primaryMetric(snapshot: snapshot, input: input))
+        let primary = snapshot.primary
+        if snapshot.primaryWindowKind == .spendLimit || primary.isSessionScale {
+            metrics.append(Self.primaryMetric(snapshot: snapshot, input: input))
+        } else if primary != snapshot.secondary, primary != snapshot.opus {
+            // A promoted long window is never a session; it keeps a Weekly row only if no other row shows it.
+            metrics.append(Self.weeklyMetric(window: primary, input: input, id: "primary"))
+        }
 
         if let weekly = snapshot.secondary {
             metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "secondary"))
