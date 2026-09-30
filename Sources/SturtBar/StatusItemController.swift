@@ -167,6 +167,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Presents the Keychain opt-in consent for the reconnect line; injectable since NSAlert cannot run headless.
     let keychainOptInPresenter: @MainActor () -> KeychainPromptDecision
     private let statusBar: NSStatusBar
+    private let defaults: UserDefaults
     private(set) var statusItem: NSStatusItem?
     private var lastRendered: IconState?
     private var started = false
@@ -232,7 +233,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         keychainOptInPresenter: @escaping @MainActor () -> KeychainPromptDecision =
             { KeychainPromptCoordinator.presentClaudeKeychainOptIn() },
         debugUsageClient: ClaudeUsageClient? = nil,
-        statusBar: NSStatusBar = .system)
+        statusBar: NSStatusBar = .system,
+        defaults: UserDefaults = .standard)
     {
         self.store = store
         self.settings = settings
@@ -241,6 +243,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.signInLauncher = signInLauncher
         self.keychainOptInPresenter = keychainOptInPresenter
         self.statusBar = statusBar
+        self.defaults = defaults
         #if DEBUG
         self.debugUsageClient = debugUsageClient
         #else
@@ -276,7 +279,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                       hasWindow: item.button?.window != nil)
             else { return }
             Self.log.error("Status item has no window after startup; rebuilding once")
-            self.statusBar.removeStatusItem(item)
+            StatusItemPlacement.preservingPosition(defaults: self.defaults) {
+                self.statusBar.removeStatusItem(item)
+            }
             self.statusItem = nil
             self.buildStatusItem()
             // Clear the render cache so the fresh button repaints without re-arming the tracker.
@@ -413,7 +418,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Status item
 
     private func buildStatusItem() {
-        let item = self.statusBar.statusItem(withLength: NSStatusItem.variableLength)
+        StatusItemPlacement.prepare(
+            defaults: self.defaults,
+            maxScreenWidth: NSScreen.screens.map { Double($0.frame.width) }.max())
+        // Named before sizing so macOS restores the saved position under a stable identity.
+        let item = self.statusBar.statusItem(withLength: 0)
+        item.autosaveName = StatusItemPlacement.autosaveName
+        item.length = NSStatusItem.variableLength
         item.button?.setAccessibilityLabel("SturtBar")
         let menu = self.buildMenu()
         item.menu = menu
