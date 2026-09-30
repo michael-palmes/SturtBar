@@ -2,6 +2,11 @@
 
 All notable changes to SturtBar are recorded here.
 
+## Unreleased
+
+- The menu bar icon keeps its place: SturtBar now names its status item, carries your existing position over, keeps it through the rare startup recovery (which could drop the icon at the far left after an update), and discards a corrupt saved position that could hide the icon off screen.
+- Settings and About open on the Space you are working in (including under Stage Manager) instead of switching to another desktop.
+
 ## 1.3.1
 
 - When Claude needs attention, the card now shows a proper banner instead of a red status line: what happened, a "Sign in to Claude Code" button, and (only when relevant) a smaller "Still not working? Allow Keychain access" fallback. Signing in via `claude /login` is always the first remedy; the Keychain ask is reserved for when a fresh sign-in has not helped.
