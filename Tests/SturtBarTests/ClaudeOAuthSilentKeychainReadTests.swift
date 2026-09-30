@@ -124,7 +124,7 @@ struct ClaudeOAuthSilentKeychainReadTests {
     }
 
     @Test(arguments: [ClaudeOAuthKeychainPromptMode.never, .onlyOnUserAction])
-    func `prompt opt-out still reads silently under the Security.framework reader`(
+    func `prompt opt-out no longer blocks no-UI reads under the Security.framework reader`(
         mode: ClaudeOAuthKeychainPromptMode) throws
     {
         let data = self.makeCredentialsData(accessToken: "silent-token")
