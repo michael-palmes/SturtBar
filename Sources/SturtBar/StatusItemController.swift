@@ -23,7 +23,7 @@
 // IconState field choices (what redraws the icon, and what deliberately does not):
 //   IN  primaryBucket/secondaryBucket — whole-point remaining-% buckets; sub-point usage moves
 //       must not re-render (below pixel resolution at 30px bar width).
-//   IN  isStale, needsAuth, credentialsMissing, quietDim — change the dimmed presentation immediately
+//   IN  isStale, needsAuth, credentialsMissing, quietDim: change the dimmed presentation immediately
 //       (broken auth means data can't refresh; waiting for the staleness clock would hide it).
 //   IN  displayText — the rendered button title (mode-dependent percent/pace text).
 //   IN  style — settings-driven meter style.
