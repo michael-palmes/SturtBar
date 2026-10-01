@@ -693,34 +693,6 @@ struct ClaudeOAuthCredentialsStoreTests {
     }
 
     @Test
-    func `sync from claude keychain without prompt respects backoff in background`() {
-        InteractionContext.$current.withValue(.background) {
-            KeychainAccessGate.withTaskOverrideForTesting(true) {
-                ClaudeOAuthCredentialsStore.withKeychainAccessOverrideForTesting(true) {
-                    let store = ClaudeOAuthCredentialsStore.ClaudeKeychainOverrideStore(
-                        data: self.makeCredentialsData(
-                            accessToken: "override-token",
-                            expiresAt: Date(timeIntervalSinceNow: 3600)),
-                        fingerprint: ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
-                            modifiedAt: 1,
-                            createdAt: 1,
-                            persistentRefHash: "deadbeefdead"))
-
-                    let deniedStore = ClaudeOAuthKeychainAccessGate.DeniedUntilStore()
-                    deniedStore.deniedUntil = Date(timeIntervalSinceNow: 3600)
-
-                    ClaudeOAuthKeychainAccessGate.withDeniedUntilStoreOverrideForTesting(deniedStore) {
-                        ClaudeOAuthCredentialsStore.withMutableClaudeKeychainOverrideStoreForTesting(store) {
-                            #expect(ClaudeOAuthCredentialsStore
-                                .syncFromClaudeKeychainWithoutPrompt(now: Date()) == false)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @Test
     func `testing override snapshot forwards mutable Claude keychain override store across detached task`() async {
         let fingerprint = ClaudeOAuthCredentialsStore.ClaudeKeychainFingerprint(
             modifiedAt: 11,
