@@ -82,6 +82,9 @@ extension ClaudeOAuthCredentialsStore {
     @TaskLocal static var taskCredentialsFileFingerprintStoreOverride: CredentialsFileFingerprintStore?
     @TaskLocal static var taskSecurityCLIReadOverride: SecurityCLIReadOverride?
     @TaskLocal static var taskSecurityCLIReadAccountOverride: String?
+    @TaskLocal static var taskClaudeKeychainDataCopyOverride: (@Sendable ([String: Any]) -> (
+        status: OSStatus,
+        result: AnyObject?))?
 
     public struct TestingOverridesSnapshot: Sendable {
         let keychainOverrideStore: ClaudeKeychainOverrideStore?
