@@ -39,7 +39,7 @@ Apply when a change touches credentials, network, file access or logging:
 
 - **Never commit or push directly to `main`**: a branch ruleset rejects it for everyone, including the maintainer. Work on a branch, open a PR, wait for the `build-test` check, squash merge.
 - **ALWAYS commit via the `sturtbar-commit` skill** (review, plan, then execute); never hand-roll `git commit`.
-- PR descriptions use Summary, Privacy and Testing sections: Australian English, short and concise, no em dashes.
+- **PR titles and descriptions ALWAYS follow the `sturtbar-pr-descriptions` skill**: Summary, Privacy and Testing, under 200 words, nothing that lives outside the repo (no local paths, planning docs or handoffs).
 - Merges are squash-only; merged branches are deleted automatically.
 - Tags are pushed by `Scripts/release.sh` only (releases are manual and maintainer-only; the ruleset does not block tags).
 
@@ -63,6 +63,7 @@ Apply when a change touches credentials, network, file access or logging:
 Project skills live in `.agents/skills/` (Claude Code reads them via the `.claude/skills` symlink):
 
 - `sturtbar-commit`: planning and creating every commit (review, logical grouping, conventional messages).
+- `sturtbar-pr-descriptions`: the fixed PR title and description standard; use for every PR opened or edited in this repo.
 - `sturtbar-skill-creator`: creating or updating project skills and slash commands.
 - `sturtbar-release`: cutting a signed, notarised release (DMG, updater contract, publish flow).
 
