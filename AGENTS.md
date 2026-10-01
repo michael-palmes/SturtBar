@@ -76,7 +76,7 @@ Project skills live in `.agents/skills/` (Claude Code reads them via the `.claud
 
 - All usage fetches go through the `ClaudeUsageClient` actor; never call OAuth-store sync entry points from the MainActor (they can block on keychain prompts).
 - Health mapping is typed only; never parse error strings.
-- The self-cache keychain read is best-effort and must never prompt (see `KeychainCacheStore.withoutLegacyKeychainUI`); it falls back to Claude Code's keychain.
+- The self-cache keychain read is best-effort and must never prompt (see `KeychainNoUIQuery.withoutLegacyKeychainUI`); it falls back to Claude Code's keychain.
 
 ## Brand voice
 
