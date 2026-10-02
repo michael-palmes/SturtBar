@@ -179,6 +179,8 @@ struct UsageMenuCardView: View {
             case empty
             /// AuthState.credentialsMissing — no Claude Code login on this machine.
             case credentialsMissing
+            /// AuthState.awaitingClaudeCode: the token expired and Claude Code renews it; calm, not an error.
+            case awaitingClaudeCode
             /// AuthState.needsReauth — actionable re-auth row; the remedy picks the click action, the detail becomes a
             /// tooltip.
             case needsReauth(detail: String?, remedy: ClaudeReauthRemedy)
@@ -196,6 +198,8 @@ struct UsageMenuCardView: View {
             case codexSignInRequired
             /// CodexAuthState.apiKeyOnlyUnsupported — informational, not an error (decision 4).
             case codexApiKeyUnsupported
+            /// CodexAuthState.accessDenied: OpenAI refused usage data (HTTP 403).
+            case codexAccessDenied
 
             func text(now: Date) -> String? {
                 switch self {
@@ -209,6 +213,8 @@ struct UsageMenuCardView: View {
                     return "Sign in to Claude Code"
                 case .needsReauth(_, .keychainAccess):
                     return "Allow Keychain access to reconnect"
+                case .awaitingClaudeCode:
+                    return "Waiting for Claude Code to refresh its sign-in"
                 case let .rateLimited(until):
                     let countdown = UsageFormatter.resetCountdownDescription(from: until, now: now)
                     return countdown == "now"
@@ -226,6 +232,8 @@ struct UsageMenuCardView: View {
                     return "Sign in again via the codex CLI."
                 case .codexApiKeyUnsupported:
                     return "API-key accounts have no usage limits to show."
+                case .codexAccessDenied:
+                    return "Codex denied access to usage data (HTTP 403)."
                 }
             }
 
@@ -235,7 +243,8 @@ struct UsageMenuCardView: View {
                 case .credentialsMissing, .needsReauth, .rateLimited,
                      .codexCredentialsMissing, .codexSignInRequired:
                     true
-                case .empty, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported:
+                case .empty, .awaitingClaudeCode, .retrying, .stale, .noProvidersEnabled, .codexApiKeyUnsupported,
+                     .codexAccessDenied:
                     false
                 }
             }
@@ -244,6 +253,8 @@ struct UsageMenuCardView: View {
             enum Action: Equatable {
                 /// Open the default terminal running `claude /login`.
                 case claudeSignIn
+                /// Open the default terminal running `claude` so Claude Code renews its own sign-in.
+                case openClaudeCode
                 /// Re-fetch with user-initiated rights (same as ⌘R), which raises the consent prompt.
                 case claudeKeychainRetry
             }
@@ -254,6 +265,8 @@ struct UsageMenuCardView: View {
                     .claudeSignIn
                 case .needsReauth(_, .keychainAccess):
                     .claudeKeychainRetry
+                case .awaitingClaudeCode:
+                    .openClaudeCode
                 default:
                     nil
                 }
@@ -262,7 +275,7 @@ struct UsageMenuCardView: View {
             /// Trailing glyph marking the strip as clickable.
             var actionSymbolName: String? {
                 switch self.action {
-                case .claudeSignIn: "apple.terminal"
+                case .claudeSignIn, .openClaudeCode: "apple.terminal"
                 case .claudeKeychainRetry: "key.horizontal"
                 case nil: nil
                 }
@@ -277,6 +290,9 @@ struct UsageMenuCardView: View {
                     "Opens your terminal running claude /login to connect."
                 case let .needsReauth(detail, .keychainAccess):
                     detail ?? "Fetches again and asks macOS for Keychain access."
+                case .awaitingClaudeCode:
+                    "Claude's sign-in token has expired. Claude Code renews it when it next runs. "
+                        + "Click to open Claude Code."
                 default:
                     nil
                 }
@@ -364,6 +380,8 @@ struct UsageMenuCardView: View {
         let codexSection: ProviderSection?
         /// nil iff cost usage is disabled (the section is configuration-gated, never data-gated).
         let costSection: CostSection?
+        /// Greys the main metric rows while their reading waits on Claude Code; never changes height.
+        var metricsMuted = false
 
         /// The fixed-height slot list — configuration-derived only (assertable; see tests).
         var sections: [Section] {
@@ -443,6 +461,7 @@ struct UsageMenuCardView: View {
                     ExtraUsageContent(section: extraUsage)
                 }
             }
+            .grayscale(self.model.metricsMuted ? 1 : 0)
 
             // Inline cost for the main provider block (Claude, or Codex when it owns the main slots).
             if let costSection = self.model.costSection {
@@ -804,7 +823,8 @@ extension UsageMenuCardView.Model {
             metrics: self.metrics(input: input),
             extraUsage: extraUsageSection(snapshot: input.snapshot),
             codexSection: codexSection,
-            costSection: claudeCostSection(input: input))
+            costSection: claudeCostSection(input: input),
+            metricsMuted: input.auth == .awaitingClaudeCode)
     }
 
     /// Codex carries the main slots when it is the only enabled provider; its inline cost rides
@@ -894,6 +914,8 @@ extension UsageMenuCardView.Model {
         switch input.auth {
         case .credentialsMissing:
             return .credentialsMissing
+        case .awaitingClaudeCode:
+            return .awaitingClaudeCode
         case let .needsReauth(message, remedy):
             let detail = message?.trimmingCharacters(in: .whitespacesAndNewlines)
             return .needsReauth(detail: (detail?.isEmpty ?? true) ? nil : detail, remedy: remedy)
@@ -920,6 +942,8 @@ extension UsageMenuCardView.Model {
             return .codexSignInRequired
         case .apiKeyOnlyUnsupported:
             return .codexApiKeyUnsupported
+        case .accessDenied:
+            return .codexAccessDenied
         case .ok:
             break
         }
@@ -950,7 +974,13 @@ extension UsageMenuCardView.Model {
         }
 
         var metrics: [Metric] = []
-        metrics.append(Self.primaryMetric(snapshot: snapshot, input: input))
+        let primary = snapshot.primary
+        if snapshot.primaryWindowKind == .spendLimit || primary.isSessionScale {
+            metrics.append(Self.primaryMetric(snapshot: snapshot, input: input))
+        } else if primary != snapshot.secondary, primary != snapshot.opus {
+            // A promoted long window is never a session; it keeps a Weekly row only if no other row shows it.
+            metrics.append(Self.weeklyMetric(window: primary, input: input, id: "primary"))
+        }
 
         if let weekly = snapshot.secondary {
             metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "secondary"))
@@ -979,16 +1009,17 @@ extension UsageMenuCardView.Model {
         if input.showModelWeeklyLimits {
             // Model-scoped weekly rows (such as Fable) get the same treatment as the tertiary slot.
             for namedWindow in snapshot.modelWeeklyWindows {
+                let title = "\(namedWindow.title) weekly"
                 if input.workDaysPerWeek != nil {
                     metrics.append(Self.weeklyMetric(
                         window: namedWindow.window,
                         input: input,
                         id: namedWindow.id,
-                        title: namedWindow.title))
+                        title: title))
                 } else {
                     metrics.append(Metric(
                         id: namedWindow.id,
-                        title: namedWindow.title,
+                        title: title,
                         percent: Self.displayPercent(namedWindow.window, input: input),
                         reset: Self.resetInfo(namedWindow.window, input: input),
                         warningMarkerPercents: Self.warningMarkerPercents(
@@ -1073,11 +1104,26 @@ extension UsageMenuCardView.Model {
         guard let snapshot = input.codexSnapshot else {
             return self.codexPlaceholderMetrics()
         }
-        var metrics = [Self.sessionMetric(window: snapshot.primary, input: input, id: "codex-primary")]
+        var metrics: [Metric] = []
+        if snapshot.primary.isSessionScale {
+            metrics.append(Self.sessionMetric(window: snapshot.primary, input: input, id: "codex-primary"))
+        }
         if let weekly = snapshot.secondary {
             metrics.append(Self.weeklyMetric(window: weekly, input: input, id: "codex-secondary"))
         }
+        for named in snapshot.extraRateWindows {
+            metrics.append(Self.longWindowMetric(window: named.window, input: input, id: named.id, title: named.title))
+        }
         return metrics
+    }
+
+    private static func longWindowMetric(window: RateWindow, input: Input, id: String, title: String) -> Metric {
+        Metric(
+            id: id,
+            title: title,
+            percent: self.displayPercent(window, input: input),
+            reset: self.resetInfo(window, input: input),
+            isUsed: input.usageBarsShowUsed)
     }
 
     private static func codexPlaceholderMetrics() -> [Metric] {

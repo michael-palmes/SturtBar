@@ -187,6 +187,41 @@ struct QuotaTransitionMachineTests {
     }
 
     @Test
+    func `weekly primary fallback warns on the weekly lane only`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration(sessionNotifications: false)
+        let weekly = 7 * 24 * 60
+
+        _ = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 10, primaryWindowMinutes: weekly, secondaryUsedPercent: 10),
+            configuration: config)
+        let events = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 60, primaryWindowMinutes: weekly, secondaryUsedPercent: 60),
+            configuration: config)
+
+        #expect(events == [.warningThresholdCrossed(
+            window: .weekly,
+            threshold: 50,
+            currentRemaining: 40,
+            resetsAt: nil)])
+    }
+
+    @Test
+    func `session warning history survives a weekly fallback`() {
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration(sessionNotifications: false, weeklyEnabled: false)
+        let weekly = 7 * 24 * 60
+
+        var events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 60), configuration: config)
+        #expect(events.count == 1)
+        _ = machine.process(
+            snapshot: makeUsageSnapshot(primaryUsedPercent: 5, primaryWindowMinutes: weekly),
+            configuration: config)
+        events = machine.process(snapshot: makeUsageSnapshot(primaryUsedPercent: 60), configuration: config)
+        #expect(events.isEmpty)
+    }
+
+    @Test
     func `spend limit snapshot emits neither depletion nor warnings`() {
         var machine = QuotaTransitionMachine()
         let config = self.makeConfiguration()
@@ -403,7 +438,7 @@ struct UsageStoreQuotaCrossingTests {
         ])
         let ts = makeTestStore(
             suiteName: "sturtbar-tests-quota-codex",
-            codexFetch: { try await codexScript.next() },
+            codexFetch: { try codexScript.next() },
             fetch: { _, _ in
                 // Claude stays flat at 10% — its machine must emit nothing while codex crosses.
                 makeUsageSnapshot(primaryUsedPercent: 10)
@@ -490,6 +525,28 @@ struct NamedWindowWarningTests {
         // Fired threshold stays quiet while remaining keeps falling short of the next one.
         events = machine.process(snapshot: self.snapshot(fableUsed: 56), configuration: config)
         #expect(events.isEmpty)
+    }
+
+    /// A monthly-only Codex account's one reading is its primary; naming it too is what makes it warn.
+    @Test
+    func `codex monthly only reply warns through its named window`() throws {
+        func monthlyOnly(used: Int) throws -> ProviderUsageSnapshot {
+            let json = #"{ "rate_limit": { "primary_window": "#
+                + #"{ "used_percent": \#(used), "limit_window_seconds": 2592000 } } }"#
+            return try CodexUsageService._mapUsageForTesting(Data(json.utf8))
+        }
+        var machine = QuotaTransitionMachine()
+        let config = self.makeConfiguration()
+
+        _ = try machine.process(snapshot: monthlyOnly(used: 40), configuration: config)
+        let events = try machine.process(snapshot: monthlyOnly(used: 55), configuration: config)
+        #expect(events.count == 1)
+        guard case let .namedWindowThresholdCrossed(title, threshold, _, _) = events.first else {
+            Issue.record("Expected a named window crossing, got \(events)")
+            return
+        }
+        #expect(title == "Monthly")
+        #expect(threshold == 50)
     }
 
     @Test

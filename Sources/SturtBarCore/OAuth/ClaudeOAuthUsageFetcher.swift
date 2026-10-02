@@ -136,7 +136,6 @@ struct OAuthUsageResponse: Decodable {
     let sevenDayOpus: OAuthUsageWindow?
     let sevenDaySonnet: OAuthUsageWindow?
     let sevenDayRoutines: OAuthUsageWindow?
-    let sevenDayRoutinesSourceKey: String?
     let extraUsage: OAuthExtraUsage?
     let limits: [OAuthScopedLimit]?
 
@@ -147,7 +146,8 @@ struct OAuthUsageResponse: Decodable {
         self.sevenDayOAuthApps = Self.decodeWindow(in: container, keys: ["seven_day_oauth_apps"])
         self.sevenDayOpus = Self.decodeWindow(in: container, keys: ["seven_day_opus"])
         self.sevenDaySonnet = Self.decodeWindow(in: container, keys: ["seven_day_sonnet"])
-        let routines = Self.decodeWindowWithSource(in: container, keys: [
+        // A key present with a null payload is skipped, never shown as a fake 0% bar.
+        self.sevenDayRoutines = Self.decodeWindow(in: container, keys: [
             "seven_day_routines",
             "seven_day_claude_routines",
             "claude_routines",
@@ -156,8 +156,6 @@ struct OAuthUsageResponse: Decodable {
             "seven_day_cowork",
             "cowork",
         ])
-        self.sevenDayRoutines = routines.window
-        self.sevenDayRoutinesSourceKey = routines.sourceKey
         self.extraUsage = Self.decodeValue(in: container, keys: ["extra_usage"])
         self.limits = Self.decodeValue(in: container, keys: ["limits"])
     }
@@ -167,24 +165,6 @@ struct OAuthUsageResponse: Decodable {
         keys: [String]) -> OAuthUsageWindow?
     {
         self.decodeValue(in: container, keys: keys)
-    }
-
-    private static func decodeWindowWithSource(
-        in container: KeyedDecodingContainer<DynamicCodingKey>,
-        keys: [String]) -> (window: OAuthUsageWindow?, sourceKey: String?)
-    {
-        var firstNullKey: String?
-        for keyName in keys {
-            guard let key = DynamicCodingKey(stringValue: keyName) else { continue }
-            guard container.contains(key) else { continue }
-            if let value = try? container.decodeIfPresent(OAuthUsageWindow.self, forKey: key) {
-                return (value, keyName)
-            }
-            if firstNullKey == nil {
-                firstNullKey = keyName
-            }
-        }
-        return (nil, firstNullKey)
     }
 
     private static func decodeValue<T: Decodable>(
@@ -232,6 +212,8 @@ struct OAuthScopedLimit: Decodable {
     let percent: Double?
     let resetsAt: String?
     let modelDisplayName: String?
+    /// e.g. `claude/fable.5:promo`, or `claude/all_models` for an entry that duplicates Weekly.
+    let modelID: String?
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -245,9 +227,11 @@ struct OAuthScopedLimit: Decodable {
     }
 
     private struct ScopeModel: Decodable {
+        let id: String?
         let displayName: String?
 
         enum CodingKeys: String, CodingKey {
+            case id
             case displayName = "display_name"
         }
     }
@@ -259,6 +243,7 @@ struct OAuthScopedLimit: Decodable {
         self.resetsAt = try? container.decodeIfPresent(String.self, forKey: .resetsAt)
         let scope = try? container.decodeIfPresent(Scope.self, forKey: .scope)
         self.modelDisplayName = scope?.model?.displayName
+        self.modelID = scope?.model?.id
     }
 }
 

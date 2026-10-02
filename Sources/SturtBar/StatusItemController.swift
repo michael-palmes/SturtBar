@@ -23,7 +23,7 @@
 // IconState field choices (what redraws the icon, and what deliberately does not):
 //   IN  primaryBucket/secondaryBucket — whole-point remaining-% buckets; sub-point usage moves
 //       must not re-render (below pixel resolution at 30px bar width).
-//   IN  isStale, needsAuth, credentialsMissing — change the dimmed presentation immediately
+//   IN  isStale, needsAuth, credentialsMissing, quietDim: change the dimmed presentation immediately
 //       (broken auth means data can't refresh; waiting for the staleness clock would hide it).
 //   IN  displayText — the rendered button title (mode-dependent percent/pace text).
 //   IN  style — settings-driven meter style.
@@ -54,8 +54,8 @@ struct IconState: Equatable {
     var isStale: Bool
     var needsAuth: Bool
     var credentialsMissing: Bool
-    /// Dims without badging (Codex API-key-only): badging a permanent state would nag forever.
-    var unsupported: Bool = false
+    /// Dims without badging (Claude waiting for Claude Code, Codex API-key-only or access denied): nothing to fix.
+    var quietDim: Bool = false
     /// Text next to the icon (nil = icon only).
     var displayText: String?
 
@@ -90,26 +90,26 @@ struct IconState: Equatable {
         let isStale: Bool
         let needsAuth: Bool
         let credentialsMissing: Bool
-        let unsupported: Bool
+        let quietDim: Bool
         switch winner {
         case .claude:
             snapshot = claudeUsage
             isStale = claudeStale
             needsAuth = claudeAuth.isNeedsReauth
             credentialsMissing = claudeAuth == .credentialsMissing
-            unsupported = false
+            quietDim = claudeAuth == .awaitingClaudeCode
         case .codex:
             snapshot = codexUsage
             isStale = codexStale
             needsAuth = codexAuth == .signInRequired
             credentialsMissing = codexAuth == .credentialsMissing
-            unsupported = codexAuth == .apiKeyOnlyUnsupported
+            quietDim = codexAuth == .apiKeyOnlyUnsupported || codexAuth == .accessDenied
         case nil:
             snapshot = nil
             isStale = false
             needsAuth = false
             credentialsMissing = false
-            unsupported = false
+            quietDim = false
         }
 
         let fill = IconRemainingResolver.resolvedRemaining(snapshot: snapshot, showUsed: showUsed)
@@ -124,7 +124,7 @@ struct IconState: Equatable {
             isStale: isStale,
             needsAuth: needsAuth,
             credentialsMissing: credentialsMissing,
-            unsupported: unsupported,
+            quietDim: quietDim,
             displayText: winner.flatMap {
                 MenuBarProviderResolver.prefixed(baseText, provider: $0, multiProvider: multiProvider)
             })
@@ -140,7 +140,7 @@ struct IconState: Equatable {
         IconRenderer.Key(
             primaryBucket: self.primaryBucket,
             secondaryBucket: self.secondaryBucket,
-            dimmed: self.isStale || self.needsAuth || self.credentialsMissing || self.unsupported,
+            dimmed: self.isStale || self.needsAuth || self.credentialsMissing || self.quietDim,
             authBadge: self.needsAuth || self.credentialsMissing)
     }
 }
@@ -167,6 +167,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Presents the Keychain opt-in consent for the reconnect line; injectable since NSAlert cannot run headless.
     let keychainOptInPresenter: @MainActor () -> KeychainPromptDecision
     private let statusBar: NSStatusBar
+    private let defaults: UserDefaults
     private(set) var statusItem: NSStatusItem?
     private var lastRendered: IconState?
     private var started = false
@@ -232,7 +233,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         keychainOptInPresenter: @escaping @MainActor () -> KeychainPromptDecision =
             { KeychainPromptCoordinator.presentClaudeKeychainOptIn() },
         debugUsageClient: ClaudeUsageClient? = nil,
-        statusBar: NSStatusBar = .system)
+        statusBar: NSStatusBar = .system,
+        defaults: UserDefaults = .standard)
     {
         self.store = store
         self.settings = settings
@@ -241,6 +243,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.signInLauncher = signInLauncher
         self.keychainOptInPresenter = keychainOptInPresenter
         self.statusBar = statusBar
+        self.defaults = defaults
         #if DEBUG
         self.debugUsageClient = debugUsageClient
         #else
@@ -276,7 +279,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                       hasWindow: item.button?.window != nil)
             else { return }
             Self.log.error("Status item has no window after startup; rebuilding once")
-            self.statusBar.removeStatusItem(item)
+            StatusItemPlacement.preservingPosition(defaults: self.defaults) {
+                self.statusBar.removeStatusItem(item)
+            }
             self.statusItem = nil
             self.buildStatusItem()
             // Clear the render cache so the fresh button repaints without re-arming the tracker.
@@ -413,7 +418,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Status item
 
     private func buildStatusItem() {
-        let item = self.statusBar.statusItem(withLength: NSStatusItem.variableLength)
+        StatusItemPlacement.prepare(
+            defaults: self.defaults,
+            maxScreenWidth: NSScreen.screens.map { Double($0.frame.width) }.max())
+        // Named before sizing so macOS restores the saved position under a stable identity.
+        let item = self.statusBar.statusItem(withLength: 0)
+        item.autosaveName = StatusItemPlacement.autosaveName
+        item.length = NSStatusItem.variableLength
         item.button?.setAccessibilityLabel("SturtBar")
         let menu = self.buildMenu()
         item.menu = menu

@@ -70,20 +70,25 @@ public struct CodexUsageService: Sendable {
                 resetDescription: resetDate.map(Self.formatResetDate))
         }
 
-        // Normalize roles by window length: the shortest window (5h session) is always primary,
-        // the weekly window secondary — regardless of the order the endpoint sent them in.
+        // Roles come from each window's length, never its slot; weekly stays secondary even when promoted.
         let windows = [response.rateLimit?.primaryWindow, response.rateLimit?.secondaryWindow]
             .compactMap(makeWindow)
-            .sorted { ($0.windowMinutes ?? 0) < ($1.windowMinutes ?? 0) }
+        let session = windows.first { $0.isSessionScale }
+        let weekly = windows.first { !$0.isSessionScale && ($0.windowMinutes ?? 0) <= 8 * 24 * 60 }
+        let monthly = windows.first { ($0.windowMinutes ?? 0) > 8 * 24 * 60 }
 
-        guard let primary = windows.first else {
+        guard let primary = session ?? weekly ?? monthly else {
             throw CodexUsageError.parseFailed("missing rate_limit windows")
         }
+        // Always named, even when it is also the primary, so a monthly-only account still gets warnings.
+        let extraRateWindows = monthly.map { [NamedRateWindow(id: "codex-monthly", title: "Monthly", window: $0)] }
+            ?? []
 
         return ProviderUsageSnapshot(
             primary: primary,
-            secondary: windows.count > 1 ? windows[1] : nil,
+            secondary: weekly,
             opus: nil,
+            extraRateWindows: extraRateWindows,
             updatedAt: now,
             loginMethod: Self.planDisplayName(response.planType))
     }

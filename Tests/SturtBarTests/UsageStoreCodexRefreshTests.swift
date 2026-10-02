@@ -164,6 +164,10 @@ struct UsageStoreCodexRefreshTests {
         await ts.store.refresh(trigger: .manual)
         #expect(ts.store.codexAuth == .credentialsMissing)
 
+        Script.error = .accessDenied
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.codexAuth == .accessDenied)
+
         Script.error = .apiKeyOnly
         await ts.store.refresh(trigger: .manual)
         #expect(ts.store.codexAuth == .apiKeyOnlyUnsupported)

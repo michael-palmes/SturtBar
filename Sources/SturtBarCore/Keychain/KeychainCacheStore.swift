@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 #if os(macOS)
 import Darwin
 import Security
@@ -32,16 +33,18 @@ public enum KeychainCacheStore {
     @TaskLocal private static var serviceOverride: String?
     #if DEBUG && os(macOS)
     @TaskLocal private static var loadFailureStatusOverride: OSStatus?
+    @TaskLocal private static var itemOperationOverride: (@Sendable (ItemOperation, [String: Any]) -> OSStatus)?
     #endif
     private static let testStoreLock = NSLock()
-    private struct TestStoreKey: Hashable {
+    private struct ItemKey: Hashable {
         let service: String
         let account: String
     }
 
-    private nonisolated(unsafe) static var testStore: [TestStoreKey: Data]?
-    private nonisolated(unsafe) static var implicitTestStore: [TestStoreKey: Data] = [:]
+    private nonisolated(unsafe) static var testStore: [ItemKey: Data]?
+    private nonisolated(unsafe) static var implicitTestStore: [ItemKey: Data] = [:]
     private nonisolated(unsafe) static var testStoreRefCount = 0
+    private static let repairedItems = Mutex<Set<ItemKey>>([])
 
     public static func load<Entry: Codable>(
         key: Key,
@@ -67,7 +70,7 @@ public enum KeychainCacheStore {
         KeychainNoUIQuery.apply(to: &query)
 
         var result: AnyObject?
-        let status = self.withoutLegacyKeychainUI {
+        let status = KeychainNoUIQuery.withoutLegacyKeychainUI {
             SecItemCopyMatching(query as CFDictionary, &result)
         }
         switch status {
@@ -101,45 +104,7 @@ public enum KeychainCacheStore {
             self.log.error("Failed to encode keychain cache (\(key.account))")
             return
         }
-
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: self.serviceName,
-            kSecAttrAccount as String: key.account,
-        ]
-        KeychainNoUIQuery.apply(to: &query)
-
-        let updateStatus = self.withoutLegacyKeychainUI {
-            SecItemUpdate(
-                query as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary)
-        }
-        if updateStatus == errSecSuccess {
-            return
-        }
-        if updateStatus == errSecInteractionNotAllowed {
-            self.log.info("Keychain cache update skipped — keychain locked (e.g. after wake) (\(key.account))")
-            return
-        }
-        if updateStatus != errSecItemNotFound {
-            self.log.error("Keychain cache update failed (\(key.account)): \(updateStatus)")
-            return
-        }
-
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrLabel as String] = self.cacheLabel
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        if let access = self.cacheAccessControl() {
-            addQuery[kSecAttrAccess as String] = access
-        }
-
-        let addStatus = self.withoutLegacyKeychainUI {
-            SecItemAdd(addQuery as CFDictionary, nil)
-        }
-        if addStatus != errSecSuccess {
-            self.log.error("Keychain cache add failed (\(key.account)): \(addStatus)")
-        }
+        self.writeToKeychain(key: key, data: data)
         #endif
     }
 
@@ -156,7 +121,7 @@ public enum KeychainCacheStore {
             kSecAttrAccount as String: key.account,
         ]
         KeychainNoUIQuery.apply(to: &query)
-        let deleteStatus = self.withoutLegacyKeychainUI {
+        let deleteStatus = KeychainNoUIQuery.withoutLegacyKeychainUI {
             SecItemDelete(query as CFDictionary)
         }
         return self.clearResultForKeychainDeleteStatus(deleteStatus, key: key)
@@ -193,6 +158,15 @@ public enum KeychainCacheStore {
         operation: () throws -> T) rethrows -> T
     {
         try self.$loadFailureStatusOverride.withValue(status) {
+            try operation()
+        }
+    }
+
+    static func withItemOperationOverrideForTesting<T>(
+        _ override: @escaping @Sendable (ItemOperation, [String: Any]) -> OSStatus,
+        operation: () throws -> T) rethrows -> T
+    {
+        try self.$itemOperationOverride.withValue(override) {
             try operation()
         }
     }
@@ -245,6 +219,128 @@ public enum KeychainCacheStore {
     }
 
     #if os(macOS)
+    /// The item writes `store` makes, injectable so the repair path is testable without the real keychain.
+    struct ItemWriter {
+        let update: () -> OSStatus
+        let delete: () -> OSStatus
+        let add: () -> OSStatus
+    }
+
+    enum WriteOutcome: Equatable {
+        case written
+        case repaired
+        case locked
+        case failed
+    }
+
+    enum ItemOperation: Equatable {
+        case update
+        case delete
+        case add
+    }
+
+    /// Every item write uses the one service value that `write` checks against SturtBar's own.
+    @discardableResult
+    static func writeToKeychain(key: Key, data: Data) -> WriteOutcome {
+        let service = self.serviceName
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key.account,
+        ]
+        KeychainNoUIQuery.apply(to: &query)
+
+        let writer = ItemWriter(
+            update: { self.perform(.update, query, attributes: [kSecValueData as String: data]) },
+            delete: { self.perform(.delete, query) },
+            add: {
+                var addQuery = query
+                addQuery[kSecValueData as String] = data
+                addQuery[kSecAttrLabel as String] = self.cacheLabel
+                addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                if let access = self.cacheAccessControl() {
+                    addQuery[kSecAttrAccess as String] = access
+                }
+                return self.perform(.add, addQuery)
+            })
+        return self.write(key: key, service: service, using: writer)
+    }
+
+    private static func perform(
+        _ operation: ItemOperation,
+        _ query: [String: Any],
+        attributes: [String: Any] = [:]) -> OSStatus
+    {
+        #if DEBUG
+        if let override = self.itemOperationOverride { return override(operation, query) }
+        #endif
+        return KeychainNoUIQuery.withoutLegacyKeychainUI {
+            switch operation {
+            case .update: SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            case .delete: SecItemDelete(query as CFDictionary)
+            case .add: SecItemAdd(query as CFDictionary, nil)
+            }
+        }
+    }
+
+    /// An own item that rejects this build (e.g. after a signature change) is replaced once per launch, without UI.
+    @discardableResult
+    static func write(key: Key, service: String, using writer: ItemWriter) -> WriteOutcome {
+        guard self.isOwnCacheService(service) else {
+            self.log.error("Keychain cache write refused outside SturtBar's own service (\(key.account))")
+            return .failed
+        }
+        let updateStatus = writer.update()
+        switch updateStatus {
+        case errSecSuccess:
+            return .written
+        case errSecItemNotFound:
+            return self.add(key: key, using: writer) ? .written : .failed
+        case errSecInteractionNotAllowed, errSecAuthFailed:
+            return self.replaceRejectedItem(key: key, service: service, using: writer)
+        default:
+            self.log.error("Keychain cache update failed (\(key.account)): \(updateStatus)")
+            return .failed
+        }
+    }
+
+    static func isOwnCacheService(_ service: String) -> Bool {
+        service == self.cacheService || service.hasPrefix(self.cacheService + ".")
+    }
+
+    private static func replaceRejectedItem(key: Key, service: String, using writer: ItemWriter) -> WriteOutcome {
+        let itemKey = ItemKey(service: service, account: key.account)
+        guard self.repairedItems.withLock({ $0.insert(itemKey).inserted }) else {
+            self.log.info("Keychain cache still unwritable after this launch's repair (\(key.account))")
+            return .failed
+        }
+        let deleteStatus = writer.delete()
+        switch deleteStatus {
+        case errSecSuccess, errSecItemNotFound:
+            break
+        case errSecInteractionNotAllowed:
+            // A locked keychain refuses the delete too; leave the one repair for after it unlocks.
+            self.repairedItems.withLock { _ = $0.remove(itemKey) }
+            self.log.info("Keychain cache update skipped, keychain locked (\(key.account))")
+            return .locked
+        default:
+            self.log.error("Keychain cache repair delete failed (\(key.account)): \(deleteStatus)")
+            return .failed
+        }
+        guard self.add(key: key, using: writer) else { return .failed }
+        self.log.info("Keychain cache item replaced after it rejected this build (\(key.account))")
+        return .repaired
+    }
+
+    private static func add(key: Key, using writer: ItemWriter) -> Bool {
+        let addStatus = writer.add()
+        guard addStatus == errSecSuccess else {
+            self.log.error("Keychain cache add failed (\(key.account)): \(addStatus)")
+            return false
+        }
+        return true
+    }
+
     static func loadResultForKeychainReadFailure<Entry>(
         status: OSStatus,
         key: Key) -> LoadResult<Entry>
@@ -253,7 +349,7 @@ public enum KeychainCacheStore {
         case errSecItemNotFound:
             return .missing
         case errSecInteractionNotAllowed, errSecAuthFailed:
-            // No prompt was shown because `withoutLegacyKeychainUI` suppresses the legacy ACL dialog.
+            // No prompt was shown because `KeychainNoUIQuery.withoutLegacyKeychainUI` suppresses the ACL dialog.
             // `errSecInteractionNotAllowed` = keychain locked (e.g. just after wake); `errSecAuthFailed`
             // = this binary isn't on the item's ACL (the usual case for a locally rebuilt dev binary,
             // whose code identity no longer matches). Both are benign for a best-effort cache: the
@@ -380,54 +476,6 @@ public enum KeychainCacheStore {
         return dlsym(securityFrameworkHandle, name)
     }
 
-    private typealias SetUserInteractionAllowedFunction = @convention(c) (UInt8) -> OSStatus
-    private typealias GetUserInteractionAllowedFunction = @convention(c) (UnsafeMutablePointer<UInt8>?) -> OSStatus
-
-    /// Runs `body` with legacy Keychain Services UI suppressed process-wide, restoring the prior
-    /// setting afterward. This is the ONLY lever that governs the legacy login-keychain ACL prompt
-    /// ("… wants to access key 'SturtBar Cache' … Allow / Always Allow / Deny"): the modern
-    /// LocalAuthentication flags in `KeychainNoUIQuery` only suppress data-protection-keychain UI,
-    /// not this older file-based dialog. With UI off, a binary not on the item's ACL gets
-    /// `errSecInteractionNotAllowed` instead of a prompt — so the self-cache read falls back silently
-    /// to the Claude Code keychain. A binary that IS on the ACL (the same notarized app reading its
-    /// own item in production) needs no interaction and still succeeds. The window is kept to a single
-    /// SecItem call; the prior value is saved/restored rather than forced back to "allowed" so we never
-    /// clobber an outer suppression. No-op when the deprecated symbols cannot be resolved.
-    private static func withoutLegacyKeychainUI<T>(_ body: () -> T) -> T {
-        guard
-            let setSymbol = self.securitySymbol(named: "SecKeychainSetUserInteractionAllowed"),
-            let getSymbol = self.securitySymbol(named: "SecKeychainGetUserInteractionAllowed")
-        else {
-            return body()
-        }
-        let setInteraction = unsafeBitCast(setSymbol, to: SetUserInteractionAllowedFunction.self)
-        let getInteraction = unsafeBitCast(getSymbol, to: GetUserInteractionAllowedFunction.self)
-
-        var previous: UInt8 = 1
-        _ = getInteraction(&previous)
-        guard setInteraction(0) == errSecSuccess else { return body() }
-        defer { _ = setInteraction(previous) }
-        return body()
-    }
-
-    #if DEBUG
-    /// Captures the legacy keychain interaction-allowed flag from inside the suppression wrapper and
-    /// again after it returns, so a test can assert the toggle both flips and restores. `nil` when the
-    /// deprecated getter symbol is unavailable. Returns `(true, true)` shaped values otherwise.
-    static func legacyKeychainUIProbeForTesting() -> (insideAllowed: Bool?, afterAllowed: Bool?) {
-        func currentAllowed() -> Bool? {
-            guard let getSymbol = self.securitySymbol(named: "SecKeychainGetUserInteractionAllowed") else {
-                return nil
-            }
-            let getInteraction = unsafeBitCast(getSymbol, to: GetUserInteractionAllowedFunction.self)
-            var state: UInt8 = 1
-            guard getInteraction(&state) == errSecSuccess else { return nil }
-            return state != 0
-        }
-        let inside = self.withoutLegacyKeychainUI { currentAllowed() }
-        return (inside, currentAllowed())
-    }
-    #endif
     #endif
 
     private static func loadFromTestStore<Entry: Codable>(
@@ -438,7 +486,7 @@ public enum KeychainCacheStore {
         defer { self.testStoreLock.unlock() }
         guard let store = self.testStore ?? (self.shouldUseImplicitTestStore ? self.implicitTestStore : nil)
         else { return nil }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         guard let data = store[testKey] else { return .missing }
         let decoder = Self.makeDecoder()
         guard let decoded = try? decoder.decode(Entry.self, from: data) else {
@@ -452,7 +500,7 @@ public enum KeychainCacheStore {
         defer { self.testStoreLock.unlock() }
         let encoder = Self.makeEncoder()
         guard let data = try? encoder.encode(entry) else { return true }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         if var store = self.testStore {
             store[testKey] = data
             self.testStore = store
@@ -468,7 +516,7 @@ public enum KeychainCacheStore {
     private static func clearTestStore(key: Key) -> Bool? {
         self.testStoreLock.lock()
         defer { self.testStoreLock.unlock() }
-        let testKey = TestStoreKey(service: self.serviceName, account: key.account)
+        let testKey = ItemKey(service: self.serviceName, account: key.account)
         if var store = self.testStore {
             let removed = store.removeValue(forKey: testKey) != nil
             self.testStore = store

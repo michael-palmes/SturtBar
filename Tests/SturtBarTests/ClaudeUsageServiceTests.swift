@@ -74,7 +74,7 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
-    func `maps OAuth null cowork as zero routines window`() throws {
+    func `a null routines payload shows no routines bar`() throws {
         let json = """
         {
           "five_hour": { "utilization": 12.5, "resets_at": "2025-12-25T12:00:00.000Z" },
@@ -83,7 +83,7 @@ struct ClaudeOAuthUsageMappingTests {
         }
         """
         let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
-        #expect(snap.extraRateWindows.first(where: { $0.id == "claude-routines" })?.window.usedPercent == 0)
+        #expect(!snap.extraRateWindows.contains { $0.id == "claude-routines" })
         #expect(snap.extraRateWindows.contains { $0.id == "claude-design" } == false)
     }
 
@@ -367,6 +367,24 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
+    func `drops the all models entry that duplicates weekly`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "seven_day": { "utilization": 30, "resets_at": "2026-07-06T10:00:00.827258+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 30,
+              "scope": { "model": { "id": "claude/all_models", "display_name": "All models" } } },
+            { "kind": "weekly_scoped", "percent": 42.5,
+              "scope": { "model": { "id": "claude/fable.5:promo", "display_name": "Fable" } } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.map(\.id) == ["model-weekly-fable"])
+    }
+
+    @Test
     func `skips weekly scoped entries without a display name`() throws {
         let json = """
         {
@@ -556,12 +574,13 @@ struct ClaudeUsageServiceFlowTests {
 
     private static func makeCredentials(
         accessToken: String = "fresh-token",
-        scopes: [String] = ["user:profile"]) -> ClaudeOAuthCredentials
+        scopes: [String] = ["user:profile"],
+        expiresIn: TimeInterval = 3600) -> ClaudeOAuthCredentials
     {
         ClaudeOAuthCredentials(
             accessToken: accessToken,
             refreshToken: "refresh-token",
-            expiresAt: Date(timeIntervalSinceNow: 3600),
+            expiresAt: Date(timeIntervalSinceNow: expiresIn),
             scopes: scopes,
             rateLimitTier: nil)
     }
@@ -766,10 +785,45 @@ struct ClaudeUsageServiceFlowTests {
                 Issue.record("Expected ClaudeUsageError.fetch(.unauthorized), got \(error)")
                 return
             }
+            // A token still rejected after the retry needs a fresh sign-in, not a silent retry loop.
+            #expect(error.indicatesAuthenticationRequired)
         } catch {
             Issue.record("Expected ClaudeUsageError, got \(error)")
         }
 
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(fetchCount.withLock { $0 } == 2)
+    }
+
+    @Test
+    func `oauth 401 within the clock skew allowance of expiry maps to token expired`() async throws {
+        let loadCount = Mutex(0)
+        let fetchCount = Mutex(0)
+
+        do {
+            _ = try await withIsolatedCacheStores {
+                try await withOAuthSeams(
+                    load: { _, _, _ in
+                        loadCount.withLock { $0 += 1 }
+                        return Self.makeCredentials(accessToken: "nearly-expired", expiresIn: 30)
+                    },
+                    fetch: { _ in
+                        fetchCount.withLock { $0 += 1 }
+                        throw ClaudeOAuthFetchError.unauthorized
+                    },
+                    operation: {
+                        try await Self.makeService().fetchUsage(interaction: .background)
+                    })
+            }
+            Issue.record("Expected ClaudeUsageError.credentials(.tokenExpired)")
+        } catch let error as ClaudeUsageError {
+            guard case .credentials(.tokenExpired(source: .claudeKeychain)) = error else {
+                Issue.record("Expected .credentials(.tokenExpired(.claudeKeychain)), got \(error)")
+                return
+            }
+        }
+
+        // The single retry still runs first, in case Claude Code renewed the token meanwhile.
         #expect(loadCount.withLock { $0 } == 2)
         #expect(fetchCount.withLock { $0 } == 2)
     }
@@ -799,6 +853,35 @@ struct ClaudeUsageServiceFlowTests {
         #expect(promptFlags.withLock { $0 } == [true])
         #expect(bootstrapFlags.withLock { $0 } == [true])
         #expect(snapshot.primary.usedPercent == 7)
+    }
+
+    /// An expired saved copy means SturtBar is set up and waiting for Claude Code; launch must not prompt.
+    @Test
+    func `oauth bootstrap stays suppressed when an expired copy is saved`() async throws {
+        let usageResponse = try Self.makeOAuthUsageResponse()
+        let promptFlags = Mutex<[Bool]>([])
+        let bootstrapFlags = Mutex<[Bool]>([])
+
+        _ = try await ClaudeUsageService.$hasAnyCachedCredentialsOverride.withValue(true) {
+            try await withOAuthSeams(
+                promptMode: .onlyOnUserAction,
+                hasCachedCredentials: false,
+                load: { _, allowPrompt, _ in
+                    promptFlags.withLock { $0.append(allowPrompt) }
+                    bootstrapFlags.withLock {
+                        $0.append(ClaudeOAuthCredentialsStore.allowBackgroundPromptBootstrap)
+                    }
+                    return Self.makeCredentials()
+                },
+                fetch: { _ in usageResponse },
+                operation: {
+                    try await Self.makeService(allowStartupBootstrapPrompt: true)
+                        .fetchUsage(interaction: .background, phase: .startup)
+                })
+        }
+
+        #expect(promptFlags.withLock { $0 } == [false])
+        #expect(bootstrapFlags.withLock { $0 } == [false])
     }
 
     @Test
@@ -875,6 +958,8 @@ struct ClaudeUsageServiceFlowTests {
             }
             #expect(message.contains("user:profile"))
             #expect(message.contains("usage:read"))
+            #expect(message.contains("claude /login"))
+            #expect(!message.contains("setup-token"))
             #expect(error.indicatesAuthenticationRequired == true)
         } catch {
             Issue.record("Expected ClaudeUsageError, got \(error)")
@@ -888,9 +973,7 @@ struct ClaudeUsageServiceFlowTests {
         do {
             _ = try await withOAuthSeams(
                 load: { _, _, _ in
-                    throw ClaudeOAuthCredentialsError.refreshFailed(
-                        kind: .terminal,
-                        message: "invalid_grant")
+                    throw ClaudeOAuthCredentialsError.tokenExpired(source: .environment)
                 },
                 fetch: { _ in try Self.makeOAuthUsageResponse() },
                 operation: {
@@ -898,10 +981,8 @@ struct ClaudeUsageServiceFlowTests {
                 })
             Issue.record("Expected ClaudeUsageError.credentials")
         } catch let error as ClaudeUsageError {
-            guard case let .credentials(credentialsError) = error,
-                  case .refreshFailed(kind: .terminal, message: _) = credentialsError
-            else {
-                Issue.record("Expected .credentials(.refreshFailed(kind: .terminal)), got \(error)")
+            guard case .credentials(.tokenExpired(source: .environment)) = error else {
+                Issue.record("Expected .credentials(.tokenExpired(.environment)), got \(error)")
                 return
             }
             #expect(error.indicatesAuthenticationRequired == true)
@@ -913,17 +994,20 @@ struct ClaudeUsageServiceFlowTests {
     @Test
     func `needs reauth derives from typed cases only`() {
         // indicatesAuthenticationRequired matrix
-        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesAuthenticationRequired == true)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "invalid_grant"))
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .environment))
             .indicatesAuthenticationRequired == true)
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain))
+            .indicatesAuthenticationRequired == false)
+
+        // indicatesAwaitingClaudeCode: Claude Code renews its own token; an environment token it never renews.
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain)).indicatesAwaitingClaudeCode)
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .cacheKeychain)).indicatesAwaitingClaudeCode)
+        #expect(!ClaudeUsageError.credentials(.tokenExpired(source: .environment)).indicatesAwaitingClaudeCode)
+        #expect(!ClaudeUsageError.fetch(.unauthorized).indicatesAwaitingClaudeCode)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope")
             .indicatesAuthenticationRequired == true)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .transient, message: "http 503"))
-            .indicatesAuthenticationRequired == false)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .suppressed, message: "gate"))
-            .indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.credentials(.notFound).indicatesAuthenticationRequired == false)
-        #expect(ClaudeUsageError.fetch(.unauthorized).indicatesAuthenticationRequired == false)
+        #expect(ClaudeUsageError.fetch(.unauthorized).indicatesAuthenticationRequired == true)
         #expect(ClaudeUsageError.parseFailed("missing session data").indicatesAuthenticationRequired == false)
         #expect(ClaudeUsageError.oauthFailed("anything").indicatesAuthenticationRequired == false)
 
@@ -932,8 +1016,7 @@ struct ClaudeUsageServiceFlowTests {
         #expect(ClaudeUsageError.credentials(.missingOAuth).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.missingAccessToken).indicatesCredentialsMissing == true)
         #expect(ClaudeUsageError.credentials(.decodeFailed).indicatesCredentialsMissing == true)
-        #expect(ClaudeUsageError.credentials(.noRefreshToken(source: nil)).indicatesCredentialsMissing == false)
-        #expect(ClaudeUsageError.credentials(.refreshFailed(kind: .terminal, message: "x"))
+        #expect(ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain))
             .indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.scopeUnsatisfied(message: "missing scope").indicatesCredentialsMissing == false)
         #expect(ClaudeUsageError.fetch(.unauthorized).indicatesCredentialsMissing == false)

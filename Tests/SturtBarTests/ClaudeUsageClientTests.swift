@@ -156,7 +156,7 @@ struct CostScannerTests {
         let pricingCalls = Mutex(0)
         let scanner = CostScanner(
             minimumGap: 60,
-            refreshPricing: { _ in pricingCalls.withLock { $0 += 1 } },
+            refreshPricing: { _, _ in pricingCalls.withLock { $0 += 1 } },
             scanOperation: { _, _, _, _ in nil })
         let t0 = Date(timeIntervalSince1970: 1_000_000_000)
 
@@ -165,6 +165,39 @@ struct CostScannerTests {
         _ = await scanner.scan(bypassGate: true, historyDays: 30, now: t0.addingTimeInterval(20))
 
         #expect(pricingCalls.withLock { $0 } == 2)
+    }
+
+    @Test
+    func `a scan that meets an unlisted model asks for an eager pricing refresh next`() async {
+        let eagerFlags = Mutex<[Bool]>([])
+        let unlisted = CostUsageTokenSnapshot(
+            sessionTokens: 1,
+            sessionCostUSD: nil,
+            last30DaysTokens: 1,
+            last30DaysCostUSD: nil,
+            daily: [],
+            updatedAt: Date(timeIntervalSince1970: 0),
+            unpricedModels: [CostUsageUnpricedModel(modelName: "claude-mystery-9", tokens: 1)])
+        let knownUnpriced = CostUsageTokenSnapshot(
+            sessionTokens: 1,
+            sessionCostUSD: nil,
+            last30DaysTokens: 1,
+            last30DaysCostUSD: nil,
+            daily: [],
+            updatedAt: Date(timeIntervalSince1970: 0),
+            unpricedModels: [CostUsageUnpricedModel(modelName: "codex-auto-review", tokens: 1)])
+        let results = Mutex([unlisted, knownUnpriced, knownUnpriced])
+        let scanner = CostScanner(
+            minimumGap: 0,
+            refreshPricing: { _, eager in eagerFlags.withLock { $0.append(eager) } },
+            scanOperation: { _, _, _, _ in results.withLock { $0.removeFirst() } })
+        let t0 = Date(timeIntervalSince1970: 1_000_000_000)
+
+        _ = await scanner.scan(bypassGate: true, historyDays: 30, now: t0)
+        _ = await scanner.scan(bypassGate: true, historyDays: 30, now: t0.addingTimeInterval(1))
+        _ = await scanner.scan(bypassGate: true, historyDays: 30, now: t0.addingTimeInterval(2))
+
+        #expect(eagerFlags.withLock { $0 } == [false, true, false])
     }
 
     @Test

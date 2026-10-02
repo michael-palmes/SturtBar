@@ -10,13 +10,16 @@ public enum ClaudeLinks {
 // MARK: - Errors
 
 public enum ClaudeUsageError: LocalizedError, Sendable {
+    static let scopeRemedy =
+        "Run `claude /login` to sign in again. If you set STURTBAR_CLAUDE_OAUTH_TOKEN, remove it first."
+
     case parseFailed(String)
     case oauthFailed(String)
     /// The OAuth token is missing a required scope (e.g. `user:profile`). This is a permanent
-    /// user-action state: the user must re-generate credentials via `claude setup-token`.
+    /// user-action state: the user must sign in again via `claude /login` (a `setup-token` token lacks
+    /// `user:profile`, so that advice would loop).
     case scopeUnsatisfied(message: String)
-    /// Typed pass-through of credential store failures. Needs-reauth is derived from
-    /// `.noRefreshToken` / `.refreshFailed(kind: .terminal, _)` — never from message strings.
+    /// Typed pass-through of credential store failures; needs-reauth is derived from the typed cases, never strings.
     case credentials(ClaudeOAuthCredentialsError)
     /// Typed pass-through of usage endpoint failures (401/403/429/5xx/network).
     case fetch(ClaudeOAuthFetchError)
@@ -36,21 +39,14 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
         }
     }
 
-    /// True when the underlying failure means the user must re-authenticate in Claude Code.
-    /// Phase 3 maps this → `needsReauth` UX.
-    /// Callers should additionally consult `ClaudeOAuthRefreshFailureGate.currentBlockStatus()`,
-    /// which is the persistent needs-reauth authority across fetch attempts.
+    /// True when the underlying failure means the user must re-authenticate in Claude Code (`needsReauth`).
     public var indicatesAuthenticationRequired: Bool {
         switch self {
-        case .scopeUnsatisfied:
+        case .scopeUnsatisfied, .fetch(.unauthorized):
             true
         case let .credentials(error):
             switch error {
-            case .noRefreshToken:
-                true
-            case .refreshFailed(kind: .terminal, message: _):
-                true
-            case .claudeKeychainAccessRequired:
+            case .tokenExpired(source: .environment), .claudeKeychainAccessRequired:
                 true
             default:
                 false
@@ -58,6 +54,12 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
         default:
             false
         }
+    }
+
+    /// True when the token merely expired: Claude Code renews it when it next runs, so SturtBar waits.
+    public var indicatesAwaitingClaudeCode: Bool {
+        guard case let .credentials(.tokenExpired(source)) = self else { return false }
+        return source != .environment
     }
 
     /// True when the remedy is granting Keychain access, not a fresh sign-in. Typed refinement of
@@ -96,6 +98,8 @@ public struct ClaudeUsageService: Sendable {
     private let configuration: Configuration
     private let transport: any HTTPTransport
     private static let log = SturtBarLog.logger("claude-usage")
+    /// A 401 this close to `expiresAt` is the server's clock running ahead, so it counts as an expiry.
+    static let expiryClockSkewAllowance: TimeInterval = 60
 
     var environment: [String: String] {
         self.configuration.environment
@@ -197,6 +201,8 @@ public struct ClaudeUsageService: Sendable {
         Bool) async throws -> ClaudeOAuthCredentials)?
     @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (String) async throws -> OAuthUsageResponse)?
     @TaskLocal static var hasCachedCredentialsOverride: Bool?
+    /// Any saved copy, expired or not; gates the startup bootstrap prompt.
+    @TaskLocal static var hasAnyCachedCredentialsOverride: Bool?
     #endif
 
     // MARK: - OAuth executor
@@ -205,6 +211,7 @@ public struct ClaudeUsageService: Sendable {
         let service: ClaudeUsageService
 
         func load(allowUnauthorizedRetry: Bool) async throws -> ProviderUsageSnapshot {
+            var loadedRecord: ClaudeOAuthCredentialRecord?
             do {
                 let promptPolicy = ClaudeUsageService.currentClaudeOAuthInteractivePromptPolicy()
                 let hasCache = self.resolveHasCache()
@@ -219,13 +226,15 @@ public struct ClaudeUsageService: Sendable {
                     hasCache: hasCache,
                     startupBootstrapOverride: startupBootstrapOverride)
 
-                let credentials = try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
+                let record = try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
                     .withValue(startupBootstrapOverride) {
                         try await ClaudeUsageService.loadOAuthCredentials(
                             environment: self.service.environment,
                             allowKeychainPrompt: allowKeychainPrompt,
                             respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown)
                     }
+                loadedRecord = record
+                let credentials = record.credentials
 
                 try self.validateRequiredOAuthScope(credentials)
                 let usage = try await self.service.fetchOAuthUsage(accessToken: credentials.accessToken)
@@ -249,13 +258,20 @@ public struct ClaudeUsageService: Sendable {
                         "Claude OAuth usage fetch unauthorized; invalidated cache and retrying once")
                     return try await self.load(allowUnauthorizedRetry: false)
                 }
+                if case .unauthorized = error,
+                   let record = loadedRecord,
+                   let expiresAt = record.credentials.expiresAt,
+                   expiresAt.timeIntervalSinceNow <= ClaudeUsageService.expiryClockSkewAllowance
+                {
+                    throw ClaudeUsageError.credentials(.tokenExpired(source: record.expirySource))
+                }
                 if case let .serverError(statusCode, body) = error,
                    statusCode == 403,
                    body?.contains("user:profile") ?? false
                 {
                     throw ClaudeUsageError.scopeUnsatisfied(
-                        message: "Claude OAuth token does not meet scope requirement 'user:profile'. "
-                            + "Run `claude setup-token` to re-generate credentials.")
+                        message: "Claude's sign-in can't read usage (missing the user:profile scope). "
+                            + ClaudeUsageError.scopeRemedy)
                 }
                 throw ClaudeUsageError.fetch(error)
             } catch {
@@ -270,8 +286,11 @@ public struct ClaudeUsageService: Sendable {
         /// 2. `loadOAuthCredentialsOverride` is non-nil       → treat as no-cache (the override
         ///    supplies its own credentials, so the real keychain state is irrelevant)
         /// 3. Otherwise                                        → query the real credentials store
-        private func resolveHasCache() -> Bool {
+        private func resolveHasCache(includingExpired: Bool = false) -> Bool {
             #if DEBUG
+            if includingExpired, let explicit = ClaudeUsageService.hasAnyCachedCredentialsOverride {
+                return explicit
+            }
             if let explicit = ClaudeUsageService.hasCachedCredentialsOverride {
                 return explicit
             }
@@ -279,7 +298,9 @@ public struct ClaudeUsageService: Sendable {
                 return false
             }
             #endif
-            return ClaudeOAuthCredentialsStore.hasCachedCredentials(environment: self.service.environment)
+            return ClaudeOAuthCredentialsStore.hasCachedCredentials(
+                environment: self.service.environment,
+                includingExpired: includingExpired)
         }
 
         private func shouldAllowStartupBootstrapPrompt(
@@ -292,17 +313,18 @@ public struct ClaudeUsageService: Sendable {
                 return false
             }
             guard policy.interaction == .background else { return false }
-            return RefreshContext.current == .startup
+            guard RefreshContext.current == .startup else { return false }
+            // Bootstrap only when nothing is saved: an expired copy means SturtBar was set up and is waiting.
+            return !self.resolveHasCache(includingExpired: true)
         }
 
         private func validateRequiredOAuthScope(_ credentials: ClaudeOAuthCredentials) throws {
             guard credentials.scopes.contains("user:profile") else {
                 let scopes = credentials.scopes.joined(separator: ", ")
                 let detail = scopes.isEmpty
-                    ? "Claude OAuth token missing 'user:profile' scope."
-                    : "Claude OAuth token missing 'user:profile' scope (has: \(scopes))."
-                throw ClaudeUsageError.scopeUnsatisfied(
-                    message: detail + " Run `claude setup-token` to re-generate credentials.")
+                    ? "Claude's sign-in can't read usage (missing the user:profile scope)."
+                    : "Claude's sign-in can't read usage (missing the user:profile scope; has \(scopes))."
+                throw ClaudeUsageError.scopeUnsatisfied(message: detail + " " + ClaudeUsageError.scopeRemedy)
             }
         }
     }
@@ -329,14 +351,17 @@ public struct ClaudeUsageService: Sendable {
     private static func loadOAuthCredentials(
         environment: [String: String],
         allowKeychainPrompt: Bool,
-        respectKeychainPromptCooldown: Bool) async throws -> ClaudeOAuthCredentials
+        respectKeychainPromptCooldown: Bool) async throws -> ClaudeOAuthCredentialRecord
     {
         #if DEBUG
         if let override = loadOAuthCredentialsOverride {
-            return try await override(environment, allowKeychainPrompt, respectKeychainPromptCooldown)
+            return try await ClaudeOAuthCredentialRecord(
+                credentials: override(environment, allowKeychainPrompt, respectKeychainPromptCooldown),
+                owner: .claudeCLI,
+                source: .claudeKeychain)
         }
         #endif
-        return try await ClaudeOAuthCredentialsStore.loadWithAutoRefresh(
+        return try ClaudeOAuthCredentialsStore.loadForUsage(
             environment: environment,
             allowKeychainPrompt: allowKeychainPrompt,
             respectKeychainPromptCooldown: respectKeychainPromptCooldown)
@@ -471,29 +496,12 @@ public struct ClaudeUsageService: Sendable {
     }
 
     private static func oauthExtraRateWindows(from usage: OAuthUsageResponse) -> [NamedRateWindow] {
-        let definitions: [(id: String, title: String, window: OAuthUsageWindow?, sourceKey: String?)] = [
-            (
-                id: "claude-routines",
-                title: "Daily Routines",
-                window: usage.sevenDayRoutines,
-                sourceKey: usage.sevenDayRoutinesSourceKey),
+        let definitions: [(id: String, title: String, window: OAuthUsageWindow?)] = [
+            (id: "claude-routines", title: "Daily Routines", window: usage.sevenDayRoutines),
         ]
-        if let routinesKey = usage.sevenDayRoutinesSourceKey {
-            Self.log.debug("Claude OAuth extra usage key matched: routines=\(routinesKey)")
-        }
         return definitions.compactMap { definition in
-            let utilization: Double
-            let resetDate: Date?
-            if let window = definition.window, let parsedUtilization = window.utilization {
-                utilization = parsedUtilization
-                resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(window.resetsAt)
-            } else if definition.sourceKey != nil {
-                // Keep product bars visible when the API returns a known key with null payload.
-                utilization = 0
-                resetDate = nil
-            } else {
-                return nil
-            }
+            guard let window = definition.window, let utilization = window.utilization else { return nil }
+            let resetDate = ClaudeOAuthUsageFetcher.parseISO8601Date(window.resetsAt)
             let resetDescription = resetDate.map(Self.formatResetDate)
             return NamedRateWindow(
                 id: definition.id,
@@ -512,6 +520,7 @@ public struct ClaudeUsageService: Sendable {
         var seenIDs: Set<String> = []
         return limits.compactMap { limit in
             guard limit.kind == "weekly_scoped",
+                  !(limit.modelID ?? "").hasSuffix("all_models"),
                   let percent = limit.percent, percent.isFinite,
                   let title = limit.modelDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty

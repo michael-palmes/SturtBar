@@ -39,6 +39,14 @@ struct KeychainNoUIQueryTests {
     }
 
     @Test
+    func `legacy keychain UI is suppressed inside the wrapper and restored afterward`() {
+        // The packaged-app live run covers the real prompt-versus-silent behaviour.
+        let inside = KeychainNoUIQuery.withoutLegacyKeychainUI { KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() }
+        #expect(inside == false)
+        #expect(KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() == true)
+    }
+
+    @Test
     func `preflight query is strictly non-interactive and does not request secret data`() {
         let query = KeychainAccessPreflight.makeGenericPasswordPreflightQuery(
             service: "test.service",

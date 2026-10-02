@@ -24,7 +24,7 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
     }
 
     @Test
-    func `does not read claude keychain in background when prompt mode only on user action`() throws {
+    func `does not prompt for claude keychain in background when prompt mode only on user action`() throws {
         let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
         try KeychainCacheStore.withServiceOverrideForTesting(service) {
             try KeychainAccessGate.withTaskOverrideForTesting(false) {
@@ -62,7 +62,7 @@ struct ClaudeOAuthCredentialsStorePromptPolicyTests {
                                     data: keychainData,
                                     fingerprint: fingerprint)
                                 {
-                                    try ClaudeOAuthCredentialsStore.load(environment: [:], allowKeychainPrompt: false)
+                                    try ClaudeOAuthCredentialsStore.load(environment: [:], allowKeychainPrompt: true)
                                 }
                             }
                         }

@@ -19,7 +19,7 @@ Guidance for AI agents working in this repo. SturtBar is a lean macOS menu bar a
 
 Apply when a change touches credentials, network, file access or logging:
 
-- Credentials are read-only: never write to Claude Code's credential stores. Rotated OAuth tokens persist only to SturtBar's own keychain cache (`com.michaelpalmes.sturtbar.cache`).
+- Credentials are read-only: never write to Claude Code's credential stores and never refresh Claude tokens (refreshing spends Claude Code's rotating refresh token and signs it out). The only Claude token SturtBar writes is its read copy in its own keychain cache (`com.michaelpalmes.sturtbar.cache`).
 - **Never write under `~/.codex` and never refresh Codex tokens.** The Codex lane is a strictly read-only consumer of `~/.codex/auth.json`; a 401 surfaces as "sign in via the codex CLI". SturtBar never calls `auth.openai.com` and never parses the `id_token` JWT.
 - **A disabled provider is inert.** The provider toggles are hard privacy gates: no network, no file reads, no background work, and disabling wipes the provider's persisted snapshot. The only sanctioned pre-opt-in filesystem touch is the Settings-open `authFileExists` stat().
 - Least-privilege paths: read only the files and keychain items the feature needs.
@@ -39,7 +39,7 @@ Apply when a change touches credentials, network, file access or logging:
 
 - **Never commit or push directly to `main`**: a branch ruleset rejects it for everyone, including the maintainer. Work on a branch, open a PR, wait for the `build-test` check, squash merge.
 - **ALWAYS commit via the `sturtbar-commit` skill** (review, plan, then execute); never hand-roll `git commit`.
-- PR descriptions use Summary, Privacy and Testing sections: Australian English, short and concise, no em dashes.
+- **PR titles and descriptions ALWAYS follow the `sturtbar-pr-descriptions` skill**: Summary, Privacy and Testing, under 200 words, nothing that lives outside the repo (no local paths, planning docs or handoffs).
 - Merges are squash-only; merged branches are deleted automatically.
 - Tags are pushed by `Scripts/release.sh` only (releases are manual and maintainer-only; the ruleset does not block tags).
 
@@ -63,6 +63,7 @@ Apply when a change touches credentials, network, file access or logging:
 Project skills live in `.agents/skills/` (Claude Code reads them via the `.claude/skills` symlink):
 
 - `sturtbar-commit`: planning and creating every commit (review, logical grouping, conventional messages).
+- `sturtbar-pr-descriptions`: the fixed PR title and description standard; use for every PR opened or edited in this repo.
 - `sturtbar-skill-creator`: creating or updating project skills and slash commands.
 - `sturtbar-release`: cutting a signed, notarised release (DMG, updater contract, publish flow).
 
@@ -76,7 +77,7 @@ Project skills live in `.agents/skills/` (Claude Code reads them via the `.claud
 
 - All usage fetches go through the `ClaudeUsageClient` actor; never call OAuth-store sync entry points from the MainActor (they can block on keychain prompts).
 - Health mapping is typed only; never parse error strings.
-- The self-cache keychain read is best-effort and must never prompt (see `KeychainCacheStore.withoutLegacyKeychainUI`); it falls back to Claude Code's keychain.
+- The self-cache keychain read is best-effort and must never prompt (see `KeychainNoUIQuery.withoutLegacyKeychainUI`); it falls back to Claude Code's keychain.
 
 ## Brand voice
 

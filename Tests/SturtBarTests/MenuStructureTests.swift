@@ -364,6 +364,29 @@ struct MenuStructureTests {
     }
 
     @Test
+    func `open claude code action routes to the injected launcher`() async {
+        let ts = makeTestStore(suiteName: "sturtbar-menu-open-claude-code") { _, _ in makeUsageSnapshot() }
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sturtbar-menu-open-claude-code-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let controller = StatusItemController(
+            store: ts.store,
+            settings: ts.settings,
+            signInLauncher: TerminalLoginLauncher(
+                scriptDirectory: scratch,
+                open: { _ in true }))
+        controller.startWithMenuForTesting()
+
+        controller.handleCardStatusAction(.openClaudeCode)
+
+        let script = scratch.appendingPathComponent("SturtBar Claude Code.command")
+        #expect(FileManager.default.fileExists(atPath: script.path))
+        #expect(!FileManager.default.fileExists(
+            atPath: scratch.appendingPathComponent("SturtBar Claude sign-in.command").path))
+        await self.drainMainQueue()
+    }
+
+    @Test
     func `claude keychain retry with prompts enabled fires a user-initiated refresh`() async throws {
         var presenterCalls = 0
         let (controller, ts) = self.makeController(

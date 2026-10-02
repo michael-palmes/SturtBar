@@ -8,25 +8,25 @@ import Foundation
 extension CostUsageScanner {
     // MARK: - Claude
 
-    private struct ClaudeTokens {
-        let input: Int
-        let cacheRead: Int
-        let cacheCreate: Int
-        let cacheCreate1h: Int
-        let output: Int
-        let costNanos: Int
-        let costPriced: Bool
-    }
-
     private struct ClaudeDayModelKey: Hashable {
         let day: String
         let model: String
     }
 
+    /// One response's identity: streamed chunks and repeated proxy snapshots share it, so the last wins.
+    private enum ClaudeRowKey: Hashable, Comparable {
+        case request(messageId: String, requestId: String)
+        case session(sessionId: String, messageId: String)
+    }
+
     private struct ClaudeRepricedCost {
         var total: Double = 0
         var sampleCount: Int = 0
-        var unresolved = false
+        var pricedCount: Int = 0
+        var unpricedTokens: Int = 0
+        var fastCost: Double = 0
+        var fastTokens: Int = 0
+        var sawFast = false
     }
 
     private static func defaultClaudeProjectsRoots(options: Options) -> [URL] {
@@ -90,25 +90,13 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck? = nil,
         modelsDevCatalog: ModelsDevCatalog? = nil) throws -> ClaudeParseResult
     {
-        func toInt(_ v: Any?) -> Int {
-            if let n = v as? NSNumber { return n.intValue }
-            return 0
-        }
-
-        func toBool(_ value: Any?) -> Bool {
-            if let bool = value as? Bool { return bool }
-            if let number = value as? NSNumber { return number.boolValue }
-            return false
-        }
-
         let pathRole = Self.claudePathRole(fileURL: fileURL)
-        var keyedRows: [String: ClaudeUsageRow] = [:]
+        var keyedRows: [ClaudeRowKey: ClaudeUsageRow] = [:]
         var unkeyedRows: [ClaudeUsageRow] = []
 
         let maxLineBytes = 512 * 1024
         // Keep the full line so usage at the tail isn't dropped on large tool outputs.
         let prefixBytes = maxLineBytes
-        let costScale = 1_000_000_000.0
 
         let parsedBytes: Int64
         do {
@@ -127,82 +115,15 @@ extension CostUsageScanner {
                     autoreleasepool {
                         guard
                             let obj = (try? JSONSerialization.jsonObject(with: line.bytes)) as? [String: Any],
-                            let type = obj["type"] as? String,
-                            type == "assistant"
-                        else { return }
-                        guard Self.matchesClaudeProviderFilter(obj: obj, filter: providerFilter) else { return }
-
-                        guard let tsText = obj["timestamp"] as? String, let timestamp = Self.dateFromTimestamp(tsText)
-                        else { return }
-                        guard let dayKey = Self.dayKeyFromTimestamp(tsText) ?? Self.dayKeyFromParsedISO(tsText)
+                            let row = Self.claudeRow(
+                                from: obj,
+                                pathRole: pathRole,
+                                range: range,
+                                providerFilter: providerFilter,
+                                modelsDevCatalog: modelsDevCatalog)
                         else { return }
 
-                        guard let message = obj["message"] as? [String: Any] else { return }
-                        guard let model = message["model"] as? String else { return }
-                        guard let usage = message["usage"] as? [String: Any] else { return }
-
-                        let input = max(0, toInt(usage["input_tokens"]))
-                        let cacheCreate = max(0, toInt(usage["cache_creation_input_tokens"]))
-                        let cacheCreate1h = Self.claudeOneHourCacheCreationTokens(
-                            usage: usage,
-                            total: cacheCreate)
-                        let cacheRead = max(0, toInt(usage["cache_read_input_tokens"]))
-                        let output = max(0, toInt(usage["output_tokens"]))
-                        if input == 0, cacheCreate == 0, cacheRead == 0, output == 0 { return }
-
-                        let cost = CostUsagePricing.claudeCostUSD(
-                            model: model,
-                            inputTokens: input,
-                            cacheReadInputTokens: cacheRead,
-                            cacheCreationInputTokens: cacheCreate,
-                            cacheCreationInputTokens1h: cacheCreate1h,
-                            outputTokens: output,
-                            pricingDate: timestamp,
-                            modelsDevCatalog: modelsDevCatalog)
-                        let costNanos = cost.map { Int(($0 * costScale).rounded()) } ?? 0
-                        let tokens = ClaudeTokens(
-                            input: input,
-                            cacheRead: cacheRead,
-                            cacheCreate: cacheCreate,
-                            cacheCreate1h: cacheCreate1h,
-                            output: output,
-                            costNanos: costNanos,
-                            costPriced: cost != nil)
-
-                        guard CostUsageDayRange.isInRange(
-                            dayKey: dayKey,
-                            since: range.scanSinceKey,
-                            until: range.scanUntilKey)
-                        else { return }
-
-                        let messageId = message["id"] as? String
-                        let requestId = obj["requestId"] as? String
-                        let sessionId = obj["sessionId"] as? String
-                            ?? obj["session_id"] as? String
-                            ?? (obj["metadata"] as? [String: Any])?["sessionId"] as? String
-                            ?? (message["metadata"] as? [String: Any])?["sessionId"] as? String
-                        let normalizedModel = CostUsagePricing.normalizeClaudeModel(model)
-                        let row = ClaudeUsageRow(
-                            dayKey: dayKey,
-                            model: normalizedModel,
-                            sessionId: sessionId,
-                            messageId: messageId,
-                            requestId: requestId,
-                            timestampUnixMs: Int64((timestamp.timeIntervalSince1970 * 1000).rounded()),
-                            isSidechain: toBool(obj["isSidechain"]),
-                            pathRole: pathRole,
-                            input: tokens.input,
-                            cacheRead: tokens.cacheRead,
-                            cacheCreate: tokens.cacheCreate,
-                            cacheCreate1h: tokens.cacheCreate1h,
-                            output: tokens.output,
-                            costNanos: tokens.costNanos,
-                            costPriced: tokens.costPriced)
-
-                        // Streaming chunks share message.id + requestId inside a file.
-                        // Keep overwriting so the final cumulative chunk wins.
-                        if let messageId, let requestId {
-                            let key = "\(messageId):\(requestId)"
+                        if let key = Self.claudeRowKey(row) {
                             keyedRows[key] = row
                         } else {
                             // Older logs omit IDs; treat each line as distinct to avoid dropping usage.
@@ -224,36 +145,99 @@ extension CostUsageScanner {
         return ClaudeParseResult(rows: rows, parsedBytes: parsedBytes)
     }
 
+    private static func claudeRow(
+        from obj: [String: Any],
+        pathRole: ClaudePathRole,
+        range: CostUsageDayRange,
+        providerFilter: ClaudeLogProviderFilter,
+        modelsDevCatalog: ModelsDevCatalog?) -> ClaudeUsageRow?
+    {
+        guard obj["type"] as? String == "assistant",
+              self.matchesClaudeProviderFilter(obj: obj, filter: providerFilter),
+              let tsText = obj["timestamp"] as? String,
+              let timestamp = dateFromTimestamp(tsText),
+              let dayKey = dayKeyFromTimestamp(tsText) ?? dayKeyFromParsedISO(tsText),
+              let message = obj["message"] as? [String: Any],
+              let model = message["model"] as? String,
+              let usage = message["usage"] as? [String: Any]
+        else { return nil }
+
+        let input = CostUsageMath.tokenCount(usage["input_tokens"])
+        let cacheCreate = CostUsageMath.tokenCount(usage["cache_creation_input_tokens"])
+        let cacheCreate1h = Self.claudeOneHourCacheCreationTokens(usage: usage, total: cacheCreate)
+        let cacheRead = CostUsageMath.tokenCount(usage["cache_read_input_tokens"])
+        let output = CostUsageMath.tokenCount(usage["output_tokens"])
+        if input == 0, cacheCreate == 0, cacheRead == 0, output == 0 { return nil }
+        // Proxies can log a cache-unaware estimate before the response ends; the final row replaces it.
+        let isPreliminaryProxyRow = message["stop_reason"] is NSNull && input > 0 && output == 0
+            && usage["cache_read_input_tokens"] == nil && usage["cache_creation_input_tokens"] == nil
+        if isPreliminaryProxyRow { return nil }
+        guard CostUsageDayRange.isInRange(dayKey: dayKey, since: range.scanSinceKey, until: range.scanUntilKey)
+        else { return nil }
+
+        let isFast = usage["speed"] as? String == "fast"
+        let cost = CostUsagePricing.claudeCostUSD(
+            model: model,
+            inputTokens: input,
+            cacheReadInputTokens: cacheRead,
+            cacheCreationInputTokens: cacheCreate,
+            cacheCreationInputTokens1h: cacheCreate1h,
+            outputTokens: output,
+            pricingDate: timestamp,
+            isFast: isFast,
+            modelsDevCatalog: modelsDevCatalog)
+        let costNanos = cost.flatMap(CostUsageMath.nanos(fromUSD:))
+        let sessionId = obj["sessionId"] as? String
+            ?? obj["session_id"] as? String
+            ?? (obj["metadata"] as? [String: Any])?["sessionId"] as? String
+            ?? (message["metadata"] as? [String: Any])?["sessionId"] as? String
+        let isSidechain = (obj["isSidechain"] as? Bool) ?? (obj["isSidechain"] as? NSNumber)?.boolValue ?? false
+
+        return ClaudeUsageRow(
+            dayKey: dayKey,
+            model: CostUsagePricing.normalizeClaudeModel(model),
+            sessionId: sessionId,
+            messageId: message["id"] as? String,
+            requestId: obj["requestId"] as? String,
+            timestampUnixMs: Int64((timestamp.timeIntervalSince1970 * 1000).rounded()),
+            isSidechain: isSidechain,
+            pathRole: pathRole,
+            input: input,
+            cacheRead: cacheRead,
+            cacheCreate: cacheCreate,
+            cacheCreate1h: cacheCreate1h,
+            output: output,
+            costNanos: costNanos ?? 0,
+            costPriced: costNanos != nil,
+            isFast: isFast ? true : nil)
+    }
+
     private static func claudeOneHourCacheCreationTokens(usage: [String: Any], total: Int) -> Int {
         guard let cacheCreation = usage["cache_creation"] as? [String: Any] else { return 0 }
-        let tokens = (cacheCreation["ephemeral_1h_input_tokens"] as? NSNumber)?.intValue ?? 0
-        return min(total, max(0, tokens))
+        return min(total, CostUsageMath.tokenCount(cacheCreation["ephemeral_1h_input_tokens"]))
     }
 
     private static func claudePathRole(fileURL: URL) -> ClaudePathRole {
         fileURL.path.contains("/subagents/") ? .subagent : .parent
     }
 
-    private static func claudeCanonicalRowKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else {
-            return nil
+    private static func claudeRowKey(_ row: ClaudeUsageRow) -> ClaudeRowKey? {
+        guard let messageId = row.messageId, !messageId.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        if let requestId = row.requestId {
+            return .request(messageId: messageId, requestId: requestId)
         }
-        return "\(messageId):\(requestId)"
+        guard let sessionId = row.sessionId, !sessionId.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return nil }
+        return .session(sessionId: sessionId, messageId: messageId)
     }
 
     private static func mergeClaudeRows(existing: [ClaudeUsageRow], delta: [ClaudeUsageRow]) -> [ClaudeUsageRow] {
-        var keyedRows: [String: ClaudeUsageRow] = [:]
+        var keyedRows: [ClaudeRowKey: ClaudeUsageRow] = [:]
         var unkeyedRows: [ClaudeUsageRow] = []
 
-        for row in existing {
-            if let key = Self.claudeInFileKey(row) {
-                keyedRows[key] = row
-            } else {
-                unkeyedRows.append(row)
-            }
-        }
-        for row in delta {
-            if let key = Self.claudeInFileKey(row) {
+        for row in existing + delta {
+            if let key = Self.claudeRowKey(row) {
                 keyedRows[key] = row
             } else {
                 unkeyedRows.append(row)
@@ -261,11 +245,6 @@ extension CostUsageScanner {
         }
 
         return keyedRows.keys.sorted().compactMap { keyedRows[$0] } + unkeyedRows
-    }
-
-    private static func claudeInFileKey(_ row: ClaudeUsageRow) -> String? {
-        guard let messageId = row.messageId, let requestId = row.requestId else { return nil }
-        return "\(messageId):\(requestId)"
     }
 
     private static func claudeRowWins(
@@ -286,7 +265,7 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck? = nil) throws -> [ClaudeUsageRow]
     {
         var rows: [ClaudeUsageRow] = []
-        var winners: [String: (path: String, row: ClaudeUsageRow)] = [:]
+        var winners: [ClaudeRowKey: (path: String, row: ClaudeUsageRow)] = [:]
         var rowCount = 0
 
         for path in cache.files.keys.sorted() {
@@ -295,7 +274,7 @@ extension CostUsageScanner {
                 rowCount += 1
                 if rowCount & 4095 == 0 { try checkCancellation?() }
 
-                guard let canonicalKey = Self.claudeCanonicalRowKey(row) else {
+                guard let canonicalKey = Self.claudeRowKey(row) else {
                     rows.append(row)
                     continue
                 }
@@ -326,14 +305,14 @@ extension CostUsageScanner {
 
             var dayModels = days[row.dayKey] ?? [:]
             var packed = dayModels[row.model] ?? [0, 0, 0, 0, 0, 0, 0, 0]
-            packed[0] = (packed[safe: 0] ?? 0) + row.input
-            packed[1] = (packed[safe: 1] ?? 0) + row.cacheRead
-            packed[2] = (packed[safe: 2] ?? 0) + row.cacheCreate
-            packed[3] = (packed[safe: 3] ?? 0) + row.output
-            packed[4] = (packed[safe: 4] ?? 0) + row.costNanos
-            packed[5] = (packed[safe: 5] ?? 0) + 1
-            packed[6] = (packed[safe: 6] ?? 0) + ((row.costPriced ?? (row.costNanos > 0)) ? 1 : 0)
-            packed[7] = (packed[safe: 7] ?? 0) + (row.cacheCreate1h ?? 0)
+            packed[0] = CostUsageMath.add(packed[safe: 0] ?? 0, row.input)
+            packed[1] = CostUsageMath.add(packed[safe: 1] ?? 0, row.cacheRead)
+            packed[2] = CostUsageMath.add(packed[safe: 2] ?? 0, row.cacheCreate)
+            packed[3] = CostUsageMath.add(packed[safe: 3] ?? 0, row.output)
+            packed[4] = CostUsageMath.add(packed[safe: 4] ?? 0, row.costNanos)
+            packed[5] = CostUsageMath.add(packed[safe: 5] ?? 0, 1)
+            packed[6] = CostUsageMath.add(packed[safe: 6] ?? 0, (row.costPriced ?? (row.costNanos > 0)) ? 1 : 0)
+            packed[7] = CostUsageMath.add(packed[safe: 7] ?? 0, row.cacheCreate1h ?? 0)
             dayModels[row.model] = packed
             days[row.dayKey] = dayModels
         }
@@ -345,14 +324,16 @@ extension CostUsageScanner {
         mtimeMs: Int64,
         size: Int64,
         rows: [ClaudeUsageRow],
-        parsedBytes: Int64?) -> CostUsageFileUsage
+        parsedBytes: Int64?,
+        fileIdentifier: UInt64?) -> CostUsageFileUsage
     {
         makeFileUsage(
             mtimeUnixMs: mtimeMs,
             size: size,
             days: [:],
             parsedBytes: parsedBytes,
-            claudeRows: rows)
+            claudeRows: rows,
+            fileIdentifier: fileIdentifier)
     }
 
     private static let vertexProviderKeys: Set<String> = [
@@ -509,21 +490,25 @@ extension CostUsageScanner {
         url: URL,
         size: Int64,
         mtimeMs: Int64,
+        fileIdentifier: UInt64?,
         state: ClaudeScanState) throws
     {
         try state.checkCancellation?()
         let path = url.path
         state.touched.insert(path)
 
-        if let cached = state.cache.files[path],
+        let cachedFile = state.cache.files[path]
+        let replaced = cachedFile?.fileIdentifier.map { $0 != fileIdentifier } ?? false
+        if let cached = cachedFile,
            cached.mtimeUnixMs == mtimeMs,
            cached.size == size,
+           !replaced,
            !state.forceFullScan
         {
             return
         }
 
-        if let cached = state.cache.files[path], !state.forceFullScan {
+        if let cached = cachedFile, !replaced, !state.forceFullScan {
             let startOffset = cached.parsedBytes ?? cached.size
             let canIncremental = size > cached.size && startOffset > 0 && startOffset <= size
                 && cached.claudeRows != nil
@@ -540,7 +525,8 @@ extension CostUsageScanner {
                     mtimeMs: mtimeMs,
                     size: size,
                     rows: mergedRows,
-                    parsedBytes: delta.parsedBytes)
+                    parsedBytes: delta.parsedBytes,
+                    fileIdentifier: fileIdentifier)
                 return
             }
         }
@@ -555,7 +541,8 @@ extension CostUsageScanner {
             mtimeMs: mtimeMs,
             size: size,
             rows: parsed.rows,
-            parsedBytes: parsed.parsedBytes)
+            parsedBytes: parsed.parsedBytes,
+            fileIdentifier: fileIdentifier)
         state.cache.files[path] = usage
     }
 
@@ -605,6 +592,7 @@ extension CostUsageScanner {
             .isRegularFileKey,
             .contentModificationDateKey,
             .fileSizeKey,
+            .fileIdentifierKey,
         ]
 
         guard let enumerator = FileManager.default.enumerator(
@@ -634,6 +622,7 @@ extension CostUsageScanner {
                 url: url,
                 size: size,
                 mtimeMs: mtimeMs,
+                fileIdentifier: values.fileIdentifier,
                 state: state)
         }
 
@@ -647,6 +636,7 @@ extension CostUsageScanner {
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
         var cache = CostUsageCacheIO.load(cacheRoot: options.cacheRoot)
+        let loadedCache = cache
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
 
         let refreshMs = Int64(max(0, options.refreshMinIntervalSeconds) * 1000)
@@ -706,7 +696,7 @@ extension CostUsageScanner {
             cache.scanUntilKey = range.scanUntilKey
             cache.lastScanUnixMs = nowMs
             try checkCancellation?()
-            CostUsageCacheIO.save(cache: cache, cacheRoot: options.cacheRoot)
+            CostUsageCacheIO.saveIfChanged(cache: cache, loaded: loadedCache, cacheRoot: options.cacheRoot)
 
             return try Self.buildClaudeReportFromCache(
                 cache: cache,
@@ -759,6 +749,7 @@ extension CostUsageScanner {
                 pricingDate: row.timestampUnixMs.map {
                     Date(timeIntervalSince1970: Double($0) / 1000)
                 },
+                isFast: row.isFast ?? false,
                 modelsDevCatalog: modelsDevCatalog)
             let cost: Double? = if isPriced, row.costNanos == 0 {
                 0
@@ -769,10 +760,18 @@ extension CostUsageScanner {
             } else {
                 nil
             }
+            if row.isFast == true {
+                aggregate.sawFast = true
+                aggregate.fastTokens.addSaturating(
+                    CostUsageMath.sum(row.input, row.cacheRead, row.cacheCreate, row.output))
+                aggregate.fastCost += cost ?? 0
+            }
             if let cost {
                 aggregate.total += cost
+                aggregate.pricedCount += 1
             } else {
-                aggregate.unresolved = true
+                aggregate.unpricedTokens.addSaturating(
+                    CostUsageMath.sum(row.input, row.cacheRead, row.cacheCreate, row.output))
             }
             repricedCosts[key] = aggregate
         }
@@ -793,6 +792,7 @@ extension CostUsageScanner {
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
             var dayCostSeen = false
+            var dayUnpricedTokens = 0
 
             for model in modelNames {
                 let packed = models[model] ?? [0, 0, 0, 0]
@@ -801,38 +801,41 @@ extension CostUsageScanner {
                 let cacheCreate = packed[safe: 2] ?? 0
                 let output = packed[safe: 3] ?? 0
                 let sampleCount = packed[safe: 5] ?? 0
-                let totalTokens = input + cacheRead + cacheCreate + output
+                let totalTokens = CostUsageMath.sum(input, cacheRead, cacheCreate, output)
 
                 // Cache tokens are tracked separately; totalTokens includes input + cache.
-                dayInput += input
-                dayCacheRead += cacheRead
-                dayCacheCreate += cacheCreate
-                dayOutput += output
+                dayInput.addSaturating(input)
+                dayCacheRead.addSaturating(cacheRead)
+                dayCacheCreate.addSaturating(cacheCreate)
+                dayOutput.addSaturating(output)
 
-                let repricedCost = repricedCosts[ClaudeDayModelKey(day: day, model: model)]
-                let currentPricingCost: Double? = if let repricedCost,
-                                                     repricedCost.sampleCount == sampleCount,
-                                                     !repricedCost.unresolved
-                {
-                    repricedCost.total
-                } else {
-                    nil
-                }
-                let cost = currentPricingCost
+                // A row-count mismatch means the day aggregate and rows disagree; price nothing rather than guess.
+                let repriced = repricedCosts[ClaudeDayModelKey(day: day, model: model)]
+                    .flatMap { $0.sampleCount == sampleCount ? $0 : nil }
+                let cost = repriced.flatMap { $0.pricedCount > 0 ? $0.total : nil }
+                let unpricedTokens = repriced?.unpricedTokens ?? totalTokens
+                // Split Std/Fast only when every turn has a price; otherwise the "no price" row says it.
+                let fast = repriced.flatMap { $0.sawFast && $0.unpricedTokens == 0 ? $0 : nil }
                 breakdown.append(
                     CostUsageDailyReport.ModelBreakdown(
                         modelName: model,
                         costUSD: cost,
-                        totalTokens: totalTokens))
+                        totalTokens: totalTokens,
+                        standardCostUSD: fast.map { $0.total - $0.fastCost },
+                        priorityCostUSD: fast?.fastCost,
+                        standardTokens: fast.map { max(0, totalTokens - $0.fastTokens) },
+                        priorityTokens: fast?.fastTokens,
+                        unpricedTokens: unpricedTokens))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
                 }
+                dayUnpricedTokens.addSaturating(unpricedTokens)
             }
 
             let sortedBreakdown = Self.sortedModelBreakdowns(breakdown)
 
-            let dayTotal = dayInput + dayCacheRead + dayCacheCreate + dayOutput
+            let dayTotal = CostUsageMath.sum(dayInput, dayCacheRead, dayCacheCreate, dayOutput)
             let entryCost = dayCostSeen ? dayCost : nil
             entries.append(CostUsageDailyReport.Entry(
                 date: day,
@@ -843,13 +846,14 @@ extension CostUsageScanner {
                 totalTokens: dayTotal,
                 costUSD: entryCost,
                 modelsUsed: modelNames,
-                modelBreakdowns: sortedBreakdown))
+                modelBreakdowns: sortedBreakdown,
+                unpricedTokens: dayUnpricedTokens))
 
-            totalInput += dayInput
-            totalOutput += dayOutput
-            totalCacheRead += dayCacheRead
-            totalCacheCreate += dayCacheCreate
-            totalTokens += dayTotal
+            totalInput.addSaturating(dayInput)
+            totalOutput.addSaturating(dayOutput)
+            totalCacheRead.addSaturating(dayCacheRead)
+            totalCacheCreate.addSaturating(dayCacheCreate)
+            totalTokens.addSaturating(dayTotal)
             if let entryCost {
                 totalCost += entryCost
                 costSeen = true

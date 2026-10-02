@@ -206,10 +206,8 @@ struct QuotaTransitionMachine {
         return snapshot.primary
     }
 
-    /// Legacy `isSessionWindow`: unknown duration counts as session; ≤ 6h counts as session.
     private static func isSessionWindow(_ window: RateWindow) -> Bool {
-        guard let minutes = window.windowMinutes else { return true }
-        return minutes <= 6 * 60
+        window.isSessionScale
     }
 
     private mutating func processSessionDepletion(
@@ -261,13 +259,15 @@ struct QuotaTransitionMachine {
         // advances nor clears), unlike the per-window toggles below which clear state.
         guard configuration.quotaWarningNotificationsEnabled else { return }
 
-        let sessionRateWindow = snapshot.primaryWindowKind == .usage ? snapshot.primary : nil
-        self.processWarningWindow(
-            window: .session,
-            rateWindow: sessionRateWindow,
-            configuration: configuration,
-            state: &self.sessionWarning,
-            into: &crossings)
+        // Weekly standing in for a missing session warns on the weekly lane only; session history is kept.
+        if snapshot.primaryWindowKind != .usage || Self.isSessionWindow(snapshot.primary) {
+            self.processWarningWindow(
+                window: .session,
+                rateWindow: Self.sessionRateWindow(of: snapshot),
+                configuration: configuration,
+                state: &self.sessionWarning,
+                into: &crossings)
+        }
         self.processWarningWindow(
             window: .weekly,
             rateWindow: snapshot.secondary,

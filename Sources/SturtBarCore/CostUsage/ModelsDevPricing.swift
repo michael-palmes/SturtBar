@@ -3,15 +3,8 @@ import Foundation
 import FoundationNetworking
 #endif
 
-// models.dev pricing catalog — fetch, cache, and lookup.
-//
-// What changed vs legacy:
-//   - Cache root: ~/Library/Caches/SturtBar (with read-only legacy
-//     ~/Library/Caches/CodexBar fallback for migration compatibility).
-//   - Transport URL unchanged (https://models.dev/api.json).
-//   - Catalog machinery kept generic so models.dev API responses (which
-//     include all providers) decode cleanly; non-Claude provider entries
-//     are retained in the catalog but not looked up by SturtBar's cost paths.
+// models.dev pricing catalog: fetch (https://models.dev/api.json), cache under
+// ~/Library/Caches/SturtBar, and lookup. Only the anthropic and openai providers are kept.
 
 struct ModelsDevPricingInfo: Codable, Equatable {
     var providerID: String
@@ -78,17 +71,13 @@ struct ModelsDevCatalog: Codable, Equatable {
         return self.providers[providerID]?.pricing(modelID: rawModelID)
     }
 
-    func containsProviderIDs(_ providerIDs: some Sequence<String>) -> Bool {
-        providerIDs.allSatisfy { self.providers.keys.contains(ModelsDevProvider.normalizeProviderID($0)) }
+    func retaining(providerIDs: Set<String>) -> ModelsDevCatalog {
+        ModelsDevCatalog(providers: self.providers.filter { providerIDs.contains($0.key) })
     }
 
-    func containsProviderModels(from cachedCatalog: ModelsDevCatalog) -> Bool {
-        cachedCatalog.providers.allSatisfy { providerID, cachedProvider in
-            guard let provider = self.providers[ModelsDevProvider.normalizeProviderID(providerID)] else { return false }
-            return cachedProvider.models.values
-                .filter(\.isPriceable)
-                .allSatisfy { provider.containsModel(matching: $0) }
-        }
+    func hasPricedModels(providerID: String) -> Bool {
+        self.providers[ModelsDevProvider.normalizeProviderID(providerID)]?.models.values
+            .contains(where: \.isPriceable) ?? false
     }
 }
 
@@ -170,10 +159,6 @@ struct ModelsDevProvider: Codable, Equatable {
         }
 
         return nil
-    }
-
-    func containsModel(matching cachedModel: ModelsDevModel) -> Bool {
-        self.pricing(modelID: cachedModel.id) != nil
     }
 }
 
@@ -263,7 +248,10 @@ enum ModelsDevModelIDNormalizer {
             candidates.append(normalized)
         }
 
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let contextTag = trimmed.range(of: #"\[\d+[a-z]\]$"#, options: .regularExpression) {
+            trimmed.removeSubrange(contextTag)
+        }
         append(trimmed)
 
         if trimmed.hasPrefix("openai/") {
@@ -318,8 +306,9 @@ enum ModelsDevModelIDNormalizer {
 
 struct ModelsDevCacheArtifact: Codable, Equatable {
     var version: Int
-    var fetchedAt: Date
-    var catalog: ModelsDevCatalog
+    var fetchedAt: Date?
+    var lastAttemptAt: Date?
+    var catalog: ModelsDevCatalog?
 }
 
 struct ModelsDevCacheLoadResult: Equatable {
@@ -384,7 +373,7 @@ enum ModelsDevCache {
         case invalidJSON
     }
 
-    static let artifactVersion = 1
+    static let artifactVersion = 2
     static let ttlSeconds: TimeInterval = 24 * 60 * 60
 
     private static let memo = ModelsDevCacheMemo()
@@ -398,29 +387,16 @@ enum ModelsDevCache {
         return (modificationDate, size)
     }
 
-    /// Primary cache root: ~/Library/Caches/SturtBar (matching CostUsageCache's root convention).
-    /// Falls back to reading the legacy CodexBar cache location for migration compatibility.
     private static func defaultCacheRoot() -> URL {
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return root.appendingPathComponent("SturtBar", isDirectory: true)
     }
 
-    private static func legacyCacheRoot() -> URL {
-        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return root.appendingPathComponent("CodexBar", isDirectory: true)
-    }
-
-    static func cacheFileURL(cacheRoot: URL? = nil) -> URL {
+    static func cacheFileURL(cacheRoot: URL? = nil, version: Int = Self.artifactVersion) -> URL {
         let root = cacheRoot ?? self.defaultCacheRoot()
         return root
             .appendingPathComponent("model-pricing", isDirectory: true)
-            .appendingPathComponent("models-dev-v\(Self.artifactVersion).json", isDirectory: false)
-    }
-
-    private static func legacyCacheFileURL() -> URL {
-        self.legacyCacheRoot()
-            .appendingPathComponent("model-pricing", isDirectory: true)
-            .appendingPathComponent("models-dev-v\(self.artifactVersion).json", isDirectory: false)
+            .appendingPathComponent("models-dev-v\(version).json", isDirectory: false)
     }
 
     static func load(now: Date = Date(), cacheRoot: URL? = nil) -> ModelsDevCacheLoadResult {
@@ -437,30 +413,6 @@ enum ModelsDevCache {
         }
 
         let outcome = Self.readOutcome(at: url)
-
-        // If the primary path had no file (unreadable), try the legacy CodexBar path for migration compat.
-        // Only fall back on unreadable (missing), not on JSON or version errors — those should be surfaced.
-        if case let .failure(err) = outcome, err == .unreadable, cacheRoot == nil {
-            let legacyURL = self.legacyCacheFileURL()
-            if legacyURL.path != url.path {
-                let legacyMeta = Self.fileMetadata(at: legacyURL)
-                if let legacyOutcome = Self.memo.outcome(
-                    path: legacyURL.path,
-                    modificationDate: legacyMeta.modificationDate,
-                    size: legacyMeta.size)
-                {
-                    return Self.result(for: legacyOutcome, now: now)
-                }
-                let legacyOutcome = Self.readOutcome(at: legacyURL)
-                Self.memo.store(
-                    path: legacyURL.path,
-                    modificationDate: legacyMeta.modificationDate,
-                    size: legacyMeta.size,
-                    outcome: legacyOutcome)
-                return Self.result(for: legacyOutcome, now: now)
-            }
-        }
-
         Self.memo.store(
             path: url.path,
             modificationDate: metadata.modificationDate,
@@ -490,7 +442,8 @@ enum ModelsDevCache {
         case let .decoded(artifact):
             ModelsDevCacheLoadResult(
                 artifact: artifact,
-                isStale: now.timeIntervalSince(artifact.fetchedAt) > Self.ttlSeconds,
+                isStale: artifact.catalog == nil
+                    || artifact.fetchedAt.map { now.timeIntervalSince($0) > Self.ttlSeconds } ?? true,
                 error: nil)
         case let .failure(error):
             ModelsDevCacheLoadResult(artifact: nil, isStale: true, error: error)
@@ -501,7 +454,16 @@ enum ModelsDevCache {
         let artifact = ModelsDevCacheArtifact(
             version: Self.artifactVersion,
             fetchedAt: fetchedAt,
+            lastAttemptAt: fetchedAt,
             catalog: catalog)
+        self.save(artifact: artifact, cacheRoot: cacheRoot)
+    }
+
+    /// Stamps a fetch attempt before any network call, keeping whatever catalog is already cached.
+    static func recordAttempt(at date: Date, cacheRoot: URL? = nil) {
+        var artifact = self.load(now: date, cacheRoot: cacheRoot).artifact
+            ?? ModelsDevCacheArtifact(version: Self.artifactVersion)
+        artifact.lastAttemptAt = date
         self.save(artifact: artifact, cacheRoot: cacheRoot)
     }
 
@@ -524,6 +486,7 @@ enum ModelsDevCache {
             }
             // The on-disk catalog changed; drop the memo so the next load decodes the fresh file.
             Self.memo.invalidate(path: url.path)
+            try? FileManager.default.removeItem(at: self.cacheFileURL(cacheRoot: cacheRoot, version: 1))
         } catch {
             try? FileManager.default.removeItem(at: tmp)
         }
@@ -584,28 +547,75 @@ enum ModelsDevPricingPipeline {
     {
         ModelsDevCache.load(now: now, cacheRoot: cacheRoot)
             .artifact?
-            .catalog
+            .catalog?
             .pricing(providerID: providerID, modelID: modelID)
     }
 
+    static let retainedProviderIDs: Set<String> = [
+        CostUsagePricing.claudeModelsDevProviderID,
+        CostUsagePricing.codexModelsDevProviderID,
+    ]
+    static let attemptBackoffSeconds: TimeInterval = 24 * 60 * 60
+    static let eagerAttemptBackoffSeconds: TimeInterval = 6 * 60 * 60
+
+    /// `eager` (a scan met a model no table lists) fetches even a fresh catalog, at most every 6h.
     static func refreshIfNeeded(
         now: Date = Date(),
         cacheRoot: URL? = nil,
+        eager: Bool = false,
         client: ModelsDevClient = ModelsDevClient()) async
     {
-        let load = ModelsDevCache.load(now: now, cacheRoot: cacheRoot)
-        guard load.isStale else { return }
-
-        do {
-            let catalog = try await client.fetchCatalog()
-            if let oldCatalog = load.artifact?.catalog,
-               !catalog.containsProviderModels(from: oldCatalog)
-            {
-                return
-            }
-            ModelsDevCache.save(catalog: catalog, fetchedAt: now, cacheRoot: cacheRoot)
-        } catch {
-            // Best-effort refresh only. Keep using the last valid cache on failure.
+        let key = ModelsDevCache.cacheFileURL(cacheRoot: cacheRoot).path
+        await ModelsDevRefreshCoordinator.shared.run(key: key, eager: eager) { eager in
+            await Self.refreshNow(now: now, cacheRoot: cacheRoot, eager: eager, client: client)
         }
+    }
+
+    private static func refreshNow(now: Date, cacheRoot: URL?, eager: Bool, client: ModelsDevClient) async {
+        let load = ModelsDevCache.load(now: now, cacheRoot: cacheRoot)
+        guard eager || load.isStale else { return }
+        let backoff = eager ? Self.eagerAttemptBackoffSeconds : Self.attemptBackoffSeconds
+        if let lastAttempt = load.artifact?.lastAttemptAt,
+           now >= lastAttempt,
+           now.timeIntervalSince(lastAttempt) < backoff
+        {
+            return
+        }
+
+        ModelsDevCache.recordAttempt(at: now, cacheRoot: cacheRoot)
+        guard let fetched = try? await client.fetchCatalog() else { return }
+        let catalog = fetched.retaining(providerIDs: Self.retainedProviderIDs)
+        guard Self.retainedProviderIDs.allSatisfy(catalog.hasPricedModels(providerID:)) else { return }
+        ModelsDevCache.save(catalog: catalog, fetchedAt: now, cacheRoot: cacheRoot)
+    }
+}
+
+/// Joins concurrent refreshes of the same cache file, so the Claude and Codex scans fetch once.
+/// An eager request that joins a normal refresh runs again afterwards, so it is never dropped.
+actor ModelsDevRefreshCoordinator {
+    static let shared = ModelsDevRefreshCoordinator()
+
+    private struct Flight {
+        let id: UUID
+        let eager: Bool
+        let task: Task<Void, Never>
+    }
+
+    private var inFlight: [String: Flight] = [:]
+
+    func run(key: String, eager: Bool, _ operation: @escaping @Sendable (Bool) async -> Void) async {
+        while let existing = self.inFlight[key] {
+            await existing.task.value
+            self.finish(key: key, id: existing.id)
+            if !eager || existing.eager { return }
+        }
+        let flight = Flight(id: UUID(), eager: eager, task: Task { await operation(eager) })
+        self.inFlight[key] = flight
+        await flight.task.value
+        self.finish(key: key, id: flight.id)
+    }
+
+    private func finish(key: String, id: UUID) {
+        if self.inFlight[key]?.id == id { self.inFlight[key] = nil }
     }
 }

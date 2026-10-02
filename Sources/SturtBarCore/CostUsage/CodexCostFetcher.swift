@@ -23,9 +23,9 @@ public struct CodexCostFetcher: Sendable {
 
     /// Refreshes the shared models.dev pricing catalog if the cached copy is stale.
     /// Offline/no-op safe; never throws.
-    public func refreshPricingCatalogIfNeeded(now: Date = Date()) async {
+    public func refreshPricingCatalogIfNeeded(now: Date = Date(), eager: Bool = false) async {
         let cacheRoot = self.scannerOptions?.cacheRoot
-        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot)
+        await ModelsDevPricingPipeline.refreshIfNeeded(now: now, cacheRoot: cacheRoot, eager: eager)
     }
 
     /// Loads a Codex token-usage snapshot for the rolling history window ending at `now`.
