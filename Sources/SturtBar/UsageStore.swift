@@ -253,8 +253,16 @@ final class UsageStore {
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var postSignInRecheckTask: Task<Void, Never>?
+    @ObservationIgnored private var credentialWatchTask: Task<Void, Never>?
     /// Post-sign-in recheck cadence; injectable for tests.
     @ObservationIgnored var postSignInRecheckDelays: [TimeInterval] = [20, 60, 180]
+    /// Post-wake credential watch: probe gap and probe count; injectable for tests.
+    @ObservationIgnored var credentialWatchTiming: (interval: TimeInterval, probes: Int) = (1, 60)
+    /// No-prompt, attributes-only fingerprint of Claude Code's sign-in; injectable for tests.
+    @ObservationIgnored var claudeAuthFingerprint: @Sendable () -> String = {
+        ClaudeOAuthCredentialsStore.authFingerprintToken()
+    }
+
     // Reset-boundary refresh state (UsageStore+ResetBoundaryRefresh.swift); timing is injectable for tests.
     @ObservationIgnored var resetBoundaryTask: Task<Void, Never>?
     @ObservationIgnored var scheduledResetBoundaryAt: Date?
@@ -336,6 +344,27 @@ final class UsageStore {
                 guard !Task.isCancelled, let self else { return }
                 guard self.settings.claudeProviderEnabled else { return }
                 if self.auth == .ok { return }
+                await self.refresh(trigger: .manual)
+            }
+        }
+    }
+
+    /// Wake fast path: refreshes as soon as Claude Code rewrites its sign-in, ahead of the timed recheck.
+    func beginPostWakeRecheck() {
+        self.beginPostSignInRecheck()
+        self.credentialWatchTask?.cancel()
+        let probe = self.claudeAuthFingerprint
+        let timing = self.credentialWatchTiming
+        self.credentialWatchTask = Task { [weak self] in
+            // Keychain probes stay off the MainActor.
+            var baseline = await Task.detached(priority: .utility) { probe() }.value
+            for _ in 0..<timing.probes {
+                try? await Task.sleep(for: .seconds(timing.interval))
+                guard !Task.isCancelled, let self else { return }
+                guard self.settings.claudeProviderEnabled, self.auth != .ok else { return }
+                let current = await Task.detached(priority: .utility) { probe() }.value
+                guard current != baseline else { continue }
+                baseline = current
                 await self.refresh(trigger: .manual)
             }
         }
@@ -640,6 +669,7 @@ final class UsageStore {
         case (.claude, false):
             self.refreshTask?.cancel()
             self.postSignInRecheckTask?.cancel()
+            self.credentialWatchTask?.cancel()
             let client = self.client
             Task { await client.cancelInFlight() }
             self.usage = nil

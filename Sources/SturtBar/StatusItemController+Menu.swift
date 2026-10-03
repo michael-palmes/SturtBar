@@ -402,8 +402,8 @@ extension StatusItemController {
             }
         case .openClaudeCode:
             if self.signInLauncher.launch(.claudeRenew) {
-                // Claude Code renews its token once it starts; recheck so the card clears on its own.
-                self.store.beginPostSignInRecheck()
+                // Claude Code renews its token once it starts; watch for it so the card clears at once.
+                self.store.beginPostWakeRecheck()
             }
         case .claudeKeychainRetry:
             if self.settings.claudeKeychainPromptsEnabled {
