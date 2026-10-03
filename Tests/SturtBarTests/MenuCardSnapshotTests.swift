@@ -81,6 +81,7 @@ struct MenuCardSnapshotTests {
             ("expired", .needsReauth(message: "OAuth token refresh was rejected.", remedy: .signIn), staleSnapshot),
             ("keychain", .needsReauth(message: "Keychain read blocked.", remedy: .keychainAccess), staleSnapshot),
             ("missing", .credentialsMissing, nil),
+            ("waiting", .awaitingClaudeCode, staleSnapshot),
         ]
         for state in states {
             var input = UsageMenuCardView.Model.Input(now: now)
