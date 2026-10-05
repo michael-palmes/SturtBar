@@ -2,6 +2,11 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.4.1
+
+- When Claude Code's sign-in has only expired, the card now shows a "Wake Claude Code CLI" button instead of a grey footnote. It opens `claude` in your terminal straight away, with no countdown, and SturtBar then checks Claude Code's Keychain item once a second for up to a minute, so the card clears as soon as the sign-in renews. The check reads only the item's attributes, never its secret, and never prompts.
+- Cost estimates cover Codex gpt-6-sol, gpt-6.1-sol and gpt-6-luna at OpenAI's published rates, including the long-context rate above 272K input tokens. Before, they were priced only from the models.dev catalogue, at base rates.
+
 ## 1.4.0
 
 - Built with Xcode 27 and the macOS 27 SDK (still runs on macOS 26), so the Settings pickers work on macOS 27. The packaging script now refuses a release binary that does not record the macOS 27 SDK, since SwiftPM's default build system could silently record the older one.
