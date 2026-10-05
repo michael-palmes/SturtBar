@@ -298,12 +298,11 @@ struct UsageMenuCardView: View {
                 }
             }
 
-            /// The Claude auth states render this fixed-shape block instead of the strip: warning
-            /// title, one-line explanation, a sign-in button, and (keychain remedy only) the
+            /// The Claude auth states render this fixed-shape block instead of the strip: title,
+            /// one-line explanation, a terminal button, and (keychain remedy only) the
             /// subordinate fallback line. Sign-in via `claude /login` is always the primary
             /// remedy; asking for Keychain access is strictly last-ditch.
             struct Banner: Equatable {
-                static let buttonTitle = "Sign in to Claude Code"
                 static let buttonSymbolName = "apple.terminal"
                 static let fallbackPrefix = "Still not working? "
                 static let fallbackLinkText = "Allow Keychain access"
@@ -314,6 +313,22 @@ struct UsageMenuCardView: View {
                 let showsKeychainFallback: Bool
                 /// Error detail from the fetch failure, surfaced as the banner tooltip.
                 let helpText: String?
+                /// Waiting on Claude Code: calm styling and a wake button in place of sign-in.
+                var isWaiting = false
+
+                var buttonTitle: String {
+                    self.isWaiting ? "Wake Claude Code CLI" : "Sign in to Claude Code"
+                }
+
+                var buttonAction: Action {
+                    self.isWaiting ? .openClaudeCode : .claudeSignIn
+                }
+
+                var buttonHelp: String {
+                    self.isWaiting
+                        ? "Opens your terminal running claude so it renews its sign-in."
+                        : "Opens your terminal running claude /login to sign in."
+                }
             }
 
             /// Non-nil for the Claude auth states; the card renders the banner in the status slot.
@@ -338,6 +353,13 @@ struct UsageMenuCardView: View {
                         body: "Sign in again to reconnect.",
                         showsKeychainFallback: true,
                         helpText: detail)
+                case .awaitingClaudeCode:
+                    Banner(
+                        title: "Waiting for Claude Code",
+                        body: "Its sign-in renews when it next runs.",
+                        showsKeychainFallback: false,
+                        helpText: "Claude's sign-in token has expired. Claude Code renews it when it next runs.",
+                        isWaiting: true)
                 default:
                     nil
                 }
@@ -598,12 +620,20 @@ private struct UsageMenuCardReauthBannerView: View {
 
     let banner: UsageMenuCardView.Model.StatusLine.Banner
     let onAction: ((UsageMenuCardView.Model.StatusLine.Action) -> Void)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Waiting is calm (BRAND.md §4.7), so the card stays neutral and only the button carries the lamp.
+    private var tint: Color {
+        self.banner.isWaiting ? .primary.opacity(0.4) : Self.lamp
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(Self.lamp)
+                if !self.banner.isWaiting {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Self.lamp)
+                }
                 Text(self.banner.title)
                     .fontWeight(.semibold)
             }
@@ -611,7 +641,7 @@ private struct UsageMenuCardReauthBannerView: View {
             Text(self.banner.body)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            self.signInButton
+            self.actionButton
             if self.banner.showsKeychainFallback {
                 self.fallbackLine
             }
@@ -619,16 +649,20 @@ private struct UsageMenuCardReauthBannerView: View {
         .lineLimit(1)
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Self.lamp.opacity(0.1)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Self.lamp.opacity(0.25)))
+        .background(RoundedRectangle(cornerRadius: 8).fill(self.tint.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(self.tint.opacity(0.25)))
         .padding(.vertical, 4)
         .help(self.banner.helpText ?? "")
     }
 
-    private var signInButton: some View {
+    private var actionButton: some View {
         HStack(spacing: 6) {
             Image(systemName: Banner.buttonSymbolName)
-            Text(Banner.buttonTitle)
+                .symbolEffect(
+                    .breathe.pulse,
+                    options: .repeat(.continuous),
+                    isActive: self.banner.isWaiting && !self.reduceMotion)
+            Text(self.banner.buttonTitle)
                 .fontWeight(.semibold)
         }
         .font(.callout)
@@ -638,12 +672,12 @@ private struct UsageMenuCardReauthBannerView: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Self.lamp))
         .overlay {
             if let onAction = self.onAction {
-                ClickToLaunchOverlay { onAction(.claudeSignIn) }
+                ClickToLaunchOverlay { onAction(self.banner.buttonAction) }
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .help("Opens your terminal running claude /login to sign in.")
+        .help(self.banner.buttonHelp)
     }
 
     private var fallbackLine: some View {
