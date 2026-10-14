@@ -24,6 +24,7 @@ struct CostUsageClaudeFastModeTests {
     @Test
     func `fast mode without a published rate stays unpriced`() {
         #expect(Self.cost("claude-fable-5-1", isFast: true) == nil)
+        #expect(Self.cost("claude-mythos-5-1", isFast: true) == nil)
         #expect(Self.cost("claude-mystery-9", isFast: true) == nil)
     }
 

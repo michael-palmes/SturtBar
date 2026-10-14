@@ -438,6 +438,25 @@ struct ClaudeOAuthUsageMappingTests {
     }
 
     @Test
+    func `a mythos scoped entry gets its own row and leaves fable untouched`() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 10, "resets_at": "2026-07-02T03:30:00.827231+00:00" },
+          "limits": [
+            { "kind": "weekly_scoped", "percent": 40,
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null } },
+            { "kind": "weekly_scoped", "percent": 15,
+              "scope": { "model": { "id": null, "display_name": "Mythos" }, "surface": null } }
+          ]
+        }
+        """
+        let snap = try ClaudeUsageService._mapOAuthUsageForTesting(Data(json.utf8))
+        #expect(snap.modelWeeklyWindows.map(\.id) == ["model-weekly-fable", "model-weekly-mythos"])
+        #expect(snap.modelWeeklyWindows.map(\.title) == ["Fable", "Mythos"])
+        #expect(snap.modelWeeklyWindows.map(\.window.usedPercent) == [40, 15])
+    }
+
+    @Test
     func `scoped sonnet row supersedes the legacy sonnet slot`() throws {
         let json = """
         {

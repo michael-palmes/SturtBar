@@ -19,6 +19,8 @@ struct CostUsagePricingTableTests {
         return [
             "claude-fable-5": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
             "claude-fable-5-1": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
+            "claude-mythos-5": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
+            "claude-mythos-5-1": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
             "claude-opus-5": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
             "claude-opus-5-5": Rates(input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2),
             "claude-opus-4-8": opus45To48,
@@ -29,11 +31,13 @@ struct CostUsagePricingTableTests {
             "claude-opus-4-5-20251101": opus45To48,
             "claude-opus-4-1": opus4,
             "claude-opus-4-20250514": opus4,
+            "claude-sonnet-5-5": Rates(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1),
             "claude-sonnet-5": Rates(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),
             "claude-sonnet-4-6": sonnet4,
             "claude-sonnet-4-5": sonnet4,
             "claude-sonnet-4-5-20250929": sonnet4,
             "claude-sonnet-4-20250514": sonnet4,
+            "claude-haiku-5-5": Rates(input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01),
             "claude-haiku-4-5": haiku45,
             "claude-haiku-4-5-20251001": haiku45,
         ]
@@ -60,7 +64,11 @@ struct CostUsagePricingTableTests {
 
     @Test
     func `current claude models carry no long context tier`() {
-        for model in ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5"] {
+        let models = [
+            "claude-fable-5-1", "claude-fable-5", "claude-mythos-5-1", "claude-mythos-5",
+            "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5",
+        ]
+        for model in models {
             #expect(CostUsagePricing.claudeTable[model]?.thresholdTokens == nil, "\(model)")
         }
     }
@@ -93,8 +101,54 @@ struct CostUsagePricingTableTests {
     }
 
     @Test
+    func `mythos is priced as its fable counterpart`() {
+        func cost(_ model: String) -> Double? {
+            CostUsagePricing.claudeCostUSD(
+                model: model,
+                inputTokens: 1_000_000,
+                cacheReadInputTokens: 1_000_000,
+                cacheCreationInputTokens: 2_000_000,
+                cacheCreationInputTokens1h: 1_000_000,
+                outputTokens: 1_000_000)
+        }
+        #expect(Self.isClose(cost("claude-mythos-5-1"), 10 + 0.25 + 12.5 + 20 + 50))
+        #expect(Self.isClose(cost("claude-mythos-5"), 10 + 1 + 12.5 + 20 + 50))
+        #expect(cost("claude-mythos-5-1") == cost("claude-fable-5-1"))
+        #expect(cost("claude-mythos-5") == cost("claude-fable-5"))
+        #expect(Self.isClose(cost("anthropic.claude-mythos-5-1"), 10 + 0.25 + 12.5 + 20 + 50))
+    }
+
+    @Test
+    func `haiku 5 5 prices prompts over 100k at the higher tier`() {
+        func cost(input: Int, cacheRead: Int = 0, cacheWrite: Int = 0, cacheWrite1h: Int = 0, output: Int = 0)
+            -> Double?
+        {
+            CostUsagePricing.claudeCostUSD(
+                model: "claude-haiku-5-5",
+                inputTokens: input,
+                cacheReadInputTokens: cacheRead,
+                cacheCreationInputTokens: cacheWrite,
+                cacheCreationInputTokens1h: cacheWrite1h,
+                outputTokens: output)
+        }
+        let lowTier: Double = 60000 * 0.1 + 30000 * 0.01 + 10000 * 0.125 + 10000 * 0.5
+        let highTier: Double = 60001 * 0.5 + 30000 * 0.05 + 10000 * 0.625 + 20000 * 2.5
+        #expect(CostUsagePricing.claudeTable["claude-haiku-5-5"]?.thresholdTokens == 100_000)
+        let atThreshold = cost(input: 60000, cacheRead: 30000, cacheWrite: 10000, output: 10000)
+        #expect(Self.isClose(atThreshold, lowTier / 1e6))
+        let overThreshold = cost(input: 60001, cacheRead: 30000, cacheWrite: 10000, output: 20000)
+        #expect(Self.isClose(overThreshold, highTier / 1e6))
+        #expect(Self.isClose(cost(input: 0, cacheWrite: 50000, cacheWrite1h: 50000), 0.01))
+        #expect(Self.isClose(cost(input: 0, cacheWrite: 200_000, cacheWrite1h: 200_000), 0.2))
+        #expect(Self.isClose(cost(input: 1_000_000), 0.5))
+    }
+
+    @Test
     func `one hour cache writes cost twice input on current models`() {
-        let expected = ["claude-fable-5-1": 20.0, "claude-opus-5-5": 8, "claude-opus-5": 10, "claude-sonnet-5": 4]
+        let expected = [
+            "claude-fable-5-1": 20.0, "claude-opus-5-5": 8, "claude-opus-5": 10, "claude-sonnet-5-5": 4,
+            "claude-sonnet-5": 4,
+        ]
         for (model, rate) in expected {
             let cost = CostUsagePricing.claudeCostUSD(
                 model: model,
