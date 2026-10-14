@@ -316,6 +316,7 @@ struct ModelsDevPricingTests {
         #expect(!snapshot("kimi-k3").hasUnlistedModels)
         #expect(!snapshot("codex-auto-review").hasUnlistedModels)
         #expect(!snapshot("claude-opus-4-8").hasUnlistedModels)
+        #expect(!snapshot("claude-mythos-5-1").hasUnlistedModels)
         #expect(!snapshot("gpt-5.5").hasUnlistedModels)
     }
 

@@ -14,7 +14,7 @@ struct Rates {
     let output: Double
     let cacheWrite: Double
     let cacheRead: Double
-    var longContext: (threshold: Int, input: Double, output: Double, cacheRead: Double)?
+    var longContext: (threshold: Int, input: Double, output: Double, cacheWrite: Double, cacheRead: Double)?
     var fastMultiplier: Double?
 }
 
@@ -22,25 +22,29 @@ struct Rates {
 let claudeRates: [String: Rates] = [
     "claude-fable-5-1": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
     "claude-fable-5": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
+    "claude-mythos-5-1": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
+    "claude-mythos-5": Rates(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
     "claude-opus-5-5": Rates(input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2, fastMultiplier: 2),
     "claude-opus-5": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5, fastMultiplier: 2),
     "claude-opus-4-8": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5, fastMultiplier: 2),
     "claude-opus-4-7": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
     "claude-opus-4-6": Rates(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
+    "claude-sonnet-5-5": Rates(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1),
     "claude-sonnet-5": Rates(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),
     "claude-sonnet-4-6": Rates(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
+    "claude-haiku-5-5": Rates(input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01, longContext: (100_000, 0.5, 2.5, 0.625, 0.05)),
     "claude-haiku-4-5": Rates(input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1),
 ]
 
 let codexRates: [String: Rates] = [
-    "gpt-6-astra": Rates(input: 10, output: 50, cacheWrite: 0, cacheRead: 1, longContext: (272_000, 20, 75, 2)),
-    "gpt-6.1-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.1, longContext: (272_000, 4, 15, 0.2)),
-    "gpt-6-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 15, 0.4)),
-    "gpt-6-luna": Rates(input: 0.1, output: 0.5, cacheWrite: 0, cacheRead: 0.01, longContext: (272_000, 0.2, 0.75, 0.02)),
-    "gpt-5.6-sol": Rates(input: 4, output: 20, cacheWrite: 0, cacheRead: 0.4, longContext: (272_000, 8, 30, 0.8)),
-    "gpt-5.6-terra": Rates(input: 2, output: 12, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 18, 0.4)),
-    "gpt-5.6-luna": Rates(input: 0.2, output: 1.2, cacheWrite: 0, cacheRead: 0.02, longContext: (272_000, 0.4, 1.8, 0.04)),
-    "gpt-5.5": Rates(input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5, longContext: (272_000, 10, 45, 1)),
+    "gpt-6-astra": Rates(input: 10, output: 50, cacheWrite: 0, cacheRead: 1, longContext: (272_000, 20, 75, 0, 2)),
+    "gpt-6.1-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.1, longContext: (272_000, 4, 15, 0, 0.2)),
+    "gpt-6-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 15, 0, 0.4)),
+    "gpt-6-luna": Rates(input: 0.1, output: 0.5, cacheWrite: 0, cacheRead: 0.01, longContext: (272_000, 0.2, 0.75, 0, 0.02)),
+    "gpt-5.6-sol": Rates(input: 4, output: 20, cacheWrite: 0, cacheRead: 0.4, longContext: (272_000, 8, 30, 0, 0.8)),
+    "gpt-5.6-terra": Rates(input: 2, output: 12, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 18, 0, 0.4)),
+    "gpt-5.6-luna": Rates(input: 0.2, output: 1.2, cacheWrite: 0, cacheRead: 0.02, longContext: (272_000, 0.4, 1.8, 0, 0.04)),
+    "gpt-5.5": Rates(input: 5, output: 30, cacheWrite: 0, cacheRead: 0.5, longContext: (272_000, 10, 45, 0, 1)),
     "gpt-5.3-codex": Rates(input: 1.75, output: 14, cacheWrite: 0, cacheRead: 0.175),
 ]
 
@@ -205,9 +209,12 @@ func auditClaude(until: Date) -> [String: Tally] {
             let isFast = usage["speed"] as? String == "fast"
             var cost: Double?
             if let rates = claudeRates[model], !isFast || rates.fastMultiplier != nil {
-                let base = Double(input) * rates.input + Double(read) * rates.cacheRead
-                    + Double(write - oneHourWrite) * rates.cacheWrite + Double(oneHourWrite) * rates.input * 2
-                    + Double(output) * rates.output
+                let long = rates.longContext.flatMap { input + write + read > $0.threshold ? $0 : nil }
+                let inputRate = long?.input ?? rates.input
+                let base = Double(input) * inputRate + Double(read) * (long?.cacheRead ?? rates.cacheRead)
+                    + Double(write - oneHourWrite) * (long?.cacheWrite ?? rates.cacheWrite)
+                    + Double(oneHourWrite) * inputRate * 2
+                    + Double(output) * (long?.output ?? rates.output)
                 cost = base / 1_000_000 * (isFast ? rates.fastMultiplier ?? 1 : 1)
             }
             let row = (model, day, input + write + read + output, cost)

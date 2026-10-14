@@ -10,6 +10,7 @@ extension CostUsagePricing {
         let opus55 = ClaudePricing.perMillion(input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2)
         let opus45To48 = ClaudePricing.perMillion(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5)
         let opus4 = ClaudePricing.perMillion(input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5)
+        let sonnet55 = ClaudePricing.perMillion(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1)
         let sonnet5 = ClaudePricing.perMillion(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2)
         let sonnet46 = ClaudePricing.perMillion(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3)
         let sonnet4LongContext = sonnet46.withLongContext(
@@ -18,10 +19,15 @@ extension CostUsagePricing {
             output: 22.5,
             cacheWrite: 7.5,
             cacheRead: 0.6)
+        let haiku55 = ClaudePricing
+            .perMillion(input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01)
+            .withLongContext(threshold: 100_000, input: 0.5, output: 2.5, cacheWrite: 0.625, cacheRead: 0.05)
         let haiku45 = ClaudePricing.perMillion(input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1)
         return [
             "claude-fable-5": fable5,
             "claude-fable-5-1": fable51,
+            "claude-mythos-5": fable5,
+            "claude-mythos-5-1": fable51,
             "claude-opus-5": opus5,
             "claude-opus-5-5": opus55,
             "claude-opus-4-8": opus45To48,
@@ -32,11 +38,13 @@ extension CostUsagePricing {
             "claude-opus-4-5-20251101": opus45To48,
             "claude-opus-4-1": opus4,
             "claude-opus-4-20250514": opus4,
+            "claude-sonnet-5-5": sonnet55,
             "claude-sonnet-5": sonnet5,
             "claude-sonnet-4-6": sonnet46,
             "claude-sonnet-4-5": sonnet4LongContext,
             "claude-sonnet-4-5-20250929": sonnet4LongContext,
             "claude-sonnet-4-20250514": sonnet4LongContext,
+            "claude-haiku-5-5": haiku55,
             "claude-haiku-4-5": haiku45,
             "claude-haiku-4-5-20251001": haiku45,
         ]
