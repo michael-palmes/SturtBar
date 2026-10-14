@@ -181,7 +181,7 @@ struct ModelsDevModel: Codable, Equatable {
 
         // models.dev publishes USD per 1M tokens. SturtBar cost math uses USD per token.
         let unit = 1_000_000.0
-        let contextOver200K = self.cost?.contextOver200K
+        let longContext = self.cost?.longContextTier
         return ModelsDevPricingInfo(
             providerID: ModelsDevProvider.normalizeProviderID(providerID),
             providerName: providerName,
@@ -192,11 +192,11 @@ struct ModelsDevModel: Codable, Equatable {
             cacheReadInputCostPerToken: self.cost?.cacheRead.map { $0 / unit },
             cacheCreationInputCostPerToken: self.cost?.cacheWrite.map { $0 / unit },
             contextWindow: self.limit?.context,
-            thresholdTokens: contextOver200K == nil ? nil : 200_000,
-            inputCostPerTokenAboveThreshold: contextOver200K?.input.map { $0 / unit },
-            outputCostPerTokenAboveThreshold: contextOver200K?.output.map { $0 / unit },
-            cacheReadInputCostPerTokenAboveThreshold: contextOver200K?.cacheRead.map { $0 / unit },
-            cacheCreationInputCostPerTokenAboveThreshold: contextOver200K?.cacheWrite.map { $0 / unit })
+            thresholdTokens: longContext?.thresholdTokens,
+            inputCostPerTokenAboveThreshold: longContext?.cost.input.map { $0 / unit },
+            outputCostPerTokenAboveThreshold: longContext?.cost.output.map { $0 / unit },
+            cacheReadInputCostPerTokenAboveThreshold: longContext?.cost.cacheRead.map { $0 / unit },
+            cacheCreationInputCostPerTokenAboveThreshold: longContext?.cost.cacheWrite.map { $0 / unit })
     }
 }
 
@@ -205,7 +205,8 @@ struct ModelsDevCost: Codable, Equatable {
     var output: Double?
     var cacheRead: Double?
     var cacheWrite: Double?
-    var contextOver200K: ModelsDevContextOver200KCost?
+    var contextOver200K: ModelsDevTierCost?
+    var tiers: [ModelsDevTierCost]?
 
     private enum CodingKeys: String, CodingKey {
         case input
@@ -213,21 +214,50 @@ struct ModelsDevCost: Codable, Equatable {
         case cacheRead = "cache_read"
         case cacheWrite = "cache_write"
         case contextOver200K = "context_over_200k"
+        case tiers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.input = try container.decodeIfPresent(Double.self, forKey: .input)
+        self.output = try container.decodeIfPresent(Double.self, forKey: .output)
+        self.cacheRead = try container.decodeIfPresent(Double.self, forKey: .cacheRead)
+        self.cacheWrite = try container.decodeIfPresent(Double.self, forKey: .cacheWrite)
+        self.contextOver200K = try container.decodeIfPresent(ModelsDevTierCost.self, forKey: .contextOver200K)
+        // Malformed tiers fall back to the other rates instead of dropping the model.
+        self.tiers = try? container.decodeIfPresent([ModelsDevTierCost].self, forKey: .tiers)
+    }
+
+    /// The smallest context tier, else the legacy over-200K rates. Size is taken as "over N tokens".
+    var longContextTier: (thresholdTokens: Int, cost: ModelsDevTierCost)? {
+        let contextTiers = (self.tiers ?? []).compactMap { cost -> (thresholdTokens: Int, cost: ModelsDevTierCost)? in
+            guard let tier = cost.tier, let size = tier.size, (tier.type ?? "context") == "context" else { return nil }
+            return (size, cost)
+        }
+        return contextTiers.min { $0.thresholdTokens < $1.thresholdTokens }
+            ?? self.contextOver200K.map { (200_000, $0) }
     }
 }
 
-struct ModelsDevContextOver200KCost: Codable, Equatable {
+struct ModelsDevTierCost: Codable, Equatable {
     var input: Double?
     var output: Double?
     var cacheRead: Double?
     var cacheWrite: Double?
+    var tier: ModelsDevTier?
 
     private enum CodingKeys: String, CodingKey {
         case input
         case output
         case cacheRead = "cache_read"
         case cacheWrite = "cache_write"
+        case tier
     }
+}
+
+struct ModelsDevTier: Codable, Equatable {
+    var type: String?
+    var size: Int?
 }
 
 struct ModelsDevLimit: Codable, Equatable {
@@ -373,7 +403,7 @@ enum ModelsDevCache {
         case invalidJSON
     }
 
-    static let artifactVersion = 2
+    static let artifactVersion = 3
     static let ttlSeconds: TimeInterval = 24 * 60 * 60
 
     private static let memo = ModelsDevCacheMemo()
@@ -462,9 +492,20 @@ enum ModelsDevCache {
     /// Stamps a fetch attempt before any network call, keeping whatever catalog is already cached.
     static func recordAttempt(at date: Date, cacheRoot: URL? = nil) {
         var artifact = self.load(now: date, cacheRoot: cacheRoot).artifact
-            ?? ModelsDevCacheArtifact(version: Self.artifactVersion)
+            ?? ModelsDevCacheArtifact(
+                version: Self.artifactVersion,
+                catalog: self.previousCatalog(cacheRoot: cacheRoot))
         artifact.lastAttemptAt = date
         self.save(artifact: artifact, cacheRoot: cacheRoot)
+    }
+
+    /// The previous version's catalog, carried forward stale so a failed first fetch keeps its prices.
+    private static func previousCatalog(cacheRoot: URL?) -> ModelsDevCatalog? {
+        let url = self.cacheFileURL(cacheRoot: cacheRoot, version: Self.artifactVersion - 1)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(ModelsDevCacheArtifact.self, from: data))?.catalog
     }
 
     static func save(artifact: ModelsDevCacheArtifact, cacheRoot: URL? = nil) {
@@ -486,7 +527,9 @@ enum ModelsDevCache {
             }
             // The on-disk catalog changed; drop the memo so the next load decodes the fresh file.
             Self.memo.invalidate(path: url.path)
-            try? FileManager.default.removeItem(at: self.cacheFileURL(cacheRoot: cacheRoot, version: 1))
+            for version in 1..<Self.artifactVersion {
+                try? FileManager.default.removeItem(at: self.cacheFileURL(cacheRoot: cacheRoot, version: version))
+            }
         } catch {
             try? FileManager.default.removeItem(at: tmp)
         }

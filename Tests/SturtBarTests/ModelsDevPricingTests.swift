@@ -74,6 +74,108 @@ struct ModelsDevPricingTests {
     }
 
     @Test
+    func `decodes a context tier into threshold prices`() throws {
+        let pricing = try #require(try Self.fixtureCatalog().pricing(
+            providerID: "anthropic",
+            modelID: "claude-haiku-5-5")?
+            .pricing)
+
+        #expect(pricing.inputCostPerToken == 0.1 / 1_000_000.0)
+        #expect(pricing.thresholdTokens == 100_000)
+        #expect(pricing.inputCostPerTokenAboveThreshold == 0.5 / 1_000_000.0)
+        #expect(pricing.outputCostPerTokenAboveThreshold == 2.5 / 1_000_000.0)
+        #expect(pricing.cacheReadInputCostPerTokenAboveThreshold == 0.05 / 1_000_000.0)
+        #expect(pricing.cacheCreationInputCostPerTokenAboveThreshold == 0.625 / 1_000_000.0)
+    }
+
+    @Test
+    func `prefers the smallest context tier over the legacy over 200k rates`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "openai": {
+            "id": "openai",
+            "models": {
+              "gpt-tiered": {
+                "id": "gpt-tiered",
+                "cost": {
+                  "input": 1,
+                  "output": 2,
+                  "context_over_200k": { "input": 9, "output": 9 },
+                  "tiers": [
+                    { "input": 4, "output": 8, "tier": { "type": "context", "size": 272000 } },
+                    { "input": 2, "output": 4, "tier": { "type": "context", "size": 128000 } },
+                    { "input": 7, "output": 7, "tier": { "type": "batch", "size": 1000 } }
+                  ]
+                }
+              },
+              "gpt-legacy": {
+                "id": "gpt-legacy",
+                "cost": {
+                  "input": 1,
+                  "output": 2,
+                  "context_over_200k": { "input": 9, "output": 9 },
+                  "tiers": [{ "input": 7, "output": 7, "tier": { "type": "batch", "size": 1000 } }]
+                }
+              }
+            }
+          }
+        }
+        """)
+        let tiered = try #require(catalog.pricing(providerID: "openai", modelID: "gpt-tiered")?.pricing)
+        let legacy = try #require(catalog.pricing(providerID: "openai", modelID: "gpt-legacy")?.pricing)
+
+        #expect(tiered.thresholdTokens == 128_000)
+        #expect(tiered.inputCostPerTokenAboveThreshold == 2 / 1_000_000.0)
+        #expect(tiered.outputCostPerTokenAboveThreshold == 4 / 1_000_000.0)
+        #expect(legacy.thresholdTokens == 200_000)
+        #expect(legacy.inputCostPerTokenAboveThreshold == 9 / 1_000_000.0)
+    }
+
+    @Test
+    func `context tier size is an exclusive threshold kept verbatim`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "anthropic": {
+            "id": "anthropic",
+            "models": {
+              "claude-future-9": {
+                "id": "claude-future-9",
+                "cost": {
+                  "input": 1,
+                  "output": 5,
+                  "tiers": [{ "input": 2, "output": 10, "tier": { "type": "context", "size": 100000 } }]
+                }
+              },
+              "claude-gateway-9": {
+                "id": "claude-gateway-9",
+                "cost": {
+                  "input": 1,
+                  "output": 5,
+                  "tiers": [{ "input": 2, "output": 10, "tier": { "type": "context", "size": 100001 } }]
+                }
+              }
+            }
+          }
+        }
+        """)
+        func cost(_ model: String, inputTokens: Int) throws -> Double {
+            try #require(CostUsagePricing.claudeCostUSD(
+                model: model,
+                inputTokens: inputTokens,
+                cacheReadInputTokens: 0,
+                cacheCreationInputTokens: 0,
+                outputTokens: 0,
+                modelsDevCatalog: catalog))
+        }
+
+        // models.dev sizes mean "over N tokens"; a gateway's inclusive 100_001 moves the boundary by one token.
+        #expect(try abs(cost("claude-future-9", inputTokens: 100_000) - 100_000 * 1e-6) < 1e-12)
+        #expect(try abs(cost("claude-future-9", inputTokens: 100_001) - 100_001 * 2e-6) < 1e-12)
+        #expect(try abs(cost("claude-gateway-9", inputTokens: 100_001) - 100_001 * 1e-6) < 1e-12)
+        #expect(try abs(cost("claude-gateway-9", inputTokens: 100_002) - 100_002 * 2e-6) < 1e-12)
+    }
+
+    @Test
     func `stale cache is still readable`() throws {
         let root = try Self.cacheRoot()
         let old = Date(timeIntervalSince1970: 1)
@@ -97,8 +199,13 @@ struct ModelsDevPricingTests {
             providerID: "openai",
             modelID: "gpt-4o-mini",
             cacheRoot: root))
+        let tiered = try #require(ModelsDevPricingPipeline.lookup(
+            providerID: "anthropic",
+            modelID: "claude-haiku-5-5",
+            cacheRoot: root))
 
         #expect(lookup.pricing.inputCostPerToken == 0.15 / 1_000_000.0)
+        #expect(tiered.pricing.thresholdTokens == 100_000)
     }
 
     @Test
@@ -365,17 +472,66 @@ struct ModelsDevPricingTests {
     }
 
     @Test
-    func `saving the v2 cache removes the v1 file`() throws {
+    func `saving the cache removes every older version`() throws {
         let root = try Self.cacheRoot()
-        let legacy = ModelsDevCache.cacheFileURL(cacheRoot: root, version: 1)
+        let legacy = (1..<ModelsDevCache.artifactVersion)
+            .map { ModelsDevCache.cacheFileURL(cacheRoot: root, version: $0) }
         try FileManager.default.createDirectory(
-            at: legacy.deletingLastPathComponent(),
+            at: legacy[0].deletingLastPathComponent(),
             withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: legacy)
+        for url in legacy {
+            try Data("{}".utf8).write(to: url)
+        }
 
         try ModelsDevCache.save(catalog: Self.fixtureCatalog(), fetchedAt: Date(), cacheRoot: root)
 
-        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(legacy.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    @Test
+    func `a failed first fetch after a version bump keeps the previous catalog`() async throws {
+        let root = try Self.cacheRoot()
+        let previous = ModelsDevCache.cacheFileURL(cacheRoot: root, version: ModelsDevCache.artifactVersion - 1)
+        try FileManager.default.createDirectory(
+            at: previous.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Self.encodedArtifactData().write(to: previous)
+
+        await ModelsDevPricingPipeline.refreshIfNeeded(
+            now: Self.afterTTL,
+            cacheRoot: root,
+            client: ModelsDevClient(transport: MockTransport(result: .failure(MockError.failed))))
+
+        let load = ModelsDevCache.load(now: Self.afterTTL, cacheRoot: root)
+        #expect(load.isStale)
+        #expect(load.artifact?.catalog?.pricing(providerID: "openai", modelID: "gpt-4o-mini") != nil)
+        #expect(!FileManager.default.fileExists(atPath: previous.path))
+    }
+
+    @Test
+    func `malformed tiers fall back to the legacy rates`() throws {
+        let catalog = try Self.catalog("""
+        {
+          "anthropic": {
+            "id": "anthropic",
+            "models": {
+              "claude-future-9": {
+                "id": "claude-future-9",
+                "cost": {
+                  "input": 3,
+                  "output": 15,
+                  "context_over_200k": { "input": 6, "output": 22.5 },
+                  "tiers": [{ "input": 4, "tier": { "type": "context", "size": "big" } }]
+                }
+              }
+            }
+          }
+        }
+        """)
+        let pricing = try #require(catalog.pricing(providerID: "anthropic", modelID: "claude-future-9")?.pricing)
+
+        #expect(pricing.thresholdTokens == 200_000)
+        #expect(pricing.inputCostPerTokenAboveThreshold == 6 / 1_000_000.0)
     }
 
     @Test
