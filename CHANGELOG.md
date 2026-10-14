@@ -2,6 +2,11 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.4.2
+
+- Cost estimates cover Claude Mythos 5.1 and Mythos 5 (at their Fable counterparts' rates), Sonnet 5.5 and Haiku 5.5, including Haiku 5.5's higher rates for prompts over 100,000 tokens. Mythos turns showed as "no price" before.
+- A Claude model with no built-in price now gets the models.dev catalogue's long-context rates above their threshold, instead of base rates only. The catalogue is fetched once after updating so this applies straight away.
+
 ## 1.4.1
 
 - When Claude Code's sign-in has only expired, the card now shows a "Wake Claude Code CLI" button instead of a grey footnote. It opens `claude` in your terminal straight away, with no countdown, and SturtBar then checks Claude Code's Keychain item once a second for up to a minute, so the card clears as soon as the sign-in renews. The check reads only the item's attributes, never its secret, and never prompts.
