@@ -34,6 +34,9 @@ let claudeRates: [String: Rates] = [
 
 let codexRates: [String: Rates] = [
     "gpt-6-astra": Rates(input: 10, output: 50, cacheWrite: 0, cacheRead: 1, longContext: (272_000, 20, 75, 2)),
+    "gpt-6.1-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.1, longContext: (272_000, 4, 15, 0.2)),
+    "gpt-6-sol": Rates(input: 2, output: 10, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 15, 0.4)),
+    "gpt-6-luna": Rates(input: 0.1, output: 0.5, cacheWrite: 0, cacheRead: 0.01, longContext: (272_000, 0.2, 0.75, 0.02)),
     "gpt-5.6-sol": Rates(input: 4, output: 20, cacheWrite: 0, cacheRead: 0.4, longContext: (272_000, 8, 30, 0.8)),
     "gpt-5.6-terra": Rates(input: 2, output: 12, cacheWrite: 0, cacheRead: 0.2, longContext: (272_000, 4, 18, 0.4)),
     "gpt-5.6-luna": Rates(input: 0.2, output: 1.2, cacheWrite: 0, cacheRead: 0.02, longContext: (272_000, 0.4, 1.8, 0.04)),

@@ -65,13 +65,11 @@ struct TerminalLoginLauncherTests {
         print -P "    %F{red}✗%f never your home directory, your files or your other projects"
         echo ""
         if command -v claude >/dev/null 2>&1; then
-          print -P "  %F{173}Opening Claude Code (claude) in 3 seconds...%f"
-          sleep 3
           exec claude
         fi
         echo ""
         echo "SturtBar could not find the claude command on your PATH."
-        echo "Install Claude Code, then use the waiting line in the SturtBar menu again."
+        echo "Install Claude Code, then use the wake button in the SturtBar menu again."
         echo ""
         read -s -k 1 "?Press any key to close this window."
 

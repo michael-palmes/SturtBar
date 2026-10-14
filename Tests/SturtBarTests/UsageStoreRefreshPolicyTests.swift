@@ -821,6 +821,52 @@ struct UsageStorePostSignInRecheckTests {
     }
 
     @Test
+    func `post wake watch refreshes as soon as the sign-in fingerprint changes`() async throws {
+        let script = FetchScript([
+            .failure(.credentials(.tokenExpired(source: .claudeKeychain))),
+            .success(makeUsageSnapshot()),
+        ])
+        let ts = makeTestStore(suiteName: "sturtbar-tests-postwake") { _, _ in try script.next() }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        let probes = Mutex(0)
+        ts.store.claudeAuthFingerprint = {
+            probes.withLock { count in
+                count += 1
+                return count < 3 ? "expired" : "renewed"
+            }
+        }
+        // A timed recheck far beyond the test window proves the watch did the work.
+        ts.store.postSignInRecheckDelays = [60]
+        ts.store.credentialWatchTiming = (0.01, 50)
+        ts.store.beginPostWakeRecheck()
+        try await Task.sleep(for: .seconds(0.5))
+
+        #expect(ts.store.auth == .ok)
+        #expect(await ts.recorder.fetchCount == fetchesBefore + 1)
+    }
+
+    @Test
+    func `post wake watch stays idle while the fingerprint is unchanged`() async throws {
+        let ts = makeTestStore(suiteName: "sturtbar-tests-postwake-idle") { _, _ in
+            throw ClaudeUsageError.credentials(.tokenExpired(source: .claudeKeychain))
+        }
+        await ts.store.refresh(trigger: .manual)
+        #expect(ts.store.auth == .awaitingClaudeCode)
+        let fetchesBefore = await ts.recorder.fetchCount
+
+        ts.store.claudeAuthFingerprint = { "expired" }
+        ts.store.postSignInRecheckDelays = [60]
+        ts.store.credentialWatchTiming = (0.01, 20)
+        ts.store.beginPostWakeRecheck()
+        try await Task.sleep(for: .seconds(0.4))
+
+        #expect(await ts.recorder.fetchCount == fetchesBefore)
+    }
+
+    @Test
     func `post sign-in recheck is a no-op once auth is already ok`() async throws {
         let ts = makeTestStore(suiteName: "sturtbar-tests-postsignin-ok") { _, _ in makeUsageSnapshot() }
         await ts.store.refresh(trigger: .manual)

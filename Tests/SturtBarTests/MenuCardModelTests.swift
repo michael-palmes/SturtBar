@@ -432,7 +432,7 @@ struct MenuCardModelTests {
     }
 
     @Test
-    func `waiting for claude code shows a calm open claude code row`() {
+    func `waiting for claude code shows a calm wake banner`() throws {
         let model = UsageMenuCardView.Model.make(.init(
             snapshot: self.snapshot(primary: self.window(used: 10)),
             auth: .awaitingClaudeCode,
@@ -441,7 +441,12 @@ struct MenuCardModelTests {
         #expect(model.status == .awaitingClaudeCode)
         #expect(model.status.text(now: Self.now) == "Waiting for Claude Code to refresh its sign-in")
         #expect(!model.status.isError)
-        #expect(model.status.banner == nil)
+        let banner = try #require(model.status.banner)
+        #expect(banner.isWaiting)
+        #expect(banner.title == "Waiting for Claude Code")
+        #expect(banner.buttonTitle == "Wake Claude Code CLI")
+        #expect(banner.buttonAction == .openClaudeCode)
+        #expect(!banner.showsKeychainFallback)
         #expect(model.status.action == .openClaudeCode)
         #expect(model.status.actionSymbolName == "apple.terminal")
         #expect(model.status.helpText
@@ -462,14 +467,15 @@ struct MenuCardModelTests {
     }
 
     @Test
-    func `waiting keeps the card shape of a healthy card`() {
+    func `waiting shares the sign-in banner shape`() {
         func shape(auth: AuthState) -> MenuCardShape {
             MenuCardShape(model: UsageMenuCardView.Model.make(.init(
                 snapshot: self.snapshot(primary: self.window(used: 10)),
                 auth: auth,
                 now: Self.now)))
         }
-        #expect(shape(auth: .awaitingClaudeCode) == shape(auth: .ok))
+        #expect(shape(auth: .awaitingClaudeCode) != shape(auth: .ok))
+        #expect(shape(auth: .awaitingClaudeCode) == shape(auth: .needsReauth(message: nil, remedy: .signIn)))
     }
 
     // MARK: - Reauth banner
@@ -496,6 +502,9 @@ struct MenuCardModelTests {
         let missingBanner = try #require(missing.banner)
         #expect(missingBanner.title == "No light on this coast yet")
         #expect(!missingBanner.showsKeychainFallback)
+        #expect(!expiredBanner.isWaiting && !keychainBanner.isWaiting && !missingBanner.isWaiting)
+        #expect(expiredBanner.buttonTitle == "Sign in to Claude Code")
+        #expect(expiredBanner.buttonAction == .claudeSignIn)
     }
 
     @Test

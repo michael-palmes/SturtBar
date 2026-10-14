@@ -207,6 +207,15 @@ extension CostUsagePricing {
         "gpt-6-astra": CodexPricing
             .perMillion(input: 10, output: 50, cacheRead: 1)
             .withLongContext(threshold: 272_000, input: 20, output: 75, cacheRead: 2),
+        "gpt-6.1-sol": CodexPricing
+            .perMillion(input: 2, output: 10, cacheRead: 0.1)
+            .withLongContext(threshold: 272_000, input: 4, output: 15, cacheRead: 0.2),
+        "gpt-6-sol": CodexPricing
+            .perMillion(input: 2, output: 10, cacheRead: 0.2)
+            .withLongContext(threshold: 272_000, input: 4, output: 15, cacheRead: 0.4),
+        "gpt-6-luna": CodexPricing
+            .perMillion(input: 0.1, output: 0.5, cacheRead: 0.01)
+            .withLongContext(threshold: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02),
     ]
 }
 

@@ -56,7 +56,7 @@ struct TerminalLoginLauncher {
         var menuLine: String {
             switch self {
             case .claude: "sign-in line"
-            case .claudeRenew: "waiting line"
+            case .claudeRenew: "wake button"
             }
         }
 
@@ -67,6 +67,14 @@ struct TerminalLoginLauncher {
                 []
             case .claudeRenew:
                 ["Opening Claude Code so it can renew its sign-in. Once it starts,", "you can quit with /exit."]
+            }
+        }
+
+        /// Countdown before the CLI starts: sign-in leaves time to read the notes, renew opens at once.
+        var launchDelaySeconds: Int {
+            switch self {
+            case .claude: 3
+            case .claudeRenew: 0
             }
         }
 
@@ -106,6 +114,14 @@ struct TerminalLoginLauncher {
         let intro = command.introLines.isEmpty
             ? ""
             : command.introLines.map { "echo \"  \($0)\"\n" }.joined() + "echo \"\"\n"
+        let delay = command.launchDelaySeconds
+        let countdown = delay == 0
+            ? ""
+            : """
+              print -P "  %F{173}Opening \(command.productName) (\(invocation)) in \(delay) seconds...%f"
+              sleep \(delay)
+
+            """
         return """
         #!/bin/zsh -l
         # \(command.bannerTitle). Generated on demand; safe to delete.
@@ -123,9 +139,7 @@ struct TerminalLoginLauncher {
         print -P "    %F{red}✗%f never your home directory, your files or your other projects"
         echo ""
         if command -v \(executable) >/dev/null 2>&1; then
-          print -P "  %F{173}Opening \(command.productName) (\(invocation)) in 3 seconds...%f"
-          sleep 3
-          exec \(invocation)
+        \(countdown)  exec \(invocation)
         fi
         echo ""
         echo "SturtBar could not find the \(executable) command on your PATH."

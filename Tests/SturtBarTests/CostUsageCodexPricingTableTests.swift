@@ -3,7 +3,7 @@ import Testing
 @testable import SturtBarCore
 
 /// Pins every built-in Codex rate (per million tokens). gpt-5.5 and newer were checked against
-/// OpenAI's pricing page and models.dev in September 2026.
+/// OpenAI's pricing page and models.dev in September 2026 (gpt-6 sol and luna in October 2026).
 struct CostUsageCodexPricingTableTests {
     private struct Rates {
         let input: Double
@@ -37,6 +37,9 @@ struct CostUsageCodexPricingTableTests {
         "gpt-5.6-terra": Rates(input: 2, output: 12, cacheRead: 0.2, longContext: (4, 18, 0.4)),
         "gpt-5.6-luna": Rates(input: 0.2, output: 1.2, cacheRead: 0.02, longContext: (0.4, 1.8, 0.04)),
         "gpt-6-astra": Rates(input: 10, output: 50, cacheRead: 1, longContext: (20, 75, 2)),
+        "gpt-6.1-sol": Rates(input: 2, output: 10, cacheRead: 0.1, longContext: (4, 15, 0.2)),
+        "gpt-6-sol": Rates(input: 2, output: 10, cacheRead: 0.2, longContext: (4, 15, 0.4)),
+        "gpt-6-luna": Rates(input: 0.1, output: 0.5, cacheRead: 0.01, longContext: (0.2, 0.75, 0.02)),
     ]
 
     private static func isClose(_ lhs: Double?, _ rhs: Double?) -> Bool {
