@@ -468,7 +468,7 @@ struct ClaudeOAuthCredentialsStoreSecurityCLITests {
     }
 
     @Test
-    func `experimental reader freshness sync background respects stored only on user action`() throws {
+    func `experimental reader reuses the cached token when no source change is confirmed`() throws {
         let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
         try KeychainCacheStore.withServiceOverrideForTesting(service) {
             try KeychainAccessGate.withTaskOverrideForTesting(false) {

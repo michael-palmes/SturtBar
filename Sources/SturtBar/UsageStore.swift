@@ -122,6 +122,9 @@ final class UsageStore {
 
     /// Last good usage snapshot (persisted across launches).
     private(set) var usage: ProviderUsageSnapshot?
+    private(set) var claudeAccountKey: String?
+    @ObservationIgnored private var invalidatedCredentialGeneration: UUID?
+    @ObservationIgnored private var claudeProviderRevision: UInt64 = 0
     /// Last cost snapshot (persisted across launches); nil = no data / cost disabled.
     private(set) var cost: CostUsageTokenSnapshot?
     private(set) var auth: AuthState = .ok
@@ -304,8 +307,18 @@ final class UsageStore {
     /// the first refresh — never clobbers fresher in-memory data if ordering ever changes.
     func loadPersistedState() async {
         guard let persistence = self.persistence else { return }
+        let revision = self.claudeProviderRevision
+        let generation = self.invalidatedCredentialGeneration
         guard let state = await persistence.load() else { return }
-        if self.usage == nil, let usage = state.usage {
+        let currentAccount = self.settings.claudeProviderEnabled ? await self.client.currentAccountKey() : nil
+        let contextUnchanged = revision == self.claudeProviderRevision
+            && generation == self.invalidatedCredentialGeneration
+        let accountMatches = state.claudeAccountKey == nil || currentAccount == nil
+            || state.claudeAccountKey == currentAccount
+        if self.settings.claudeProviderEnabled, contextUnchanged, accountMatches,
+           self.usage == nil, let usage = state.usage
+        {
+            self.claudeAccountKey = state.claudeAccountKey
             self.usage = usage
             // Seed staleness/min-gap baselines from the snapshot's own timestamp. The quota
             // machine is deliberately NOT seeded: crossings replay only from live fetch deltas
@@ -329,6 +342,10 @@ final class UsageStore {
            self.settings.codexProviderEnabled, self.settings.costUsageEnabled
         {
             self.codexCost = codexCost
+        }
+        if self.settings.claudeProviderEnabled, contextUnchanged, !accountMatches, self.usage == nil {
+            self.claudeAccountKey = currentAccount
+            await self.persistNow()
         }
     }
 
@@ -476,8 +493,9 @@ final class UsageStore {
     }
 
     private func performRefresh(trigger: RefreshTrigger) async {
+        let revision = self.claudeProviderRevision
         self.isRefreshing = true
-        defer { self.isRefreshing = false }
+        defer { if revision == self.claudeProviderRevision { self.isRefreshing = false } }
 
         let signpostID = Signposts.refresh.makeSignpostID()
         let signpostState = Signposts.refresh.beginInterval("refresh", id: signpostID)
@@ -486,7 +504,12 @@ final class UsageStore {
         do {
             let snapshot = try await self.client.fetch(
                 interaction: trigger.interaction,
-                phase: trigger.phase)
+                phase: trigger.phase,
+                forceCredentialCheck: trigger == .manual || trigger == .launch,
+                onCredentialContext: { [weak self] context in
+                    await self?.applyCredentialContext(context, revision: revision)
+                })
+            guard revision == self.claudeProviderRevision else { return }
             self.applySuccess(snapshot)
             Self.log.info(
                 "Refresh succeeded",
@@ -497,6 +520,7 @@ final class UsageStore {
         } catch is CancellationError {
             Self.log.debug("Refresh cancelled", metadata: ["trigger": trigger.rawValue])
         } catch {
+            guard revision == self.claudeProviderRevision else { return }
             self.applyFailure(error)
             Self.log.warning(
                 "Refresh failed",
@@ -529,6 +553,24 @@ final class UsageStore {
                 "Codex refresh failed",
                 metadata: ["trigger": trigger.rawValue, "error": error.localizedDescription])
         }
+    }
+
+    private func applyCredentialContext(_ context: ClaudeCredentialContext, revision: UInt64) async {
+        guard self.settings.claudeProviderEnabled, revision == self.claudeProviderRevision else { return }
+        if let key = context.accountKey { self.claudeAccountKey = key }
+        guard context.invalidatesUsage, self.invalidatedCredentialGeneration != context.generation else { return }
+        self.invalidatedCredentialGeneration = context.generation
+        self.claudeAccountKey = context.accountKey
+        self.usage = nil
+        self.lastSuccessAt = nil
+        self.quotaMachine = QuotaTransitionMachine()
+        self.cancelResetBoundaryRefresh()
+        self.attemptedResetBoundaryRefreshes.removeAll()
+        self.scheduleResetBoundaryRefreshIfNeeded()
+        self.pendingSaveGeneration &+= 1
+        self.pendingSaveTask?.cancel()
+        self.pendingSaveTask = nil
+        await self.persistNow()
     }
 
     private func applySuccess(_ snapshot: ProviderUsageSnapshot) {
@@ -667,6 +709,9 @@ final class UsageStore {
             self.kickCostScan(bypassGate: true)
 
         case (.claude, false):
+            self.claudeProviderRevision &+= 1
+            self.claudeAccountKey = nil
+            self.invalidatedCredentialGeneration = nil
             self.refreshTask?.cancel()
             self.postSignInRecheckTask?.cancel()
             self.credentialWatchTask?.cancel()
@@ -838,6 +883,7 @@ final class UsageStore {
             codexUsage: self.codexUsage,
             cost: self.cost,
             codexCost: self.codexCost,
+            claudeAccountKey: self.claudeAccountKey,
             savedAt: self.now())
         await persistence.save(state)
     }
@@ -854,6 +900,7 @@ final class UsageStore {
             codexUsage: self.codexUsage,
             cost: self.cost,
             codexCost: self.codexCost,
+            claudeAccountKey: self.claudeAccountKey,
             savedAt: self.now()))
     }
 

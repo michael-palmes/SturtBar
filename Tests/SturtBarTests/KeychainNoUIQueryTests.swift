@@ -47,6 +47,19 @@ struct KeychainNoUIQueryTests {
     }
 
     @Test
+    func `concurrent silent queries restore prompt permission`() {
+        DispatchQueue.concurrentPerform(iterations: 32) { _ in
+            KeychainNoUIQuery.withoutLegacyKeychainUI {
+                #expect(KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() == false)
+                KeychainNoUIQuery.withoutLegacyKeychainUI {
+                    #expect(KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() == false)
+                }
+            }
+        }
+        #expect(KeychainNoUIQuery.legacyKeychainUIAllowedForTesting() == true)
+    }
+
+    @Test
     func `preflight query is strictly non-interactive and does not request secret data`() {
         let query = KeychainAccessPreflight.makeGenericPasswordPreflightQuery(
             service: "test.service",

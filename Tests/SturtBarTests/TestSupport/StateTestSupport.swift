@@ -203,12 +203,13 @@ func makeTestStore(
     scanner: CostScanner? = nil,
     codexScanner: CostScanner? = nil,
     persistence: StatePersistence? = nil,
+    accountKeyOperation: @escaping @Sendable () async -> String? = { nil },
     codexFetch: @escaping CodexUsageClient.FetchOperation = { throw CodexUsageError.credentialsMissing },
     fetch: @escaping ClaudeUsageClient.FetchOperation) -> TestStore
 {
     let settings = makeTestSettings(suiteName: suiteName)
     let recorder = CallRecorder()
-    let client = ClaudeUsageClient(fetchOperation: { interaction, phase in
+    let client = ClaudeUsageClient(accountKeyOperation: accountKeyOperation, fetchOperation: { interaction, phase in
         await recorder.recordFetch(interaction: interaction, phase: phase)
         return try await fetch(interaction, phase)
     })

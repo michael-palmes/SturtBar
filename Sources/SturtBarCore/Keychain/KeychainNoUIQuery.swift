@@ -7,6 +7,13 @@ import Security
 
 enum KeychainNoUIQuery {
     private static let uiFailPolicy = KeychainNoUIQuery.resolveUIFailPolicy()
+    private static let interactionLock = NSRecursiveLock()
+
+    static func serialiseInteraction<T>(_ body: () -> T) -> T {
+        self.interactionLock.lock()
+        defer { self.interactionLock.unlock() }
+        return body()
+    }
 
     static func apply(to query: inout [String: Any]) {
         let context = LAContext()
@@ -31,6 +38,8 @@ enum KeychainNoUIQuery {
 
     /// Suppresses the legacy login-keychain dialog, which `apply(to:)` does not, then restores the prior setting.
     static func withoutLegacyKeychainUI<T>(_ body: () -> T) -> T {
+        self.interactionLock.lock()
+        defer { self.interactionLock.unlock() }
         guard let setInteraction = self.setUserInteractionAllowed,
               let getInteraction = self.getUserInteractionAllowed
         else {
@@ -60,6 +69,8 @@ enum KeychainNoUIQuery {
     #if DEBUG
     /// The process-wide legacy interaction flag; nil when the deprecated getter cannot be resolved.
     static func legacyKeychainUIAllowedForTesting() -> Bool? {
+        self.interactionLock.lock()
+        defer { self.interactionLock.unlock() }
         guard let getInteraction = self.getUserInteractionAllowed else { return nil }
         var state: UInt8 = 1
         guard getInteraction(&state) == errSecSuccess else { return nil }

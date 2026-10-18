@@ -154,6 +154,7 @@ public struct ClaudeOAuthCredentialRecord: Sendable {
     public let credentials: ClaudeOAuthCredentials
     public let owner: ClaudeOAuthCredentialOwner
     public let source: ClaudeOAuthCredentialSource
+    let cacheData: Data?
 
     /// Where an expiry is reported from; an environment token is always attributed to the environment.
     public var expirySource: ClaudeOAuthCredentialSource {
@@ -168,6 +169,14 @@ public struct ClaudeOAuthCredentialRecord: Sendable {
         self.credentials = credentials
         self.owner = owner
         self.source = source
+        self.cacheData = nil
+    }
+
+    init(credentials: ClaudeOAuthCredentials, source: ClaudeOAuthCredentialSource, cacheData: Data) {
+        self.credentials = credentials
+        self.owner = .claudeCLI
+        self.source = source
+        self.cacheData = cacheData
     }
 }
 
@@ -181,6 +190,7 @@ public enum ClaudeKeychainAccessRequiredReason: String, Sendable, Equatable {
 }
 
 public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
+    case signInChanging
     case decodeFailed
     case missingOAuth
     case missingAccessToken
@@ -195,6 +205,8 @@ public enum ClaudeOAuthCredentialsError: LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
+        case .signInChanging:
+            return "Claude Code’s sign-in is changing. Waiting for it to settle."
         case .decodeFailed:
             return "Claude OAuth credentials are invalid."
         case .missingOAuth:

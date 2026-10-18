@@ -51,6 +51,8 @@ Spend is read locally by scanning the session logs under `~/.claude/projects` (t
 
 Refresh runs on a hybrid schedule: whenever you open the menu, plus a background interval you choose (manual, 1, 2, 5, 15, or 30 minutes; 5 is the default). Cost scans run on demand.
 
+**On account changes:** SturtBar follows the shared Claude Code CLI sign-in during normal refreshes. Press ⌘R to check immediately. If the new credentials cannot be read, the previous usage is hidden and the menu offers reconnect. The permission fallback remains opt-in. Local spend totals cover CLI logs across accounts.
+
 **On token expiry:** SturtBar never refreshes Claude tokens. When one expires, it keeps your last reading, says it is waiting, and picks up the new token once Claude Code renews it.
 
 If SturtBar keeps asking you to re-authenticate after you've already logged back into Claude Code, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md): it's usually a keychain-permission or stale-file issue, not a login problem. (Note that signing into the Claude _desktop app_ doesn't update the credentials SturtBar reads; only the `claude` CLI does.)
@@ -64,6 +66,7 @@ If SturtBar keeps asking you to re-authenticate after you've already logged back
 What it reads:
 
 - Claude Code's credentials, read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
+- While Claude is enabled, SturtBar reads the account and organisation IDs from `~/.claude.json` to detect account changes. It retains only an opaque comparison value, never names or email addresses, and never writes to that file.
 - Session logs under `~/.claude/projects`, scanned locally for spend estimates. It reads the token counts these logs record, not the prompts or replies in them. Nothing is uploaded.
 - Claude Desktop's local agent transcripts, only if you turn on "Include Claude Desktop sessions" (off by default): scanned read-only under `~/Library/Application Support/Claude` for the same token counts. While the setting is off, those folders are never touched.
 - Codex's sign-in, read-only: `~/.codex/auth.json`, or the `CODEX_HOME` location if you have set one. Its contents are read only while the Codex provider is enabled. SturtBar never writes it, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`.
@@ -81,7 +84,7 @@ Update checks are opt-in: SturtBar asks once on first launch, and the toggle liv
 
 When Claude needs a fresh sign-in, the card offers a sign-in button. Clicking it writes a small helper script to `~/.sturtbar` and opens it in your default terminal; the terminal runs `claude /login` from that folder, so if Claude Code asks you to trust a workspace it is only SturtBar's own folder holding that one script, never your home directory or files. When the token has only expired, the card says it is waiting for Claude Code instead; its Wake Claude Code CLI button opens `claude` the same way so Claude Code can renew its sign-in. SturtBar itself never runs the claude CLI and never touches its credential stores.
 
-Keychain prompts are opt-in: SturtBar never shows a macOS Keychain prompt unless you allow it, via the "Ask for Keychain access when needed" setting or the menu's reconnect line. Silent reads that macOS already permits keep working either way.
+The optional Keychain permission fallback is off by default. Enable it only through "Ask for Keychain access when needed" or the menu's access link. The preferred reader keeps using macOS's `security` command independently of that setting. This normally works without a dialog when macOS permits access, but the command has no no-prompt option, so SturtBar cannot guarantee it will never show one.
 
 What it never does: no telemetry, no analytics, no accounts, no tracking. It never writes to Claude Code's credential stores or to anything under `~/.codex`, and secrets are redacted from its logs.
 

@@ -37,19 +37,25 @@ actor ClaudeUsageClient {
         let interaction: Interaction
     }
 
+    private let accountKeyOperation: @Sendable () async -> String?
     private let fetchOperation: FetchOperation
     private var inFlight: InFlight?
     private static let log = SturtBarLog.logger("usage-client")
 
     /// Production entry: wraps a `ClaudeUsageService`.
     init(service: ClaudeUsageService) {
+        self.accountKeyOperation = { await service.currentAccountKey() }
         self.fetchOperation = { interaction, phase in
             try await service.fetchUsage(interaction: interaction, phase: phase)
         }
     }
 
     /// Test seam: injects the fetch implementation directly.
-    init(fetchOperation: @escaping FetchOperation) {
+    init(
+        accountKeyOperation: @escaping @Sendable () async -> String? = { nil },
+        fetchOperation: @escaping FetchOperation)
+    {
+        self.accountKeyOperation = accountKeyOperation
         self.fetchOperation = fetchOperation
     }
 
@@ -57,7 +63,9 @@ actor ClaudeUsageClient {
     /// See the join-or-upgrade policy in the header comment.
     func fetch(
         interaction: Interaction,
-        phase: RefreshPhase = .regular) async throws -> ProviderUsageSnapshot
+        phase: RefreshPhase = .regular,
+        forceCredentialCheck: Bool = false,
+        onCredentialContext: ClaudeCredentialEvents.Handler? = nil) async throws -> ProviderUsageSnapshot
     {
         while let current = self.inFlight {
             let joinedInteraction = current.interaction
@@ -77,7 +85,15 @@ actor ClaudeUsageClient {
                 throw error
             }
         }
-        return try await self.run(interaction: interaction, phase: phase)
+        return try await ClaudeCredentialEvents.$handler.withValue(onCredentialContext) {
+            try await ClaudeCredentialEvents.$forceCheck.withValue(forceCredentialCheck) {
+                try await self.run(interaction: interaction, phase: phase)
+            }
+        }
+    }
+
+    func currentAccountKey() async -> String? {
+        await self.accountKeyOperation()
     }
 
     /// Aborts the in-flight fetch, if any (provider-disable path). The slot self-clears when the

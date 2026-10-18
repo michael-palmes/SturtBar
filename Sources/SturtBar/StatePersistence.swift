@@ -16,6 +16,7 @@ struct StatePersistence {
         /// Claude snapshot. The JSON key stays `usage` (pre-codex schema) so existing users'
         /// state files keep decoding; renaming the property would break that for zero gain.
         var usage: ProviderUsageSnapshot?
+        var claudeAccountKey: String?
         /// Codex snapshot; absent in pre-1.1 files (decodes nil) and ignored by older app
         /// versions reading newer files.
         var codexUsage: ProviderUsageSnapshot?
@@ -32,9 +33,11 @@ struct StatePersistence {
             codexUsage: ProviderUsageSnapshot? = nil,
             cost: CostUsageTokenSnapshot?,
             codexCost: CostUsageTokenSnapshot? = nil,
+            claudeAccountKey: String? = nil,
             savedAt: Date)
         {
             self.usage = usage
+            self.claudeAccountKey = claudeAccountKey
             self.codexUsage = codexUsage
             self.cost = cost
             self.codexCost = codexCost
