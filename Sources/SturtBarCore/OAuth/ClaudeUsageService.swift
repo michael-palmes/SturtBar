@@ -96,6 +96,7 @@ public struct ClaudeUsageService: Sendable {
     }
 
     private let configuration: Configuration
+    private let credentialSession = ClaudeCredentialSession()
     private let transport: any HTTPTransport
     private static let log = SturtBarLog.logger("claude-usage")
     /// A 401 this close to `expiresAt` is the server's clock running ahead, so it counts as an expiry.
@@ -141,12 +142,61 @@ public struct ClaudeUsageService: Sendable {
         try await InteractionContext.$current.withValue(interaction) {
             if phase != .regular {
                 try await RefreshContext.$current.withValue(phase) {
-                    try await OAuthExecutor(service: self).load(allowUnauthorizedRetry: true)
+                    try await self.fetchWithCredentialChecks()
                 }
             } else {
-                try await OAuthExecutor(service: self).load(allowUnauthorizedRetry: true)
+                try await self.fetchWithCredentialChecks()
             }
         }
+    }
+
+    private var tracksCredentials: Bool {
+        guard self.environment[ClaudeOAuthCredentialsStore.environmentTokenKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else { return false }
+        #if DEBUG
+        if Self.credentialSessionOverride != nil { return true }
+        if TestEnvironment.isRunningUnderTests { return false }
+        #endif
+        return true
+    }
+
+    private var session: ClaudeCredentialSession {
+        #if DEBUG
+        if let override = Self.credentialSessionOverride { return override }
+        #endif
+        return self.credentialSession
+    }
+
+    public func currentAccountKey() async -> String? {
+        guard self.tracksCredentials else { return nil }
+        return await self.session.currentAccountKey()
+    }
+
+    private func fetchWithCredentialChecks() async throws -> ProviderUsageSnapshot {
+        for attempt in 0...1 {
+            do {
+                let result = try await OAuthExecutor(service: self).load(allowUnauthorizedRetry: attempt == 0)
+                try Task.checkCancellation()
+                if !self.tracksCredentials { return result.snapshot }
+                if await self.session.validateResponse(
+                    generation: result.generation, observer: ClaudeCredentialEvents.handler)
+                {
+                    return result.snapshot
+                }
+            } catch ClaudeUsageError.fetch(.unauthorized) where attempt == 0 {
+                if self.tracksCredentials {
+                    _ = await self.session.validateResponse(observer: ClaudeCredentialEvents.handler)
+                }
+            } catch ClaudeUsageError.credentials(.signInChanging) {
+                if attempt == 1 { throw ClaudeUsageError.credentials(.signInChanging) }
+            } catch {
+                if self.tracksCredentials, !(error is CancellationError) {
+                    _ = await self.session.validateResponse(observer: ClaudeCredentialEvents.handler)
+                }
+                throw error
+            }
+        }
+        throw ClaudeUsageError.credentials(.signInChanging)
     }
 
     // MARK: - Keychain prompt policy
@@ -195,6 +245,7 @@ public struct ClaudeUsageService: Sendable {
     // MARK: - Testing seams
 
     #if DEBUG
+    @TaskLocal static var credentialSessionOverride: ClaudeCredentialSession?
     @TaskLocal static var loadOAuthCredentialsOverride: (@Sendable (
         [String: String],
         Bool,
@@ -207,10 +258,15 @@ public struct ClaudeUsageService: Sendable {
 
     // MARK: - OAuth executor
 
+    private struct CredentialUsageResult {
+        let snapshot: ProviderUsageSnapshot
+        let generation: UUID?
+    }
+
     private struct OAuthExecutor {
         let service: ClaudeUsageService
 
-        func load(allowUnauthorizedRetry: Bool) async throws -> ProviderUsageSnapshot {
+        func load(allowUnauthorizedRetry: Bool) async throws -> CredentialUsageResult {
             var loadedRecord: ClaudeOAuthCredentialRecord?
             do {
                 let promptPolicy = ClaudeUsageService.currentClaudeOAuthInteractivePromptPolicy()
@@ -226,19 +282,36 @@ public struct ClaudeUsageService: Sendable {
                     hasCache: hasCache,
                     startupBootstrapOverride: startupBootstrapOverride)
 
-                let record = try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
-                    .withValue(startupBootstrapOverride) {
-                        try await ClaudeUsageService.loadOAuthCredentials(
-                            environment: self.service.environment,
-                            allowKeychainPrompt: allowKeychainPrompt,
-                            respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown)
-                    }
+                let fallback: @Sendable () async throws -> ClaudeOAuthCredentialRecord = {
+                    try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
+                        .withValue(startupBootstrapOverride) {
+                            try await ClaudeOAuthCredentialsStore.$managesFreshness
+                                .withValue(self.service.tracksCredentials) {
+                                    try await ClaudeUsageService.loadOAuthCredentials(
+                                        environment: self.service.environment,
+                                        allowKeychainPrompt: allowKeychainPrompt,
+                                        respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown)
+                                }
+                        }
+                }
+                let record: ClaudeOAuthCredentialRecord = if self.service.tracksCredentials {
+                    try await self.service.session.load(
+                        force: ClaudeCredentialEvents.forceCheck || RefreshContext.current == .startup,
+                        allowPrompt: promptPolicy.canPromptNow,
+                        observer: ClaudeCredentialEvents.handler,
+                        fallback: fallback)
+                } else {
+                    try await fallback()
+                }
                 loadedRecord = record
                 let credentials = record.credentials
+                let generation = self.service.tracksCredentials ? await self.service.session.currentGeneration() : nil
 
                 try self.validateRequiredOAuthScope(credentials)
                 let usage = try await self.service.fetchOAuthUsage(accessToken: credentials.accessToken)
-                return try ClaudeUsageService.mapOAuthUsage(usage, credentials: credentials, now: Date())
+                return try CredentialUsageResult(
+                    snapshot: ClaudeUsageService.mapOAuthUsage(usage, credentials: credentials, now: Date()),
+                    generation: generation)
             } catch let error as CancellationError {
                 throw error
             } catch let error as ClaudeUsageError {
@@ -251,12 +324,9 @@ public struct ClaudeUsageService: Sendable {
                 }
                 ClaudeOAuthCredentialsStore.invalidateCache()
                 if case .unauthorized = error, allowUnauthorizedRetry {
-                    // Auth-recovery UX: the cached access token was rejected (e.g. superseded by a
-                    // re-login in Claude Code). Reload credentials from the source of truth — now
-                    // prompt-eligible because the cache was invalidated — and retry exactly once.
                     ClaudeUsageService.log.info(
                         "Claude OAuth usage fetch unauthorized; invalidated cache and retrying once")
-                    return try await self.load(allowUnauthorizedRetry: false)
+                    throw ClaudeUsageError.fetch(error)
                 }
                 if case .unauthorized = error,
                    let record = loadedRecord,

@@ -346,8 +346,6 @@ struct ClaudeOAuthCredentialsStoreTests {
                         createdAt: 1,
                         persistentRefHash: "ref1")
 
-                    // Freshness syncs are off under the never default; pin the opted-in mode for this
-                    // fingerprint-change test.
                     let first = try ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(.onlyOnUserAction) {
                         try InteractionContext.$current.withValue(.userInitiated) {
                             try ClaudeOAuthCredentialsStore.withClaudeKeychainFingerprintStoreOverrideForTesting(
@@ -415,7 +413,7 @@ struct ClaudeOAuthCredentialsStoreTests {
     }
 
     @Test
-    func `does not sync in background when cache valid and prompt mode only on user action`() throws {
+    func `silently syncs a changed token in the background with prompts restricted`() throws {
         let service = "com.michaelpalmes.sturtbar.cache.tests.\(UUID().uuidString)"
         try KeychainCacheStore.withServiceOverrideForTesting(service) {
             try KeychainAccessGate.withTaskOverrideForTesting(false) {
@@ -484,13 +482,13 @@ struct ClaudeOAuthCredentialsStoreTests {
                         }
                     }
 
-                    #expect(creds.accessToken == "cached-token")
-                    #expect(fingerprintStore.fingerprint == fingerprint1)
+                    #expect(creds.accessToken == "keychain-token")
+                    #expect(fingerprintStore.fingerprint == fingerprint2)
 
                     switch KeychainCacheStore.load(key: cacheKey, as: ClaudeOAuthCredentialsStore.CacheEntry.self) {
                     case let .found(entry):
                         let parsed = try ClaudeOAuthCredentials.parse(data: entry.data)
-                        #expect(parsed.accessToken == "cached-token")
+                        #expect(parsed.accessToken == "keychain-token")
                     default:
                         #expect(Bool(false))
                     }

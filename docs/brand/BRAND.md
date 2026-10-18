@@ -252,6 +252,7 @@ Marketing surfaces only (README, landing page, About box). It means exactly what
 ### 6.2 The posture
 
 - SturtBar reads Claude Code's credentials read-only: `~/.claude/.credentials.json` first, then the `Claude Code-credentials` login keychain item. It never writes to either.
+- While Claude is enabled, SturtBar reads the account and organisation IDs from `~/.claude.json` to detect account changes. It retains only an opaque comparison value, never names or email addresses, and never writes to that file.
 - SturtBar never refreshes Claude tokens. It keeps a copy of the token it read in its own keychain item, `com.michaelpalmes.sturtbar.cache` (the key safe), so it asks for Keychain access less often. When the token expires, it waits for Claude Code to renew it. Claude Code's stores are never touched.
 - Session logs under `~/.claude/projects` are scanned locally for spend estimates: the token counts only, never the prompts or replies. Nothing is uploaded.
 - Codex is opt-in and inert until enabled. While the Codex provider is on, SturtBar reads its sign-in read-only from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`): it never writes the file, never refreshes Codex tokens, never parses the identity token, and never calls `auth.openai.com`. The only filesystem touch before opt-in is a single existence check (stat) on that path while the Settings window is open, to drive the "codex CLI not detected" hint; it reads no contents.
@@ -278,7 +279,9 @@ Links that open in your browser (the provider consoles and status pages) are not
 
 ### 6.4 Prompt policy
 
-Keychain prompts are opt-in and off by default: SturtBar never shows a Keychain prompt unless you allow it, either with the "Ask for Keychain access when needed" setting or by choosing Continue when the menu's reconnect line offers access. With prompts allowed, they appear on user action (opening the menu, pressing ⌘R), plus at most one prompt at launch while SturtBar has no saved copy of the token (such as the first launch after install). Routine background refreshes never prompt.
+The optional Security.framework permission fallback is off by default. It requires "Ask for Keychain access when needed" or Continue in the menu's access explainer. Once enabled, it can prompt on user action (opening the menu or pressing ⌘R), plus at most once at launch when SturtBar has no saved token. Its background reads explicitly disable UI.
+
+The preferred reader uses macOS's `security` command independently of that setting. Access normally succeeds without a dialog where macOS permits it, but the command has no no-prompt option. Do not claim that its timeout or a successful metadata check prevents dialogs. Keep the permission fallback a last resort, after checking the CLI sign-in and trying Refresh Now.
 
 ### 6.5 The keeper's economy
 

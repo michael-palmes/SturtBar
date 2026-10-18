@@ -127,7 +127,9 @@ public enum KeychainAccessPreflight {
         let query = self.makeGenericPasswordPreflightQuery(service: service, account: account)
 
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = KeychainNoUIQuery.withoutLegacyKeychainUI {
+            SecItemCopyMatching(query as CFDictionary, &result)
+        }
         switch status {
         case errSecSuccess:
             self.log.debug("Keychain preflight allowed", metadata: ["service": service])

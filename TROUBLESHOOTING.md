@@ -1,5 +1,18 @@
 # Troubleshooting
 
+## Switching Claude accounts
+
+After switching accounts in the Claude Code CLI, SturtBar checks for the change on its next refresh.
+Press **⌘R** to check immediately. It reads only the account and organisation IDs from `~/.claude.json`
+and credential metadata to detect changes; these checks do not enable Keychain prompts.
+
+If the new credentials cannot be read, SturtBar hides the previous usage. Confirm the CLI
+has finished signing in, then press **⌘R**. A locked or temporarily unavailable Keychain
+alone does not count as signing out. The optional permission fallback remains off unless
+you enable it; it is a last resort, not a requirement for account switching.
+
+SturtBar follows one shared CLI sign-in. Its local spend totals include logs from all accounts.
+
 ## "Waiting for Claude Code to refresh its sign-in"
 
 Claude's sign-in token has expired. SturtBar never refreshes it; Claude Code renews it the
@@ -15,7 +28,7 @@ This usually isn't a login problem: it's SturtBar being unable to *read* your ne
 When Claude Code re-authenticates it recreates its keychain item, which resets the permission
 you previously granted SturtBar. A leftover `~/.claude/.credentials.json` from an older
 install can also shadow the fresh keychain credentials. Work through the steps below in
-order; most people are done after step 3.
+order, starting with the CLI sign-in and a manual refresh.
 
 > Logging into the **Claude desktop app** doesn't help here: it doesn't update the
 > credentials SturtBar reads. Only the `claude` CLI does.
@@ -32,20 +45,15 @@ Keychain access, depending on the message.)
 In Terminal, run `claude` and check `/status` shows your account without asking you to log
 in. If it asks, log in and let it finish.
 
-### 3. Grant SturtBar keychain access (fixes most cases)
+### 3. Refresh after the CLI finishes signing in
 
-In the SturtBar menu, click the **"Allow Keychain access to reconnect"** line and choose
-**Continue** (this also turns on "Ask for Keychain access when needed" in Settings if it
-was off; Keychain prompts are opt-in and off by default). When macOS asks
-*"SturtBar wants to access Claude Code-credentials"*, click **Always Allow**.
-SturtBar reads that item; it never changes it. With prompts already enabled, pressing
-**⌘R** (Refresh Now) does the same thing.
+Open the SturtBar menu and press **⌘R**. This checks the current sign-in immediately,
+bypassing the automatic credential-check interval. An unchanged account keeps using its
+cached credentials; a detected switch reads the current credentials again.
 
-Re-logging into Claude Code resets this permission, so you may be asked again even if you
-allowed it before. SturtBar never shows a Keychain prompt on its own: one can appear only
-after you allow prompts, and then only when you open the menu, press ⌘R, or once at launch
-while SturtBar has no saved copy of the token (such as the first launch after install).
-Routine background refreshes never prompt.
+The preferred reader uses macOS's `security` command, independently of the permission
+fallback setting. It normally works without a dialog when macOS permits access. The
+command has no no-prompt option, so a dialog remains possible even with the fallback off.
 
 ### 4. Check for a stale credentials file
 
@@ -67,7 +75,30 @@ claude   # should start without asking you to log in; if not, restore the .bak f
 
 Then open the SturtBar menu and press ⌘R.
 
-### 5. Clear SturtBar's cached copy
+### 5. Collect the log
+
+If refreshing does not recover usage, collect the log below before changing access settings
+or clearing SturtBar's cached copy.
+
+```sh
+log show --last 30m --info --debug --predicate 'subsystem == "com.michaelpalmes.sturtbar"' > sturtbar.log
+```
+
+Look for `Claude OAuth credentials considered expired` lines: the `source=` and `owner=`
+fields name exactly which credential store is producing the stale record. Attach the log
+and the full error from step 1 to a [GitHub issue](https://github.com/michael-palmes/SturtBar/issues)
+after checking them for personal information.
+
+### 6. Optional last resort: allow the permission fallback
+
+If you want to try the fallback, use **Allow Keychain access** in the SturtBar menu and
+choose **Continue**. This enables "Ask for Keychain access when needed". Only approve
+the macOS dialog if you want SturtBar to read that item. SturtBar never changes it.
+
+The fallback can prompt on user action or once at launch when no saved token exists.
+Its background reads explicitly disable dialogs. You can leave this fallback off.
+
+### 7. Clear SturtBar's cached copy
 
 SturtBar keeps a copy of the token it last read so it asks for Keychain access less often.
 If it's stuck, clear that copy: quit SturtBar, then run:
@@ -76,15 +107,4 @@ If it's stuck, clear that copy: quit SturtBar, then run:
 security delete-generic-password -s "com.michaelpalmes.sturtbar.cache" 2>/dev/null
 ```
 
-Relaunch SturtBar, open the menu, and approve the keychain prompt with **Always Allow**.
-
-### 6. Still stuck? Collect the log
-
-```sh
-log show --last 30m --info --debug --predicate 'subsystem == "com.michaelpalmes.sturtbar"' > sturtbar.log
-```
-
-Look for `Claude OAuth credentials considered expired` lines: the `source=` and `owner=`
-fields name exactly which credential store is producing the stale record. Attach the log
-(it contains no tokens; secrets are redacted before logging) and the full error from
-step 1 to a [GitHub issue](https://github.com/michael-palmes/SturtBar/issues).
+Relaunch SturtBar and press **⌘R**. Clearing its cache does not enable the permission fallback.
