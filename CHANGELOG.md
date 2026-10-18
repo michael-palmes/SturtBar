@@ -2,6 +2,12 @@
 
 All notable changes to SturtBar are recorded here.
 
+## 1.4.3
+
+- SturtBar now follows the shared Claude Code CLI sign-in when you switch accounts. It checks on its next refresh, or straight away with ⌘R, by comparing an opaque value derived from the account and organisation IDs in `~/.claude.json` (never names or email addresses, and the file is never written). If the new credentials cannot be read, the previous account's usage is hidden and the menu offers to reconnect.
+- The preferred credential reader keeps using macOS's `security` command regardless of the "Ask for Keychain access when needed" setting. That command has no no-prompt option, so a dialog is still possible. The optional permission fallback stays off by default.
+- The troubleshooting guide covers account switching and now leads with a CLI sign-in and ⌘R, with the keychain fallback as a last resort.
+
 ## 1.4.2
 
 - Cost estimates cover Claude Mythos 5.1 and Mythos 5 (at their Fable counterparts' rates), Sonnet 5.5 and Haiku 5.5, including Haiku 5.5's higher rates for prompts over 100,000 tokens. Mythos turns showed as "no price" before.
