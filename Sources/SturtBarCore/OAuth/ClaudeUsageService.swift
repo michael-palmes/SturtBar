@@ -270,20 +270,18 @@ public struct ClaudeUsageService: Sendable {
             var loadedRecord: ClaudeOAuthCredentialRecord?
             do {
                 let promptPolicy = ClaudeUsageService.currentClaudeOAuthInteractivePromptPolicy()
-                let hasCache = self.resolveHasCache()
-
-                let startupBootstrapOverride = self.shouldAllowStartupBootstrapPrompt(
-                    policy: promptPolicy,
-                    hasCache: hasCache)
-                let allowKeychainPrompt = (promptPolicy.canPromptNow || startupBootstrapOverride) && !hasCache
-                ClaudeUsageService.logOAuthBootstrapPromptDecision(
-                    allowKeychainPrompt: allowKeychainPrompt,
-                    policy: promptPolicy,
-                    hasCache: hasCache,
-                    startupBootstrapOverride: startupBootstrapOverride)
-
                 let fallback: @Sendable () async throws -> ClaudeOAuthCredentialRecord = {
-                    try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
+                    let hasCache = self.resolveHasCache()
+                    let startupBootstrapOverride = self.shouldAllowStartupBootstrapPrompt(
+                        policy: promptPolicy,
+                        hasCache: hasCache)
+                    let allowKeychainPrompt = (promptPolicy.canPromptNow || startupBootstrapOverride) && !hasCache
+                    ClaudeUsageService.logOAuthBootstrapPromptDecision(
+                        allowKeychainPrompt: allowKeychainPrompt,
+                        policy: promptPolicy,
+                        hasCache: hasCache,
+                        startupBootstrapOverride: startupBootstrapOverride)
+                    return try await ClaudeOAuthCredentialsStore.$allowBackgroundPromptBootstrap
                         .withValue(startupBootstrapOverride) {
                             try await ClaudeOAuthCredentialsStore.$managesFreshness
                                 .withValue(self.service.tracksCredentials) {

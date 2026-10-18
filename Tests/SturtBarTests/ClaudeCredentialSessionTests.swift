@@ -8,6 +8,7 @@ final class CredentialSessionFixture: Sendable {
         var observation = ClaudeCredentialObservation(accountKey: "account-a", keychain: "item-a")
         var binding: ClaudeCredentialBinding?
         var token = "token-a"
+        var fileToken: String?
         var readFailure = false
         var observations = 0
         var freshReads = 0
@@ -51,7 +52,11 @@ final class CredentialSessionFixture: Sendable {
                     throw ClaudeOAuthCredentialsError.claudeKeychainAccessRequired(
                         underlying: nil, reason: .promptsDisabled)
                 }
-                let record = Self.record(state.token, source: .claudeKeychain)
+                let record = if includeFile, let token = state.fileToken {
+                    Self.record(token, source: .credentialsFile)
+                } else {
+                    Self.record(state.token, source: .claudeKeychain)
+                }
                 if let replacement = state.replacementDuringRead {
                     state.observation = replacement
                     state.replacementDuringRead = nil
@@ -236,6 +241,62 @@ struct ClaudeCredentialSessionTests {
         fixture.state.withLock { $0.readFailure = false }
         _ = try await fixture.load(fixture.session())
         #expect(fixture.state.withLock { $0.fileReads } == [false, false])
+    }
+
+    @Test(arguments: [false, true])
+    func `successful switch excludes the old file through renewal until it changes`(relaunch: Bool) async throws {
+        let fixture = CredentialSessionFixture()
+        fixture.state.withLock {
+            $0.observation.file = "old-file"
+            $0.fileToken = "file-token-a"
+            $0.binding = ClaudeCredentialBinding(observation: $0.observation)
+        }
+        fixture.switchTo("b")
+        var session = fixture.session()
+        #expect(try await fixture.load(session).credentials.accessToken == "token-b")
+        if relaunch { session = fixture.session() }
+        fixture.state.withLock {
+            $0.observation.keychain = "renewed-item-b"
+            $0.token = "renewed-token-b"
+        }
+        #expect(try await fixture.load(session).credentials.accessToken == "renewed-token-b")
+        #expect(fixture.state.withLock { $0.events.filter(\.invalidatesUsage).count } == 1)
+        fixture.state.withLock {
+            $0.observation.file = "updated-file"
+            $0.fileToken = "file-token-b"
+        }
+        #expect(try await fixture.load(session).credentials.accessToken == "file-token-b")
+        #expect(fixture.state.withLock { $0.fileReads } == [false, false, true])
+    }
+
+    @Test
+    func `unavailable file metadata retains the exclusion across a successful renewal`() async throws {
+        let fixture = CredentialSessionFixture()
+        fixture.state.withLock {
+            $0.observation.file = "old-file"
+            $0.fileToken = "file-token-a"
+            $0.binding = ClaudeCredentialBinding(observation: $0.observation)
+        }
+        fixture.switchTo("b")
+        let session = fixture.session()
+        _ = try await fixture.load(session)
+        fixture.state.withLock {
+            $0.observation.file = nil
+            $0.observation.fileAvailable = false
+            $0.observation.keychain = "renewed-item-b"
+            $0.token = "renewed-token-b"
+        }
+        #expect(try await fixture.load(session).credentials.accessToken == "renewed-token-b")
+        fixture.switchTo("c")
+        #expect(try await fixture.load(fixture.session()).credentials.accessToken == "token-c")
+        fixture.state.withLock {
+            $0.observation.file = "old-file"
+            $0.observation.fileAvailable = true
+            $0.observation.keychain = "next-item-c"
+            $0.token = "next-token-c"
+        }
+        #expect(try await fixture.load(fixture.session()).credentials.accessToken == "next-token-c")
+        #expect(fixture.state.withLock { $0.fileReads } == [false, false, false, false])
     }
 
     @Test

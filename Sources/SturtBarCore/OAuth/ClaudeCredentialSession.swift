@@ -85,8 +85,11 @@ actor ClaudeCredentialSession {
                 if self.binding.map({ after.sourceChanged(from: $0.observation) }) == true {
                     self.generation = UUID()
                 }
-                self.binding = ClaudeCredentialBinding(observation: after)
-                self.operations.commit(record, ClaudeCredentialBinding(observation: after))
+                let binding = ClaudeCredentialBinding(
+                    observation: after,
+                    excludedFile: self.canReadCredentialsFile(after) ? nil : self.binding?.excludedFile)
+                self.binding = binding
+                self.operations.commit(record, binding)
                 self.legacyCache = nil
                 self.pending = false
             }
@@ -102,19 +105,20 @@ actor ClaudeCredentialSession {
         allowPrompt: Bool,
         fallback: @Sendable () async throws -> ClaudeOAuthCredentialRecord) async throws -> ClaudeOAuthCredentialRecord
     {
+        let includeFile = self.canReadCredentialsFile(observation)
         do {
             if fresh {
                 self.lastFreshAttempt = self.operations.now()
                 do {
-                    let includeFile = self.binding?.excludedFile == nil || self.binding?.excludedFile != observation
-                        .file
                     let record = try self.operations.fresh(includeFile, allowPrompt)
                     if !record.credentials.isExpired || self.pending { return record }
                 } catch {
                     guard !self.pending else { throw error }
                 }
             }
-            return try await fallback()
+            return try await ClaudeOAuthCredentialsStore.$allowsCredentialsFile.withValue(includeFile) {
+                try await fallback()
+            }
         } catch let error as ClaudeOAuthCredentialsError {
             guard !observation.removed else { throw error }
             switch error {
@@ -126,6 +130,11 @@ actor ClaudeCredentialSession {
             default: throw error
             }
         }
+    }
+
+    private func canReadCredentialsFile(_ observation: ClaudeCredentialObservation) -> Bool {
+        guard let excludedFile = self.binding?.excludedFile else { return true }
+        return observation.fileAvailable && observation.file != excludedFile
     }
 
     func validateResponse(generation: UUID? = nil, observer: ClaudeCredentialEvents.Handler?) async -> Bool {
@@ -200,7 +209,7 @@ actor ClaudeCredentialSession {
             self.generation = UUID()
         }
         var excludedFile = self.binding?.excludedFile
-        if newChange, old?.file == observation.file { excludedFile = observation.file }
+        if newChange, observation.fileAvailable, old?.file == observation.file { excludedFile = observation.file }
         if let legacy = self.legacyCache, let modified = observation.fileModification, modified <= legacy.storedAt {
             excludedFile = observation.file
         }

@@ -46,6 +46,7 @@ public enum ClaudeOAuthCredentialsStore {
     #endif
     @TaskLocal static var allowBackgroundPromptBootstrap: Bool = false
     @TaskLocal static var managesFreshness = false
+    @TaskLocal static var allowsCredentialsFile = true
     // In-memory cache (nonisolated for synchronous access)
     private static let memoryCacheLock = NSLock()
     private nonisolated(unsafe) static var cachedCredentialRecord: ClaudeOAuthCredentialRecord?
@@ -190,6 +191,7 @@ public enum ClaudeOAuthCredentialsStore {
                 switch KeychainCacheStore.load(key: ClaudeOAuthCredentialsStore.cacheKey, as: CacheEntry.self) {
                 case let .found(entry):
                     if entry.binding?.invalidated == true { break }
+                    if entry.binding != nil, entry.data.isEmpty { break }
                     if let creds = try? ClaudeOAuthCredentials.parse(data: entry.data) {
                         let owner = entry.owner ?? .claudeCLI
                         let record = ClaudeOAuthCredentialRecord(
@@ -215,7 +217,7 @@ public enum ClaudeOAuthCredentialsStore {
                             return record
                         }
                     } else {
-                        KeychainCacheStore.clear(key: ClaudeOAuthCredentialsStore.cacheKey)
+                        ClaudeOAuthCredentialsStore.clearCachedToken()
                     }
                 case .invalid:
                     KeychainCacheStore.clear(key: ClaudeOAuthCredentialsStore.cacheKey)
@@ -300,7 +302,7 @@ public enum ClaudeOAuthCredentialsStore {
             {
                 // Claude Code has signed out: drop SturtBar's stale copy so the sign-in card shows.
                 ClaudeOAuthCredentialsStore.log.info("Claude Code storage is gone; clearing SturtBar's cached copy")
-                ClaudeOAuthCredentialsStore.clearCacheKeychain()
+                ClaudeOAuthCredentialsStore.clearCachedToken()
                 throw ClaudeOAuthCredentialsError.notFound
             }
             guard self.staleRecordNeedsClaudeKeychainAccess(record) else { return record }
@@ -485,7 +487,7 @@ public enum ClaudeOAuthCredentialsStore {
                 }
 
                 if shouldClearKeychainCache {
-                    ClaudeOAuthCredentialsStore.clearCacheKeychain()
+                    ClaudeOAuthCredentialsStore.clearCachedToken()
                 }
                 if shouldSaveFileFingerprint {
                     ClaudeOAuthCredentialsStore.saveFileFingerprint(current)
@@ -497,7 +499,7 @@ public enum ClaudeOAuthCredentialsStore {
         func invalidateCache() {
             self.context.run {
                 ClaudeOAuthCredentialsStore.writeMemoryCache(record: nil, timestamp: nil)
-                ClaudeOAuthCredentialsStore.clearCacheKeychain()
+                ClaudeOAuthCredentialsStore.clearCachedToken()
             }
         }
 
@@ -813,6 +815,7 @@ public enum ClaudeOAuthCredentialsStore {
     }
 
     public static func loadFromFile() throws -> Data {
+        guard self.allowsCredentialsFile else { throw ClaudeOAuthCredentialsError.notFound }
         let url = self.credentialsFileURL()
         do {
             return try Data(contentsOf: url)
@@ -1497,8 +1500,18 @@ public enum ClaudeOAuthCredentialsStore {
         KeychainCacheStore.store(key: self.cacheKey, entry: entry)
     }
 
-    private static func clearCacheKeychain() {
-        KeychainCacheStore.clear(key: self.cacheKey)
+    private static func clearCachedToken() {
+        switch KeychainCacheStore.load(key: self.cacheKey, as: CacheEntry.self) {
+        case let .found(entry) where entry.binding != nil:
+            guard !entry.data.isEmpty else { return }
+            var cleared = CacheEntry(data: Data(), storedAt: entry.storedAt, owner: entry.owner)
+            cleared.binding = entry.binding
+            KeychainCacheStore.store(key: self.cacheKey, entry: cleared)
+        case .temporarilyUnavailable:
+            return
+        default:
+            KeychainCacheStore.clear(key: self.cacheKey)
+        }
     }
 
     private static var keychainAccessAllowed: Bool {

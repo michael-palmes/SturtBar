@@ -22,8 +22,11 @@ struct ClaudeCredentialCacheTests {
                                 credentials: ClaudeOAuthCredentials.parse(data: data),
                                 source: .claudeKeychain,
                                 cacheData: data)
-                            let binding = ClaudeCredentialBinding(observation: ClaudeCredentialObservation(
-                                accountKey: account, keychain: "item-\(account)"))
+                            let binding = ClaudeCredentialBinding(
+                                observation: ClaudeCredentialObservation(
+                                    accountKey: account,
+                                    keychain: "item-\(account)"),
+                                excludedFile: "stale-file")
                             ClaudeOAuthCredentialsStore.commitRecord(record, binding: binding)
                             try ClaudeOAuthCredentialsStore.$managesFreshness.withValue(true) {
                                 let memory = try ClaudeOAuthCredentialsStore.loadForUsage(environment: [:])
@@ -37,6 +40,7 @@ struct ClaudeCredentialCacheTests {
                             }
                             #expect(ClaudeOAuthCredentialsStore.sessionCache()?.binding?.observation
                                 .accountKey == account)
+                            #expect(ClaudeOAuthCredentialsStore.sessionCache()?.binding?.excludedFile == "stale-file")
                         }
                         let invalidated = ClaudeCredentialBinding(
                             observation: ClaudeCredentialObservation(accountKey: "c", keychain: "item-c"),
